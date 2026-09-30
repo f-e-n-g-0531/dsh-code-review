@@ -9,6 +9,8 @@ export function validateEvidenceReference(value, read) {
   if (typeof value.text !== 'string' || !value.text || Buffer.byteLength(value.text) > 64 * 1024) throw new Error('Invalid evidence text');
   const actual = read({ id: value.sourceId, start: value.start, count: value.count });
   // Require the complete exact range: readers may otherwise clamp at EOF.
-  if (keys.some(k => actual[k] !== value[k])) throw new Error('Evidence does not match approved snapshot');
+  const mismatches = keys.filter(k => actual[k] !== value[k]);
+  // Only fixed schema keys; never echo source text or model-supplied values.
+  if (mismatches.length) throw new Error('Evidence does not match approved snapshot: ' + mismatches.join(', '));
   return { ...value, status: 'references-validated', causality: 'unverified' };
 }

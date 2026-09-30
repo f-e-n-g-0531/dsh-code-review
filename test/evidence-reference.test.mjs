@@ -20,6 +20,13 @@ test('forged identities hashes text and clamped EOF ranges are rejected', () => 
     assert.throws(() => validateEvidenceReference({ ...ref, ...change }, reader.read));
   }
 });
+test('mismatch diagnostics expose only fixed field names, not source or supplied values', () => {
+  const { reader, ref } = fixture();
+  assert.throws(() => validateEvidenceReference({ ...ref, snapshotId: 'private-id', hash: '0'.repeat(64), text: 'PRIVATE_SOURCE' }, reader.read), error => {
+    assert.equal(error.message, 'Evidence does not match approved snapshot: snapshotId, hash, text');
+    return true;
+  });
+});
 test('malformed references fail before reading; shared budget exhaustion propagates', () => {
   const { ref } = fixture();
   for (const change of [{ extra: true }, { count: 0 }, { count: 201 }, { start: 1.5 }, { text: '' }, { hash: 'bad' }]) {
