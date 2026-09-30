@@ -1,0 +1,35 @@
+name: Recover v0.3.0 GitHub Release
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: recover-v030
+  cancel-in-progress: false
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/v0.3.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Restore exact original artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = b375dd4278f1c6f464cc62982a1832f2acfbae62
+          gh run download 36695247320 --name release-v0.3.0-36695247320 --dir release
+          (cd release && sha256sum -c SHA256SUMS.txt)
+          echo '6a310d2eb36ba3ca44a6ebc4f05d20f482de4d8d  release/feng0531-dsh-code-review-0.3.0.tgz' | sha1sum -c -
+          node scripts/verify-published.mjs
+      - name: Complete release only after registry verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh release create v0.3.0 release/*.tgz release/SHA256SUMS.txt --verify-tag --title v0.3.0 --notes-file CHANGELOG.md
