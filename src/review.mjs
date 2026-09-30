@@ -77,6 +77,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   if (options.enableVerification === true && options.enableRetrieval !== true) throw new Error('Verification requires approved retrieval scope');
   const scope = options.enableRetrieval === true ? createRetrievalScope({ ...input, context: input.context ?? [] }, { signal }) : null;
   const report = { schemaVersion: 1, snapshotId: input.id, vcs: input.vcs, status: 'completed', files: [], findings: [], limitations: [], modelCalls: 0 };
+  report.rules = (input.rules ?? []).map(({ path, hash }) => ({ path, hash }));
   if (options.enableGrouping === true) report.grouping = buildReviewGroups(input.files, inferTestRelations(input.files));
   for (const file of input.files) {
     const state = { fileId: file.id, path: file.path, status: file.eligibility === 'reviewable' ? 'pending' : file.eligibility, reason: file.reason };
@@ -181,6 +182,7 @@ export function markdownReport(report) {
     for (const link of report.grouping.links) output.push('- ' + safe(names.get(link.from)) + ' ↔ ' + safe(names.get(link.to)) + '：' + safe(link.reasons.join(', ')) + (link.split ? '（受组上限限制，已拆组）' : ''));
     for (const file of report.files) if (file.relatedFileIds?.length) output.push('- ' + safe(file.path) + '：输入包含 ' + file.relatedFileIds.length + ' 个关联文件');
   }
+  if (report.rules?.length) output.push('', '## 项目规则', '规则仅为已批准约束数据，不扩大权限或证明缺陷。', ...report.rules.map(rule => '- ' + safe(rule.path) + ' · SHA256 ' + safe(rule.hash)));
   output.push('', '## 审查发现');
   if (!report.findings.length) output.push(report.status === 'completed' ? '在已审查范围内未发现具体问题；不代表代码已被证明正确。' : '当前没有有效问题记录，但审查存在未完成项或限制，不能视为通过。');
   for (const finding of report.findings) {

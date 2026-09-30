@@ -3,6 +3,28 @@ import assert from 'node:assert/strict';
 import { createReviewService } from '../src/service.mjs';
 const snapshot = () => ({ id: 'fixed', vcs: 'git', root: '/repo', files: [{ id: 'f', path: 'a', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] }], context: [] });
 const exec = () => ({ agent: { session: { header: { cwd: '/repo' } }, options: { provider: 'test', model: 'model' } }, signal: new AbortController().signal });
+test('rule selection is previewed and authorized before sending', async () => {
+  let approved = false, calls = 0;
+  const rule = { path: 'rules.md', hash: 'fixture-hash', text: 'RULE_TEXT' };
+  const service = createReviewService({ async *stream(r) {
+    assert.ok(approved); calls++;
+    assert.equal(JSON.parse(r.messages[0].content[0].text).rules[0].text, 'RULE_TEXT');
+    yield { type: 'text-delta', text: JSON.stringify({ findings: [], limitations: [] }) };
+    yield { type: 'finish', reason: { kind: 'stop' } };
+  } }, { capture: async (_cwd, opts) => {
+    assert.deepEqual(opts.rulePaths, ['rules.md']);
+    return { ...snapshot(), rules: [rule] };
+  }, allowModelSending: true, authorize: async ({ snapshot: s }) => {
+    assert.equal(s.rules[0].hash, rule.hash); approved = true; return true;
+  } });
+  const e = exec(), p = await service.preview({ rulePaths: ['rules.md'] }, e);
+  assert.equal(calls, 0); assert.deepEqual(p.rules, [{ path: rule.path, hash: rule.hash }]);
+  assert.match(p.notice, /规则全文/);
+  const result = await service.execute({ previewId: p.previewId, confirmed: true }, e);
+  assert.equal(calls, 1); assert.deepEqual(result.report.rules, p.rules);
+  assert.match(result.markdown, /fixture-hash/);
+  assert.ok(!result.markdown.includes('RULE_TEXT'));
+});
 const llm = { async *stream() { yield { type: 'text-delta', text: '{"findings":[],"limitations":[]}' }; yield { type: 'finish', reason: { kind: 'stop' } }; } };
 test('approved service verifies candidates without executable tools or widened scope', async () => {
   let approved = false, calls = 0;

@@ -21,8 +21,8 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
       exec = bind(exec);
       exec.signal.throwIfAborted();
       if (busy) throw new Error('Review service busy');
-      if (!args || Object.keys(args).some(k => !['selectedPaths', 'contextPaths'].includes(k))) throw new Error('Unknown preview argument');
-      for (const key of ['selectedPaths', 'contextPaths']) if (args[key] !== undefined && (!Array.isArray(args[key]) || args[key].length > 200 || args[key].some(p => typeof p !== 'string'))) throw new Error('Invalid path list');
+      if (!args || Object.keys(args).some(k => !['selectedPaths', 'contextPaths', 'rulePaths'].includes(k))) throw new Error('Unknown preview argument');
+      for (const key of ['selectedPaths', 'contextPaths', 'rulePaths']) if (args[key] !== undefined && (!Array.isArray(args[key]) || args[key].length > (key === 'rulePaths' ? 4 : 200) || args[key].some(p => typeof p !== 'string'))) throw new Error('Invalid path list');
       const current = owner(exec);
       busy = true;
       try {
@@ -34,7 +34,7 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
         previews.set(previewId, { ...current, options, snapshotId: snapshot.id, expires: now() + ttlMs });
-        return { previewId, snapshotId: snapshot.id, repositoryRoot: snapshot.root, vcs: snapshot.vcs, model: current.route, modelSendingEnabled: allowModelSending, files: snapshot.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason })), contextPaths: snapshot.context.map(c => c.path), notice: '执行会向上述模型提供方发送可审查文件两侧内容及显式上下文。模型可在该快照范围内多轮只读检索，不读取范围外文件；候选生成后会进行证据与反证复核，两阶段各最多3轮检索，共享每文件120秒和总模型调用100次预算；复核不能证明缺陷成立。请先向用户展示范围，获得确认后执行。' };
+        return { previewId, snapshotId: snapshot.id, repositoryRoot: snapshot.root, vcs: snapshot.vcs, model: current.route, modelSendingEnabled: allowModelSending, files: snapshot.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason })), contextPaths: snapshot.context.map(c => c.path), rules: (snapshot.rules ?? []).map(({ path, hash }) => ({ path, hash })), notice: '执行会向上述模型提供方发送可审查文件两侧内容、显式上下文及所选项目规则全文。模型可在该快照范围内多轮只读检索，不读取范围外文件；候选生成后会进行证据与反证复核，两阶段各最多3轮检索，共享每文件120秒和总模型调用100次预算；复核不能证明缺陷成立。请先向用户展示范围，获得确认后执行。' };
       } finally { busy = false; }
     },
     async execute(args, exec) {

@@ -7,7 +7,7 @@ export function apply(ctx, config = {}) {
     allowModelSending: config.allowModelSending === true,
     authorize: async ({ snapshot, route, exec }) => (await ctx.approval.request({
       agent: exec.agent, toolName: 'code_review_execute', signal: exec.signal,
-      reason: '只读代码审查将发送代码给 ' + route.provider + '/' + route.model + '。仓库：' + snapshot.root + '；快照：' + snapshot.id + '；文件：' + JSON.stringify(snapshot.files.filter(f => f.eligibility === 'reviewable').map(f => f.path)) + '；上下文：' + JSON.stringify(snapshot.context.map(c => c.path)),
+      reason: '只读代码审查将发送代码给 ' + route.provider + '/' + route.model + '。仓库：' + snapshot.root + '；快照：' + snapshot.id + '；文件：' + JSON.stringify(snapshot.files.filter(f => f.eligibility === 'reviewable').map(f => f.path)) + '；上下文：' + JSON.stringify(snapshot.context.map(c => c.path)) + '；项目规则（全文将发送）：' + JSON.stringify((snapshot.rules ?? []).map(({ path, hash }) => ({ path, hash }))),
     })) === 'allowed-once',
   });
   const output = {
@@ -16,7 +16,7 @@ export function apply(ctx, config = {}) {
   };
   ctx.tools.register({
     name: 'code_review_preview', description: 'Preview Git/SVN working-copy review scope and model destination without sending source to a model. Paths are repository-relative. Show the preview before execution.',
-    parameters: { type: 'object', additionalProperties: false, properties: { selectedPaths: { type: 'array', items: { type: 'string' }, maxItems: 200 }, contextPaths: { type: 'array', items: { type: 'string' }, maxItems: 20 } } },
+    parameters: { type: 'object', additionalProperties: false, properties: { selectedPaths: { type: 'array', items: { type: 'string' }, maxItems: 200 }, contextPaths: { type: 'array', items: { type: 'string' }, maxItems: 20 }, rulePaths: { type: 'array', items: { type: 'string' }, maxItems: 4 } } },
     output,
     async execute(args, exec) { const preview = await service.preview(args, exec); return { json: JSON.stringify(preview), markdown: '' }; },
   });
