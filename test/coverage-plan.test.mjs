@@ -40,6 +40,22 @@ test('group fallback plan matches actual retrieval-enabled execution', async () 
   }
   assert.equal(scope.usage().calls, 0);
 });
+test('200 ready files do not imply full coverage within 100 calls', async () => {
+  const files = Array.from({ length: 200 }, (_, i) => ({ ...file, id: 'f' + i, path: String(i).padStart(3, '0') + '.js' }));
+  const input = { id: 'large', vcs: 'git', files };
+  const plan = buildCoveragePlan(input, { ...options, instructions: REVIEW_INSTRUCTIONS });
+  assert.equal(plan.items.length, 200);
+  assert.equal(plan.minimumCalls, 200);
+  assert.ok(plan.items.every(item => item.status === 'ready'));
+  let calls = 0;
+  const report = await reviewSnapshot(input, async () => { calls++; return { findings: [], limitations: [] }; }, { maxCalls: 100 });
+  assert.equal(calls, 100);
+  assert.equal(report.coverage.completed, 100);
+  assert.equal(report.coverage.pending, 100);
+  assert.equal(report.status, 'partial');
+  assert.deepEqual(report.followup.suggestedPaths, files.slice(100).map(f => f.path));
+  assert.throws(() => buildCoveragePlan({ ...input, files: [...files, { ...file, id: 'extra', path: 'extra.js' }] }, options), /Invalid/);
+});
 test('plan rejects ambiguous snapshots and honors cancellation', () => {
   assert.throws(() => buildCoveragePlan({ id: 's', files: [file,file] }, options), /Invalid/);
   const c = new AbortController(); c.abort(new Error('cancel plan'));
