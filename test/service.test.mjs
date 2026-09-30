@@ -4,6 +4,30 @@ import { createReviewService } from '../src/service.mjs';
 const snapshot = () => ({ id: 'fixed', vcs: 'git', root: '/repo', files: [{ id: 'f', path: 'a', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] }], context: [] });
 const exec = () => ({ agent: { session: { header: { cwd: '/repo' } }, options: { provider: 'test', model: 'model' } }, signal: new AbortController().signal });
 const llm = { async *stream() { yield { type: 'text-delta', text: '{"findings":[],"limitations":[]}' }; yield { type: 'finish', reason: { kind: 'stop' } }; } };
+test('approved host stream performs retrieval round trip and propagates truncation', async () => {
+  let approved = false, calls = 0;
+  const model = { async *stream(request) {
+    assert.equal(approved, true);
+    assert.deepEqual(request.tools, []);
+    const input = JSON.parse(request.messages[0].content[0].text);
+    calls++;
+    if (calls === 2) {
+      assert.equal(input.retrieved[0].result.truncated, true);
+      assert.equal(input.retrieved[0].result.matches[0].sourceId, 's3');
+    }
+    const output = calls === 1 ? { requests: [{ kind: 'search', query: 'match', limit: 1 }] } : { findings: [], limitations: [] };
+    yield { type: 'text-delta', text: JSON.stringify(output) };
+    yield { type: 'finish', reason: { kind: 'stop' } };
+  } };
+  const service = createReviewService(model, { capture: async () => ({ ...snapshot(), context: [{ path: 'helper', text: 'match\nmatch\n' }] }), allowModelSending: true, authorize: async () => { approved = true; return true; } });
+  const e = exec(), preview = await service.preview({}, e);
+  assert.equal(calls, 0); assert.match(preview.notice, /多轮只读检索/);
+  const { report, markdown } = await service.execute({ previewId: preview.previewId, confirmed: true }, e);
+  assert.equal(report.status, 'partial'); assert.equal(report.modelCalls, 2);
+  assert.equal(report.retrievalUsage.calls, 1);
+  assert.match(markdown, /部分匹配未提供/);
+});
+
 test('preview does not call model; confirmed execution returns report', async () => {
   const service = createReviewService(llm, { capture: async () => snapshot(), allowModelSending: true, authorize: async () => true });
   const e = exec(), p = await service.preview({}, e);

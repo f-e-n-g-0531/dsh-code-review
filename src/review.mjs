@@ -89,7 +89,10 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         report.modelCalls++;
       };
       const executor = scope
-        ? request => retrievalLoop(model, request, scope, { maxInputBytes, beforeCall })
+        ? request => retrievalLoop(model, request, scope, { maxInputBytes, beforeCall, onTruncated: () => {
+          if (!state.retrievalTruncated) report.limitations.push({ fileId: file.id, text: '检索结果达到数量上限，部分匹配未提供给模型' });
+          state.retrievalTruncated = true;
+        } })
         : request => { beforeCall(); return model(request); };
       const response = await invoke(executor, { instructions: REVIEW_INSTRUCTIONS, input: payload }, timeoutMs, signal);
       if (signal?.aborted) throw signal.reason;

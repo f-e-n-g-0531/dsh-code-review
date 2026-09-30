@@ -34,7 +34,7 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
         previews.set(previewId, { ...current, options, snapshotId: snapshot.id, expires: now() + ttlMs });
-        return { previewId, snapshotId: snapshot.id, repositoryRoot: snapshot.root, vcs: snapshot.vcs, model: current.route, modelSendingEnabled: allowModelSending, files: snapshot.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason })), contextPaths: snapshot.context.map(c => c.path), notice: '执行会向上述模型提供方发送可审查文件两侧内容及显式上下文。请先向用户展示范围，获得确认后执行。' };
+        return { previewId, snapshotId: snapshot.id, repositoryRoot: snapshot.root, vcs: snapshot.vcs, model: current.route, modelSendingEnabled: allowModelSending, files: snapshot.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason })), contextPaths: snapshot.context.map(c => c.path), notice: '执行会向上述模型提供方发送可审查文件两侧内容及显式上下文。模型可在该快照范围内多轮只读检索，不读取范围外文件；每文件最多3轮检索后返回结论，总模型调用最多100次。请先向用户展示范围，获得确认后执行。' };
       } finally { busy = false; }
     },
     async execute(args, exec) {
