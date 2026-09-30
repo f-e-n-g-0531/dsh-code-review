@@ -6,10 +6,12 @@ const scope = () => ({ ...createSnapshotReader('snap', [{ id: 's1', text: 'guard
 test('verification retrieves approved evidence and preserves refutation', async () => {
   const s = scope(); let calls = 0;
   const result = await verificationLoop(async request => {
+    assert.match(request.instructions, /verdicts/);
+    assert.ok(!request.instructions.includes('最终返回findings和limitations'));
     const input = JSON.parse(request.input);
     assert.equal(input.candidates[0].candidateId, 'c1');
     if (!input.retrieved.length) return { requests: [{ kind: 'read', id: 's1', start: 1, count: 1 }] };
-    const { endOfSource, ...ref } = s.read({ id: 's1', start: 1, count: 1 });
+    const { endOfSource, ...ref } = input.retrieved[0].result;
     return { verdicts: [{ candidateId: 'c1', verdict: 'refuted', reason: 'Existing guard', evidence: [ref] }] };
   }, {}, [{ title: 'Potential failure' }], s, { beforeCall: () => calls++ });
   assert.equal(calls, 2); assert.equal(result[0].verdict, 'refuted');
