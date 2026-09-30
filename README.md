@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-首个正式版本为 0.1.0，发布状态以 npm 和 GitHub Release 为准。已通过真实临时 Git/SVN 仓库测试，以及隔离进程中的真实 DSH ToolRuntime 注册验证。尚未在当前 GUI 安装；尚未完成真实模型质量评估。
+正式发布版本为 0.1.1，发布状态以 npm 和 GitHub Release 为准。已通过真实临时 Git/SVN 仓库测试，以及隔离进程中的真实 DSH ToolRuntime 注册验证。尚未在当前 GUI 安装；尚未完成真实模型质量评估。
 
 ## 环境
 

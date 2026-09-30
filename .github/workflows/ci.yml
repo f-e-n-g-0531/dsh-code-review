@@ -92,7 +92,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$NODE_AUTH_TOKEN" || { echo 'Missing NPM_AUTOMATION_TOKEN'; exit 1; }
-          npm publish release/*.tgz --access public --registry https://registry.npmjs.org
+          npm publish ./release/*.tgz --access public --registry https://registry.npmjs.org
       - name: Verify registry artifact
         run: node scripts/verify-published.mjs
       - name: Publish GitHub Release
