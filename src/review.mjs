@@ -185,6 +185,13 @@ export function markdownReport(report) {
     const a = finding.anchor;
     const location = a.kind === 'line' ? a.side + ':' + a.start + '-' + a.end : a.kind === 'property' ? '属性 ' + a.name : '文件级';
     output.push('', '### [' + finding.severity + '] ' + safe(finding.title), safe(finding.path) + ' · ' + safe(location));
+    const verification = finding.verification;
+    if (verification) {
+      const label = verification.status !== 'completed' ? '未完成' : ({ supported: '模型复核支持', refuted: '模型复核反驳（保留候选供追溯）', uncertain: '不确定' }[verification.verdict] ?? '未知');
+      output.push('- 复核状态：' + label + '；不是事实或因果证明');
+      if (verification.reason) output.push('- 复核理由：' + safe(verification.reason));
+      for (const ref of verification.evidence ?? []) output.push('- 复核证据：' + safe(ref.sourceId) + ':' + ref.start + '（' + ref.count + '行） · SHA256 ' + safe(ref.hash) + ' · ' + safe(ref.text));
+    }
     const attribution = finding.attribution;
     output.push('- 归因状态：' + (attribution?.status === 'references-validated' ? '变更引用已校验；因果解释未经独立验证' : '缺少变更归因'));
     if (attribution?.status === 'references-validated') {
