@@ -18,6 +18,23 @@ async function fixture(t) {
   const put = (name, value) => writeFile(path.join(root, name), value);
   return { root, svn, put, repository: path.join(base, 'repo') };
 }
+test('SVN explicit rules change snapshot identity without modifying working state', async t => {
+  const { root, svn, put } = await fixture(t);
+  await put('rules.md', 'Use bounded resources');
+  await svn('add', '--', 'rules.md@'); await svn('commit', '-m', 'rules');
+  const before = await svn('status', '--xml');
+  const a = await captureSnapshot(root, { rulePaths: ['rules.md'] });
+  assert.equal(a.rules[0].text, 'Use bounded resources');
+  assert.deepEqual(await svn('status', '--xml'), before);
+  await put('rules.md', 'Check cleanup');
+  const modified = await svn('status', '--xml');
+  const b = await captureSnapshot(root, { rulePaths: ['rules.md'] });
+  assert.notEqual(a.id, b.id);
+  assert.notEqual(a.rules[0].hash, b.rules[0].hash);
+  assert.deepEqual(await svn('status', '--xml'), modified);
+  await svn('delete', '--force', '--', 'rules.md@');
+  await assert.rejects(captureSnapshot(root, { rulePaths: ['rules.md'] }), /deleted/);
+});
 test('SVN captures BASE text, deletion, additions and directory properties without changes', async t => {
   const { root, svn, put } = await fixture(t);
   await put('中文 @ [].js', 'old\n'); await put('deleted', 'delete me'); await mkdir(path.join(root, 'dir'));
