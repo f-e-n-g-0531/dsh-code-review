@@ -85,6 +85,13 @@ jobs:
           node --input-type=module -e "const p = await import('@feng0531/dsh-code-review'); if (typeof p.apply !== 'function') throw new Error('Invalid entry')"
           cd "$GITHUB_WORKSPACE/release"
           sha256sum *.tgz > SHA256SUMS.txt
+      - name: Preserve exact release artifact before publishing
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ github.ref_name }}-${{ github.run_id }}
+          path: release/
+          if-no-files-found: error
+          retention-days: 30
       - name: Publish npm
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTOMATION_TOKEN }}

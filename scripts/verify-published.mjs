@@ -1,5 +1,6 @@
 import { readFile, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
+import { waitForRegistry } from './registry-wait.mjs';
 const manifest = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const dir = new URL('../release/', import.meta.url);
 const files = (await readdir(dir)).filter(name => name.endsWith('.tgz'));
@@ -7,8 +8,5 @@ if (files.length !== 1) throw new Error('Expected exactly one release package');
 const bytes = await readFile(new URL(files[0], dir));
 const integrity = 'sha512-' + createHash('sha512').update(bytes).digest('base64');
 const url = 'https://registry.npmjs.org/' + encodeURIComponent(manifest.name) + '/' + encodeURIComponent(manifest.version);
-const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
-if (!response.ok) throw new Error('Cannot verify npm version: HTTP ' + response.status);
-const published = await response.json();
-if (published.dist?.integrity !== integrity) throw new Error('npm artifact differs from GitHub release package');
+await waitForRegistry(url, integrity);
 console.log('npm version and artifact integrity verified');
