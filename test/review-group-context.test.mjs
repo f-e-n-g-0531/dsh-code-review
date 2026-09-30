@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewSnapshot, markdownReport } from '../src/review.mjs';
+test('relation Markdown escapes source paths and relation reasons', () => {
+  const text = markdownReport({ status: 'completed', snapshotId: 's', files: [{ fileId: 'a', path: '<img>.ts', status: 'completed' }, { fileId: 'b', path: '[click](bad).ts', status: 'completed' }], findings: [], limitations: [], grouping: { links: [{ from: 'a', to: 'b', reasons: ['<script>'], split: true }] } });
+  assert.ok(!text.includes('<img>')); assert.ok(!text.includes('<script>'));
+  assert.match(text, /&lt;script&gt;/); assert.match(text, /已拆组/);
+});
+
 test('cross-file regression fixture passes related evidence and validates only primary anchor', async () => {
   const s = snapshot();
   s.files[0].left.text = 'export const timeout = 1000;';

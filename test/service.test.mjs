@@ -4,6 +4,27 @@ import { createReviewService } from '../src/service.mjs';
 const snapshot = () => ({ id: 'fixed', vcs: 'git', root: '/repo', files: [{ id: 'f', path: 'a', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] }], context: [] });
 const exec = () => ({ agent: { session: { header: { cwd: '/repo' } }, options: { provider: 'test', model: 'model' } }, signal: new AbortController().signal });
 const llm = { async *stream() { yield { type: 'text-delta', text: '{"findings":[],"limitations":[]}' }; yield { type: 'finish', reason: { kind: 'stop' } }; } };
+test('approved service supplies both related sides once per primary without excluded content', async () => {
+  const source = snapshot();
+  source.files = ['src/a.ts', 'test/a.test.ts'].map((path, i) => ({ ...source.files[0], id: 'f' + i, path }));
+  source.files.push({ id: 'secret', path: 'secret.ts', eligibility: 'excluded', left: { text: 'SECRET' }, right: { text: 'SECRET' } });
+  let approved = false; const seen = [];
+  const service = createReviewService({ async *stream(r) {
+    assert.ok(approved); assert.deepEqual(r.tools, []);
+    const p = JSON.parse(r.messages[0].content[0].text);
+    seen.push(p.file.id); assert.equal(p.relatedFiles.length, 1);
+    assert.equal(p.relatedFiles[0].left.text, 'old');
+    assert.ok(!r.messages[0].content[0].text.includes('SECRET'));
+    yield { type: 'text-delta', text: JSON.stringify({ findings: [], limitations: [] }) };
+    yield { type: 'finish', reason: { kind: 'stop' } };
+  } }, { capture: async () => source, allowModelSending: true, authorize: async () => { approved = true; return true; } });
+  const e = exec(), p = await service.preview({}, e);
+  assert.equal(seen.length, 0);
+  const { report } = await service.execute({ previewId: p.previewId, confirmed: true }, e);
+  assert.deepEqual(seen, ['f0', 'f1']); assert.equal(report.modelCalls, 2);
+  assert.equal(report.coverage.excluded, 1); assert.equal(report.status, 'completed');
+});
+
 test('approved host stream performs retrieval round trip and propagates truncation', async () => {
   let approved = false, calls = 0;
   const model = { async *stream(request) {
