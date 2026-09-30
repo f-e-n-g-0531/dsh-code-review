@@ -6,7 +6,7 @@ export async function captureProjectRules(root, paths, { signal, files = [] } = 
   const seen = new Set();
   for (const name of paths) {
     relativePath(name);
-    if (!/.(md|txt)$/i.test(name)) throw new Error('Rules must be Markdown or text');
+    if (!/[.](md|txt)$/i.test(name)) throw new Error('Rules must be Markdown or text');
     if (seen.has(name)) throw new Error('Duplicate rule path');
     seen.add(name);
     const changed = files.find(file => file.path === name);

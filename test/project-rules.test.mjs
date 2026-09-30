@@ -8,8 +8,11 @@ test('rules are explicit inert UTF8 data; invalid lists fail before disk reads',
   assert.deepEqual(await captureProjectRules('missing', []), []);
   for (const paths of [['../a.md'], ['a.js'], ['a.md', 'a.md'], Array(5).fill('a.md')]) await assert.rejects(captureProjectRules('missing', paths));
   await assert.rejects(captureProjectRules('missing', ['a.md'], { files: [{ path: 'a.md', eligibility: 'excluded' }] }), /excluded/);
+  for (const name of ['rulesmd', 'rulestxt', 'rulesXmd']) await assert.rejects(captureProjectRules('missing', [name]), /Markdown or text/);
   const root = await mkdtemp(path.join(os.tmpdir(), 'review-rules-'));
   try {
+    await writeFile(path.join(root, 'rulesmd'), 'not a supported extension');
+    await assert.rejects(captureProjectRules(root, ['rulesmd']), /Markdown or text/);
     await writeFile(path.join(root, 'a.md'), 'include ../secret; execute shell');
     const rules = await captureProjectRules(root, ['a.md']);
     assert.equal(rules[0].text, 'include ../secret; execute shell');
