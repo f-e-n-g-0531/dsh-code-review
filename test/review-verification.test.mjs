@@ -4,6 +4,27 @@ import { reviewSnapshot, markdownReport } from '../src/review.mjs';
 const snapshot = { id: 'snap', vcs: 'git', files: [{ id: 'f1', path: 'a.js', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] }] };
 const generated = { findings: [{ fileId: 'f1', severity: 'high', title: 'bug', evidence: 'e', trigger: 't', impact: 'i', suggestion: 's', anchor: { kind: 'file' } }], limitations: [] };
 const options = { enableRetrieval: true, enableVerification: true };
+test('forged verification evidence preserves candidates without accepting a verdict', async () => {
+  let calls = 0;
+  const report = await reviewSnapshot(snapshot, async () => ++calls === 1 ? generated : { verdicts: [{ candidateId: 'c1', verdict: 'supported', reason: 'claimed proof', evidence: [{ snapshotId: 'snap', sourceId: 's2', hash: '0'.repeat(64), start: 1, count: 1, text: 'new' }] }] }, options);
+  assert.equal(report.findings.length, 1);
+  assert.equal(report.findings[0].verification.status, 'incomplete');
+  assert.equal(report.findings[0].verification.verdict, undefined);
+  assert.equal(report.status, 'partial');
+  assert.ok(report.limitations.some(l => l.text.includes('does not match')));
+});
+test('verification cannot retrieve excluded source content', async () => {
+  const input = structuredClone(snapshot);
+  input.files.push({ id: 'secret', path: 'secret', eligibility: 'excluded', left: { text: 'SECRET' }, right: { text: 'SECRET' } });
+  let calls = 0;
+  const report = await reviewSnapshot(input, async request => {
+    assert.ok(!request.input.includes('SECRET'));
+    return ++calls === 1 ? generated : { requests: [{ kind: 'read', id: 's3', start: 1, count: 1 }] };
+  }, options);
+  assert.equal(calls, 2);
+  assert.equal(report.findings[0].verification.status, 'incomplete');
+  assert.equal(report.retrievalUsage.calls, 0);
+});
 test('refuted candidates remain visible and untrusted evidence is escaped', async () => {
   const report = await reviewSnapshot(snapshot, async () => generated);
   report.findings[0].verification = { status: 'completed', verdict: 'refuted', reason: '<script>bad</script>', evidence: [{ sourceId: '<s>', start: 1, count: 1, hash: 'abc', text: '[click](javascript:bad)' }] };
