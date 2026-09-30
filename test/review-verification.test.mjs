@@ -4,6 +4,17 @@ import { reviewSnapshot, markdownReport } from '../src/review.mjs';
 const snapshot = { id: 'snap', vcs: 'git', files: [{ id: 'f1', path: 'a.js', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] }] };
 const generated = { findings: [{ fileId: 'f1', severity: 'high', title: 'bug', evidence: 'e', trigger: 't', impact: 'i', suggestion: 's', anchor: { kind: 'file' } }], limitations: [] };
 const options = { enableRetrieval: true, enableVerification: true };
+test('rule report escapes untrusted paths without duplicating rule bodies', async () => {
+  const input = structuredClone(snapshot);
+  input.rules = [{ path: '<img src=x onerror=alert(1)>.md', hash: 'a'.repeat(64), text: 'PRIVATE_RULE_BODY' }];
+  const report = await reviewSnapshot(input, async () => ({ findings: [], limitations: [] }), options);
+  assert.deepEqual(report.rules, [{ path: input.rules[0].path, hash: input.rules[0].hash }]);
+  const markdown = markdownReport(report);
+  assert.ok(!markdown.includes('<img'));
+  assert.ok(!markdown.includes('PRIVATE_RULE_BODY'));
+  assert.ok(!JSON.stringify(report).includes('PRIVATE_RULE_BODY'));
+  assert.ok(markdown.includes('a'.repeat(64)));
+});
 test('both phases use the same immutable rules data within input budget', async () => {
   const input = structuredClone(snapshot);
   input.rules = [{ path: 'rules.md', text: 'Do not leak resources', hash: 'fixture' }];
