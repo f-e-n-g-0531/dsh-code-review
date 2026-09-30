@@ -55,6 +55,7 @@ export async function captureSvn(cwd, options = {}) {
         if (node['wc-info']?.['copy-from-url']) throw new Error('Copied node baseline is not supported');
       }
       item.kind = kind;
+      item.rightExists = status !== 'deleted';
       const leftProps = hasBase ? await properties(root, name, true, options) : {};
       const rightProps = status === 'deleted' || status === 'unversioned' ? {} : await properties(root, name, false, options);
       if ('svn:special' in leftProps || 'svn:special' in rightProps) throw new Error('SVN special nodes are excluded');

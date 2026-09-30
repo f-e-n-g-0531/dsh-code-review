@@ -6,6 +6,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { checked } from '../src/process.mjs';
 import { captureSvn, xml } from '../src/svn.mjs';
+import { captureSnapshot } from '../src/snapshot.mjs';
 async function fixture(t) {
   const base = await mkdtemp(path.join(os.tmpdir(), 'dsh-review-svn-'));
   t.after(async () => { assert.ok(path.basename(base).startsWith('dsh-review-svn-')); await rm(base, { recursive: true, force: true }); });
@@ -29,6 +30,8 @@ test('SVN captures BASE text, deletion, additions and directory properties witho
   assert.equal(changed.eligibility, 'reviewable', changed.reason);
   assert.equal(changed.left.text, 'old\n'); assert.equal(changed.right.text, 'new\n');
   assert.equal(result.files.find(f => f.path === 'deleted').right.text, '');
+  assert.equal(result.files.find(f => f.path === 'deleted').rightExists, false);
+  await assert.rejects(captureSnapshot(root, { contextPaths: ['deleted'] }), /Deleted path/);
   assert.equal(result.files.find(f => f.path === '-added').right.text, 'added');
   assert.deepEqual(result.files.find(f => f.path === 'dir').properties, [{ name: 'review:test', old: null, new: 'changed' }]);
   assert.equal(result.files.find(f => f.path === 'untracked').eligibility, 'excluded');
