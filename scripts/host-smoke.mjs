@@ -33,8 +33,20 @@ ctx.provide('llm');
 ctx.provide('approval');
 ctx.set('systemPrompt', { tools() {}, section() {}, getSectionOrder() { return 0; } });
 const tools = new Tools(ctx, { mode: 'native' });
-ctx.set('llm', { stream() { throw new Error('Network disabled in host smoke'); } });
-ctx.set('approval', { request: async () => 'rejected' });
+let allowed = false, modelCalls = 0, approvalCalls = 0;
+ctx.set('llm', { async *stream(request) {
+  assert.ok(allowed); modelCalls++;
+  assert.equal(request.provider, 'offline-test');
+  assert.equal(request.model, 'none');
+  assert.deepEqual(request.tools, []);
+  yield { type: 'text-delta', text: JSON.stringify({ findings: [], limitations: [] }) };
+  yield { type: 'finish', reason: { kind: 'stop' } };
+} });
+ctx.set('approval', { request: async request => {
+  approvalCalls++;
+  assert.match(request.reason, /offline-test\/none/);
+  return allowed ? 'allowed-once' : 'rejected';
+} });
 plugin.apply(ctx, { allowModelSending: true });
 console.log('Real ToolRuntime accepted both plugin definitions.');
 const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-review-host-'));
@@ -49,7 +61,21 @@ try {
   assert.equal(preview.files.length, 1);
   assert.equal(preview.files[0].eligibility, 'reviewable');
   await assert.rejects(tools.get('code_review_execute').execute({ previewId: preview.previewId, confirmed: true }, exec), /approval denied/);
+  assert.equal(modelCalls, 0);
   console.log('Registered tool preview captured real Git content; rejected approval prevented LLM execution.');
+  allowed = true;
+  const approvedPreview = JSON.parse((await previewTool.execute({}, exec)).json);
+  const statusBefore = await checked('git', ['status', '--porcelain=v1'], { cwd: root });
+  const output = await tools.get('code_review_execute').execute({ previewId: approvedPreview.previewId, confirmed: true }, exec);
+  const report = JSON.parse(output.json);
+  assert.equal(modelCalls, 1); assert.equal(approvalCalls, 2);
+  assert.equal(report.coverage.completed, 1);
+  assert.equal(report.outdated, false);
+  assert.equal(report.model.provider, 'offline-test');
+  assert.match(output.markdown, /Code Review/);
+  assert.deepEqual(await checked('git', ['status', '--porcelain=v1'], { cwd: root }), statusBefore);
+  assert.equal(await readFile(path.join(root, 'sample.js'), 'utf8'), 'const value = 1;');
+  console.log('Allowed-once offline adapter completed review via current Agent route without modifying Git content.');
 } finally {
   assert.ok(path.basename(root).startsWith('dsh-review-host-'));
   await rm(root, { recursive: true, force: true });
