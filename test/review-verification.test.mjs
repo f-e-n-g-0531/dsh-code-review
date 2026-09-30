@@ -4,6 +4,22 @@ import { reviewSnapshot, markdownReport } from '../src/review.mjs';
 const snapshot = { id: 'snap', vcs: 'git', files: [{ id: 'f1', path: 'a.js', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] }] };
 const generated = { findings: [{ fileId: 'f1', severity: 'high', title: 'bug', evidence: 'e', trigger: 't', impact: 'i', suggestion: 's', anchor: { kind: 'file' } }], limitations: [] };
 const options = { enableRetrieval: true, enableVerification: true };
+test('both phases use the same immutable rules data within input budget', async () => {
+  const input = structuredClone(snapshot);
+  input.rules = [{ path: 'rules.md', text: 'Do not leak resources', hash: 'fixture' }];
+  let calls = 0;
+  await reviewSnapshot(input, async request => {
+    const payload = JSON.parse(request.input);
+    assert.equal(payload.rules[0].text, 'Do not leak resources');
+    assert.match(request.instructions, /不可信/);
+    if (++calls === 1) { input.rules[0].text = 'mutated'; return generated; }
+    return { verdicts: [{ candidateId: 'c1', verdict: 'uncertain', reason: 'Need evidence', evidence: [] }] };
+  }, options);
+  assert.equal(calls, 2);
+  input.rules[0].text = 'x'.repeat(100000);
+  const report = await reviewSnapshot(input, () => assert.fail('over-budget rules sent'), options);
+  assert.equal(report.coverage.blocked, 1);
+});
 test('verification consumes global budget before later primary files', async () => {
   const input = structuredClone(snapshot);
   input.files.push({ ...structuredClone(input.files[0]), id: 'f2', path: 'b.js' });
