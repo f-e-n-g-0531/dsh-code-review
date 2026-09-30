@@ -1,5 +1,15 @@
 import { createHash } from 'node:crypto';
 
+function* lineRanges(text) {
+  let start = 0, line = 1;
+  while (start < text.length) {
+    const newline = text.indexOf('\n', start);
+    const end = newline < 0 ? text.length : newline + 1;
+    yield { start, end, line: line++ };
+    start = end;
+  }
+}
+
 // This capability reads only caller-approved text entries, never the filesystem.
 export function createSnapshotReader(snapshotId, entries, { maxBytes = 4 * 1024 * 1024, maxCalls = 50, maxOutputBytes = 256 * 1024, signal } = {}) {
   if (typeof snapshotId !== 'string' || !snapshotId || snapshotId.length > 200) throw new Error('Invalid snapshot identity');
@@ -32,11 +42,10 @@ export function createSnapshotReader(snapshotId, entries, { maxBytes = 4 * 1024 
       const matches = [];
       for (const [id, source] of sources) {
         signal?.throwIfAborted();
-        const lines = source.text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
-        for (let i = 0; i < lines.length; i++) {
-          if (!lines[i].includes(query)) continue;
+        for (const range of lineRanges(source.text)) {
+          if (!source.text.slice(range.start, range.end).includes(query)) continue;
           if (matches.length === limit) return finish({ snapshotId, matches, truncated: true });
-          matches.push({ sourceId: id, hash: source.hash, line: i + 1 });
+          matches.push({ sourceId: id, hash: source.hash, line: range.line });
         }
       }
       return finish({ snapshotId, matches, truncated: false });
@@ -46,12 +55,18 @@ export function createSnapshotReader(snapshotId, entries, { maxBytes = 4 * 1024 
       if (!sources.has(id)) throw new Error('Source not authorized');
       if (!Number.isSafeInteger(start) || start < 1 || !Number.isSafeInteger(count) || count < 1 || count > 200) throw new Error('Invalid line range');
       const source = sources.get(id);
-      const lines = source.text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
-      if (start > lines.length) throw new Error('Line range outside source');
-      const selected = lines.slice(start - 1, start - 1 + count);
-      const text = selected.join('');
+      let beginOffset = -1, endOffset = 0, selectedCount = 0;
+      for (const range of lineRanges(source.text)) {
+        if (range.line < start) continue;
+        if (beginOffset < 0) beginOffset = range.start;
+        endOffset = range.end;
+        selectedCount++;
+        if (selectedCount === count) break;
+      }
+      if (beginOffset < 0) throw new Error('Line range outside source');
+      const text = source.text.slice(beginOffset, endOffset);
       if (Buffer.byteLength(text) > 64 * 1024) throw new Error('Reader output budget exceeded');
-      return finish({ snapshotId, sourceId: id, hash: source.hash, start, count: selected.length, text, endOfSource: start - 1 + selected.length === lines.length });
+      return finish({ snapshotId, sourceId: id, hash: source.hash, start, count: selectedCount, text, endOfSource: endOffset === source.text.length });
     },
   });
 }

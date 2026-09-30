@@ -1,6 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSnapshotReader } from '../src/snapshot-reader.mjs';
+test('many short lines stream without inventing a terminal empty line', () => {
+  const reader = createSnapshotReader('s', [{ id: 'f', text: '\n'.repeat(100000) + 'needle' }]);
+  assert.equal(reader.search({ query: 'needle' }).matches[0].line, 100001);
+  assert.equal(reader.read({ id: 'f', start: 100001, count: 1 }).text, 'needle');
+  const end = createSnapshotReader('s', [{ id: 'f', text: 'x\n' }]);
+  assert.throws(() => end.read({ id: 'f', start: 2, count: 1 }), /outside/);
+  assert.equal(end.search({ query: 'x', limit: 1 }).truncated, false);
+});
+
 test('literal search shares call and serialized output budgets with reads', () => {
   const reader = createSnapshotReader('s', [{ id: 'f', text: 'a.*\na.*\n' }], { maxCalls: 2 });
   const result = reader.search({ query: '.*', limit: 1 });
