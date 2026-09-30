@@ -19,6 +19,10 @@ test('explicit context is captured, hashed and constrained', async t => {
   await assert.rejects(captureSnapshot(root, { maxSnapshotBytes: 10 }), /size limit/);
   await assert.rejects(captureSnapshot(root, { maxSnapshotBytes: NaN }), /Invalid snapshot limit/);
   await writeFile(path.join(root, 'rules.md'), 'Check resource ownership');
+  await assert.rejects(captureSnapshot(root, { rulePaths: ['rules.md'] }), /excluded/);
+  const selectedRule = await captureSnapshot(root, { rulePaths: ['rules.md'], selectedPaths: ['a.js', 'rules.md'] });
+  assert.equal(selectedRule.rules[0].text, 'Check resource ownership');
+  assert.equal(selectedRule.files.find(f => f.path === 'rules.md').eligibility, 'reviewable');
   await git('add', 'rules.md'); await git('commit', '-qm', 'rules fixture');
   const withRules = await captureSnapshot(root, { rulePaths: ['rules.md'] });
   assert.equal(withRules.rules[0].text, 'Check resource ownership');
