@@ -3,6 +3,8 @@
 来源：本项目历史，不是外部独立基准，也不是盲测。许可证沿用仓库LICENSE。未证明已发布版本受影响。
 
 - 引入提交：0d4fceead5837ff05573a5767c22c6feb1f6d81c
+- 引入父提交：8598129d7393943f7bc1e0d6a5fa4b634e20fb47；该父提交无src/project-rules.mjs，引入是新增整个模块（不是改坏原有谓词）。
+- 引入模块blob与此处before完全相同：ecf5a697650e03622fe645026bc75ccd996e6cc9。可用“左侧不存在→完整before模块”重放引入方向；属于选定模块重放，不是整个历史提交端到端重放，也不把修复倒放当引入。
 - 修复前提交：2b317cacbe6509888f0766e2b8457e692835ff7b
 - 修复提交：https://github.com/f-e-n-g-0531/dsh-code-review/commit/20798b21ce5b880865dc97308bb4ed14b36b1f78
 - 位置：src/project-rules.mjs，captureProjectRules扩展名检查。
