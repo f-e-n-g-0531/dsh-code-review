@@ -19,6 +19,13 @@ test('DSH bridge refuses tool execution, truncated and incomplete responses', as
     await assert.rejects(model(request));
   }
 });
+test('DSH bridge closes iterator on invalid output', async () => {
+  let closed = false;
+  const model = createDshModel({ async *stream() { try { yield { type: 'tool-call-delta' }; } finally { closed = true; } } }, route);
+  await assert.rejects(model(request), /tool call/);
+  assert.equal(closed, true);
+});
+
 test('DSH bridge bounds reasoning as well as visible output', async () => {
   const model = createDshModel({ async *stream() { yield { type: 'reasoning-delta', text: '12345' }; } }, route, { maxOutputBytes: 4 });
   await assert.rejects(model(request), /limit/);

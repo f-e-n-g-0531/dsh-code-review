@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import * as plugin from '../index.mjs';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import { checked } from '../src/process.mjs';
 const host = process.argv[2];
 if (!host) throw new Error('Pass the installed DSH checkout path');
 const load = name => import(pathToFileURL(path.join(host, 'node_modules/@deepseek-ai', name, 'lib/index.js')).href);
@@ -18,5 +21,22 @@ ctx.set('systemPrompt', { tools() {}, section() {}, getSectionOrder() { return 0
 const tools = new Tools(ctx, { mode: 'native' });
 ctx.set('llm', { stream() { throw new Error('Network disabled in host smoke'); } });
 ctx.set('approval', { request: async () => 'rejected' });
-plugin.apply(ctx, { allowModelSending: false });
+plugin.apply(ctx, { allowModelSending: true });
 console.log('Real ToolRuntime accepted both plugin definitions.');
+const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-review-host-'));
+try {
+  await checked('git', ['init', '-q'], { cwd: root });
+  await writeFile(path.join(root, 'sample.js'), 'const value = 1;');
+  await checked('git', ['add', 'sample.js'], { cwd: root });
+  const exec = { agent: { session: { header: { cwd: root } }, options: { provider: 'offline-test', model: 'none' } }, signal: new AbortController().signal };
+  const previewTool = tools.get('code_review_preview');
+  assert.ok(previewTool);
+  const preview = JSON.parse((await previewTool.execute({}, exec)).json);
+  assert.equal(preview.files.length, 1);
+  assert.equal(preview.files[0].eligibility, 'reviewable');
+  await assert.rejects(tools.get('code_review_execute').execute({ previewId: preview.previewId, confirmed: true }, exec), /approval denied/);
+  console.log('Registered tool preview captured real Git content; rejected approval prevented LLM execution.');
+} finally {
+  assert.ok(path.basename(root).startsWith('dsh-review-host-'));
+  await rm(root, { recursive: true, force: true });
+}

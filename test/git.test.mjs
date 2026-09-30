@@ -83,6 +83,29 @@ test('UTF16 supports BOM; invalid UTF8 is not silently replaced', () => {
   assert.throws(() => decode(Buffer.from([0xff])));
 });
 
+test('unmerged conflict is blocked without changing index', async t => {
+  const { root, git, put, commit } = await fixture(t);
+  await put('conflict', 'base'); await commit();
+  await git('checkout', '-qb', 'other'); await put('conflict', 'other'); await commit();
+  await git('checkout', '-qb', 'current', 'HEAD~1'); await put('conflict', 'current'); await commit();
+  await assert.rejects(git('merge', 'other'), /failed/);
+  const index = await readFile(path.join(root, '.git', 'index'));
+  const result = await captureGit(root);
+  assert.equal(result.files[0].eligibility, 'blocked'); assert.match(result.files[0].reason, /conflict/);
+  assert.deepEqual(await readFile(path.join(root, '.git', 'index')), index);
+});
+
+test('gitlink baseline is blocked instead of opening submodule content', async t => {
+  const { root, git, put, commit } = await fixture(t);
+  await put('base', 'base'); await commit();
+  const oid = (await git('rev-parse', 'HEAD')).toString().trim();
+  await git('update-index', '--add', '--cacheinfo', '160000,' + oid + ',module');
+  await git('commit', '-qm', 'gitlink');
+  await git('update-index', '--force-remove', 'module');
+  const result = await captureGit(root);
+  assert.equal(result.files[0].eligibility, 'blocked'); assert.match(result.files[0].reason, /Submodule/);
+});
+
 test('junction escape is rejected', async t => {
   const { root } = await fixture(t);
   const outside = await mkdtemp(path.join(os.tmpdir(), 'dsh-review-outside-'));

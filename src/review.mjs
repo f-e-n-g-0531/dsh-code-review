@@ -5,8 +5,9 @@ const nonempty = value => typeof value === 'string' && value.trim().length > 0 &
 const lines = text => text.replaceAll('\r\n', '\n').split('\n');
 
 export function validateFindings(response, file) {
+  if (Buffer.byteLength(typeof response === 'string' ? response : JSON.stringify(response) ?? '') > 128 * 1024) throw new Error('Review response too large');
   if (typeof response === 'string') response = JSON.parse(response);
-  if (!response || !Array.isArray(response.findings) || response.findings.length > 50 || !Array.isArray(response.limitations) || response.limitations.some(s => !nonempty(s))) throw new Error('Invalid review response');
+  if (!response || !Array.isArray(response.findings) || response.findings.length > 50 || !Array.isArray(response.limitations) || response.limitations.length > 50 || response.limitations.some(s => !nonempty(s))) throw new Error('Invalid review response');
   const findings = response.findings.map(raw => {
     if (!raw || raw.fileId !== file.id || !['critical', 'high', 'medium', 'low'].includes(raw.severity)) throw new Error('Invalid finding identity or severity');
     for (const key of ['title', 'evidence', 'trigger', 'impact', 'suggestion']) if (!nonempty(raw[key])) throw new Error('Missing finding field: ' + key);
@@ -36,17 +37,15 @@ async function invoke(model, request, timeoutMs, parentSignal) {
   parentSignal?.addEventListener('abort', abort, { once: true });
   if (parentSignal?.aborted) abort();
   const timer = setTimeout(() => controller.abort(new Error('Model timeout')), timeoutMs);
-  let listener;
   try {
     controller.signal.throwIfAborted();
-    return await Promise.race([
-      Promise.resolve().then(() => model({ ...request, signal: controller.signal })),
-      new Promise((_, reject) => { listener = () => reject(controller.signal.reason); controller.signal.addEventListener('abort', listener, { once: true }); }),
-    ]);
+    // Executors must honor cancellation; never release ownership before cleanup settles.
+    const result = await model({ ...request, signal: controller.signal });
+    controller.signal.throwIfAborted();
+    return result;
   } finally {
     clearTimeout(timer);
     parentSignal?.removeEventListener('abort', abort);
-    if (listener) controller.signal.removeEventListener('abort', listener);
   }
 }
 
@@ -56,6 +55,13 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   for (const n of [maxInputBytes, maxCalls, timeoutMs]) if (!Number.isSafeInteger(n) || n < 1) throw new Error('Invalid review limit');
   // Clone once: callers cannot change the input while a model call is pending.
   const input = structuredClone(snapshot);
+  if (!input || !nonempty(input.id) || !['git', 'svn'].includes(input.vcs) || !Array.isArray(input.files) || input.files.length > 200) throw new Error('Invalid review snapshot');
+  const identities = new Set();
+  for (const file of input.files) {
+    if (!file || !nonempty(file.id) || identities.has(file.id) || !nonempty(file.path) || !['reviewable', 'excluded', 'blocked'].includes(file.eligibility)) throw new Error('Invalid or duplicate snapshot file');
+    identities.add(file.id);
+    if (file.eligibility === 'reviewable' && (typeof file.left?.text !== 'string' || typeof file.right?.text !== 'string' || !Array.isArray(file.properties))) throw new Error('Missing review content');
+  }
   const report = { schemaVersion: 1, snapshotId: input.id, vcs: input.vcs, status: 'completed', files: [], findings: [], limitations: [], modelCalls: 0 };
   for (const file of input.files) {
     const state = { fileId: file.id, path: file.path, status: file.eligibility === 'reviewable' ? 'pending' : file.eligibility, reason: file.reason };
