@@ -21,6 +21,7 @@ export async function detectVcs(cwd) {
 }
 export async function captureSnapshot(cwd, options = {}) {
   const { contextPaths = [], maxContextFiles = 20, maxSnapshotBytes = 4 * 1024 * 1024 } = options;
+  for (const value of [maxContextFiles, maxSnapshotBytes]) if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid snapshot limit');
   if (!Array.isArray(contextPaths) || contextPaths.length > maxContextFiles) throw new Error('Context file limit exceeded');
   for (const name of contextPaths) relativePath(name);
   const type = await detectVcs(cwd);
@@ -31,6 +32,7 @@ export async function captureSnapshot(cwd, options = {}) {
     const changed = snapshot.files.find(f => f.path === name);
     if (changed) {
       if (changed.eligibility !== 'reviewable') throw new Error('Context path is an excluded or blocked change');
+      if (changed.rightExists === false) throw new Error('Deleted path cannot be working context');
       context.push({ path: name, ...changed.right });
     } else context.push({ path: name, ...await readLocal(snapshot.root, name, options) });
   }

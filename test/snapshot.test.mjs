@@ -17,4 +17,7 @@ test('explicit context is captured, hashed and constrained', async t => {
   assert.equal(snapshot.id, (await captureSnapshot(root, { contextPaths: ['context.js'] })).id);
   await assert.rejects(captureSnapshot(root, { contextPaths: ['../secret'] }), /Unsafe/);
   await assert.rejects(captureSnapshot(root, { maxSnapshotBytes: 10 }), /size limit/);
+  await assert.rejects(captureSnapshot(root, { maxSnapshotBytes: NaN }), /Invalid snapshot limit/);
+  await rm(path.join(root, 'a.js'));
+  await assert.rejects(captureSnapshot(root, { contextPaths: ['a.js'] }), /Deleted path/);
 });
