@@ -1,0 +1,40 @@
+name: Recover v0.2.0 GitHub Release
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: recover-v020
+  cancel-in-progress: false
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/v0.2.0
+      - name: Verify immutable tag
+        shell: bash
+        run: test "$(git rev-parse HEAD)" = 4b5e1fe7b597a1edc050d2f506975e6cc72d7dd3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Download original npm artifact without repacking or publishing
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release
+          curl --fail --retry 3 -L https://registry.npmjs.org/@feng0531/dsh-code-review/-/dsh-code-review-0.2.0.tgz -o release/feng0531-dsh-code-review-0.2.0.tgz
+          echo '721a6ae6c78113ea13c7ae997ddfa73eb147c761  release/feng0531-dsh-code-review-0.2.0.tgz' | sha1sum -c -
+          echo '02675941e6d998413a8d92b06b9c1dc05dcfbd1ecb9a6ead22251d49331d6a26  release/feng0531-dsh-code-review-0.2.0.tgz' | sha256sum -c -
+          node scripts/verify-published.mjs
+          checkdir=$(mktemp -d)
+          npm install --prefix "$checkdir" --ignore-scripts "$(realpath release/*.tgz)"
+          node --input-type=module -e "const p=await import(process.argv[1]); if(typeof p.apply!=='function') throw Error('Invalid entry')" "$checkdir/node_modules/@feng0531/dsh-code-review/index.mjs"
+          cd release
+          sha256sum *.tgz > SHA256SUMS.txt
+      - name: Complete GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh release create v0.2.0 release/*.tgz release/SHA256SUMS.txt --verify-tag --title v0.2.0 --notes-file CHANGELOG.md
