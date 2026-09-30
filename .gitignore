@@ -1,0 +1,7 @@
+node_modules/
+coverage/
+*.log
+reference/
+*.tgz
+/PLAN.md
+/DSH-CODE-REVIEW-DESIGN.md

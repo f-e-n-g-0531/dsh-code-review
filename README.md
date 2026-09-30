@@ -1,1 +1,52 @@
-# dsh-code-review
+# DSH Code Review
+
+精简、只读的 Git/SVN 代码审查插件。读取指定变更及显式上下文，复用当前 DSH Agent 的模型，输出有证据和可校验位置的问题。不会自动修复、提交、回滚或发布。
+
+## 当前状态
+
+开发中，未发布。已通过真实临时 Git/SVN 仓库测试，以及隔离进程中的真实 DSH ToolRuntime 注册验证。尚未在当前 GUI 安装；尚未完成真实模型质量评估。
+
+## 环境
+
+- Node.js 22+，Git，SVN（测试还需要 svnadmin）。
+- DSH 提供 tools、llm、approval 服务；当前已核对宿主 API，尚未承诺稳定跨版本兼容。
+- Windows SVN 必须支持 UTF-8 路径；CI 对临时 SVN 工具设置 UTF-8 manifest，不修改用户安装的 SVN。
+
+## 使用流程
+
+插件入口为 `index.mjs`，由 DSH 插件加载器装载（本项目不自动修改 profile）。配置 `allowModelSending: true` 才能执行模型审查；缺省只允许本地预览。
+
+1. 在目标仓库的活跃 Agent 会话中调用 `code_review_preview`。
+2. 可用 `selectedPaths` 精确选择变更文件；未跟踪文件必须显式选入。`contextPaths` 提供仓库相对路径的额外上下文。
+3. 展示预览中的仓库范围、文件、排除原因及模型提供方。调用 `code_review_execute`，传入 `previewId` 和 `confirmed: true`。
+4. 服务另外请求宿主审批，只有 `allowed-once` 允许外发；确认参数不能绕过审批。宿主 `never` 策略、无应答者或拒绝均不发送代码。
+5. 返回 `json`（结构化报告字符串）及 `markdown`（中文报告）。文件、模型或目录变化时需重新预览。
+
+默认在发现的仓库根目录审查，而不是仅当前子目录；预览会显示实际根目录。发送内容包括可审查文件的两侧完整文本、属性和显式上下文，可能包含敏感信息。选择前请检查范围，不要把密钥文件作为上下文。
+
+## 支持与限制
+
+- Git：HEAD 到工作区净变化，含暂存和未暂存变化；支持未出生 HEAD、重命名、新增和删除。没有独立 staged/unstaged 审查模式。
+- SVN：本地每节点 BASE 到工作副本，包含目录属性，无需连接远端。复制、替换、switched、externals、冲突及目录结构变化目前阻断并说明，不宣称完整 SVN 历史支持。
+- 二进制、不能解码的内容、链接、非普通文件和超限文件明确阻断。不会转码写回。
+- SVN 配置 `svn:keywords` 的文件目前明确阻断，避免把关键字展开误认为代码变化；CRLF/LF 保留原始文本并提示模型不应仅因换行差异报缺陷。
+- 当前逐文件审查，跨文件关系依赖显式上下文；大文件超预算不截断，标记未完成。
+- 快照双次采集和内容复验用于发现普通并发修改，不是文件系统原子快照，不承诺防御恶意并发链接置换。
+- 程序校验定位不等于证明缺陷成立；模型结果需人工判断。`partial` / `failed` / `cancelled` 不表示通过；无发现也不证明代码正确。
+- 运行默认最多 200 个变更，单文件 256 KiB，总快照 4 MiB；上下文最多 20 个。单模型输入约 96 KiB，最多 100 次调用，单次 120 秒。
+
+## 开发与验证
+
+```sh
+npm ci --ignore-scripts
+npm test
+node scripts/host-smoke.mjs <DSH-checkout>
+```
+
+测试在 OS 临时目录创建仓库并清理，不修改用户业务仓库。宿主 smoke 只加载真实 Cordis/ToolRuntime；模型与审批为桩，不代表 GUI 或真实模型验收。
+
+CI 参考 dsh-vcs：Ubuntu/Windows × Node 22/24，版本 tag 或手动触发，普通 push 不触发；无自动发布。
+
+## 来源与许可
+
+Windows CI UTF-8 脚本参考 dsh-vcs，保留其许可于 `LICENSES/dsh-vcs.txt`。该第三方许可不自动决定本项目其他独立代码的许可；项目尚未确定整体分发许可，当前 private 包禁止意外 npm 发布。参考 OCR 工程不随本包分发。

@@ -1,0 +1,20 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { checked } from '../src/process.mjs';
+import { captureSnapshot } from '../src/snapshot.mjs';
+test('explicit context is captured, hashed and constrained', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-review-context-'));
+  t.after(async () => { assert.ok(path.basename(root).startsWith('dsh-review-context-')); await rm(root, { recursive: true, force: true }); });
+  const git = (...args) => checked('git', args, { cwd: root });
+  await git('init', '-q'); await git('config', 'user.name', 'Test'); await git('config', 'user.email', 'test@example.invalid');
+  await writeFile(path.join(root, 'a.js'), 'old'); await writeFile(path.join(root, 'context.js'), 'context');
+  await git('add', '.'); await git('commit', '-qm', 'fixture'); await writeFile(path.join(root, 'a.js'), 'new');
+  const snapshot = await captureSnapshot(root, { contextPaths: ['context.js'] });
+  assert.equal(snapshot.vcs, 'git'); assert.equal(snapshot.context[0].text, 'context');
+  assert.equal(snapshot.id, (await captureSnapshot(root, { contextPaths: ['context.js'] })).id);
+  await assert.rejects(captureSnapshot(root, { contextPaths: ['../secret'] }), /Unsafe/);
+  await assert.rejects(captureSnapshot(root, { maxSnapshotBytes: 10 }), /size limit/);
+});

@@ -1,0 +1,42 @@
+name: CI
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v[0-9]*.[0-9]*.[0-9]*'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [22, 24]
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - if: startsWith(github.ref, 'refs/tags/')
+        run: node scripts/verify-tag.mjs
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y subversion
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $archive = Join-Path $env:RUNNER_TEMP 'svn.zip'
+          $tools = Join-Path $env:RUNNER_TEMP 'svn-tools'
+          Invoke-WebRequest 'https://www.visualsvn.com/files/Apache-Subversion-1.14.5-5.zip' -OutFile $archive
+          if ((Get-FileHash $archive -Algorithm SHA256).Hash -ne 'E7372F041909D262A6BD5C11884C7B2138C5CCE5A583B7B5A0B8DE96C7C6E0AE') { throw 'SVN archive checksum mismatch' }
+          Expand-Archive $archive $tools
+          ./scripts/ci-svn-utf8.ps1 -Bin (Join-Path $tools 'bin')
+          Join-Path $tools 'bin' | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - run: git --version
+      - run: svn --version --quiet
+      - run: svnadmin --version --quiet
+      - run: npm ci --include=dev --ignore-scripts
+      - run: npm test

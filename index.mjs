@@ -1,0 +1,30 @@
+import { createReviewService } from './src/service.mjs';
+export const name = 'dsh-code-review';
+export const inject = ['tools', 'llm', 'approval'];
+
+export function apply(ctx, config = {}) {
+  const service = createReviewService(ctx.llm, {
+    allowModelSending: config.allowModelSending === true,
+    authorize: async ({ snapshot, route, exec }) => (await ctx.approval.request({
+      agent: exec.agent, toolName: 'code_review_execute', signal: exec.signal,
+      reason: '只读代码审查将发送代码给 ' + route.provider + '/' + route.model + '。仓库：' + snapshot.root + '；快照：' + snapshot.id + '；文件：' + JSON.stringify(snapshot.files.filter(f => f.eligibility === 'reviewable').map(f => f.path)) + '；上下文：' + JSON.stringify(snapshot.context.map(c => c.path)),
+    })) === 'allowed-once',
+  });
+  const output = {
+    schema: { type: 'object', additionalProperties: false, properties: { json: { type: 'string' }, markdown: { type: 'string' } }, required: ['json', 'markdown'] },
+    render: (_args, value) => [{ type: 'text', text: value.markdown || value.json }],
+  };
+  ctx.tools.register({
+    name: 'code_review_preview', description: 'Preview Git/SVN working-copy review scope and model destination without sending source to a model. Paths are repository-relative. Show the preview before execution.',
+    parameters: { type: 'object', additionalProperties: false, properties: { selectedPaths: { type: 'array', items: { type: 'string' }, maxItems: 200 }, contextPaths: { type: 'array', items: { type: 'string' }, maxItems: 20 } } },
+    output,
+    async execute(args, exec) { const preview = await service.preview(args, exec); return { json: JSON.stringify(preview), markdown: '' }; },
+  });
+  ctx.tools.register({
+    name: 'code_review_execute', description: 'Execute a previewed read-only code review using the current DSH model. Requires host user approval to send code. Never modifies the reviewed repository.',
+    parameters: { type: 'object', additionalProperties: false, properties: { previewId: { type: 'string' }, confirmed: { type: 'boolean' } }, required: ['previewId', 'confirmed'] },
+    output,
+    async execute(args, exec) { const result = await service.execute(args, exec); return { json: JSON.stringify(result.report), markdown: result.markdown }; },
+  });
+  ctx.on('dispose', () => service.dispose());
+}
