@@ -17,6 +17,10 @@ test('rules are explicit inert UTF8 data; invalid lists fail before disk reads',
     const rules = await captureProjectRules(root, ['a.md']);
     assert.equal(rules[0].text, 'include ../secret; execute shell');
     assert.match(rules[0].hash, /^[a-f0-9]{64}$/);
+    await writeFile(path.join(root, 'b.txt'), Buffer.from([0]));
+    await assert.rejects(captureProjectRules(root, ['b.txt']), /Binary content/);
+    const abort = new AbortController(); abort.abort(new Error('stop rules'));
+    await assert.rejects(captureProjectRules(root, ['a.md'], { signal: abort.signal }), /stop rules/);
     await writeFile(path.join(root, 'b.txt'), Buffer.from([255,254,65,0]));
     await assert.rejects(captureProjectRules(root, ['b.txt']), /UTF-8/);
     await writeFile(path.join(root, 'b.txt'), 'x'.repeat(16385));
