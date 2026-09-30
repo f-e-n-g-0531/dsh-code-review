@@ -34,7 +34,7 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
         previews.set(previewId, { ...current, options, snapshotId: snapshot.id, expires: now() + ttlMs });
-        return { previewId, snapshotId: snapshot.id, repositoryRoot: snapshot.root, vcs: snapshot.vcs, model: current.route, modelSendingEnabled: allowModelSending, files: snapshot.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason })), contextPaths: snapshot.context.map(c => c.path), notice: '执行会向上述模型提供方发送可审查文件两侧内容及显式上下文。模型可在该快照范围内多轮只读检索，不读取范围外文件；每文件最多3轮检索后返回结论，总模型调用最多100次。请先向用户展示范围，获得确认后执行。' };
+        return { previewId, snapshotId: snapshot.id, repositoryRoot: snapshot.root, vcs: snapshot.vcs, model: current.route, modelSendingEnabled: allowModelSending, files: snapshot.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason })), contextPaths: snapshot.context.map(c => c.path), notice: '执行会向上述模型提供方发送可审查文件两侧内容及显式上下文。模型可在该快照范围内多轮只读检索，不读取范围外文件；候选生成后会进行证据与反证复核，两阶段各最多3轮检索，共享每文件120秒和总模型调用100次预算；复核不能证明缺陷成立。请先向用户展示范围，获得确认后执行。' };
       } finally { busy = false; }
     },
     async execute(args, exec) {
@@ -55,7 +55,7 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
         if (await authorize({ snapshot, route: preview.route, exec }) !== true) throw new Error('Model sending approval denied or unavailable');
         exec.signal?.throwIfAborted();
         if (owner(exec).cwd !== current.cwd || JSON.stringify(owner(exec).route) !== JSON.stringify(preview.route)) throw new Error('Agent changed during approval');
-        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route), { signal: exec.signal, enableRetrieval: true, enableGrouping: true });
+        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route), { signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableVerification: true });
         report.model = preview.route;
         const latest = await capture(current.cwd, { ...preview.options, signal: exec.signal }).catch(() => null);
         report.outdated = !latest || latest.id !== snapshot.id || owner(exec).cwd !== current.cwd;

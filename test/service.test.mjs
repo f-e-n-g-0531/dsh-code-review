@@ -4,6 +4,25 @@ import { createReviewService } from '../src/service.mjs';
 const snapshot = () => ({ id: 'fixed', vcs: 'git', root: '/repo', files: [{ id: 'f', path: 'a', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] }], context: [] });
 const exec = () => ({ agent: { session: { header: { cwd: '/repo' } }, options: { provider: 'test', model: 'model' } }, signal: new AbortController().signal });
 const llm = { async *stream() { yield { type: 'text-delta', text: '{"findings":[],"limitations":[]}' }; yield { type: 'finish', reason: { kind: 'stop' } }; } };
+test('approved service verifies candidates without executable tools or widened scope', async () => {
+  let approved = false, calls = 0;
+  const service = createReviewService({ async *stream(r) {
+    assert.ok(approved); assert.deepEqual(r.tools, []);
+    const input = JSON.parse(r.messages[0].content[0].text);
+    calls++;
+    const output = calls === 1 ? { findings: [{ fileId: 'f', severity: 'high', title: 'Candidate', evidence: 'e', trigger: 't', impact: 'i', suggestion: 's', anchor: { kind: 'file' } }], limitations: [] }
+      : { verdicts: [{ candidateId: input.candidates[0].candidateId, verdict: 'uncertain', reason: 'Missing caller', evidence: [] }] };
+    if (calls === 2) assert.deepEqual(input.catalog.map(s => s.id), ['s1', 's2']);
+    yield { type: 'text-delta', text: JSON.stringify(output) };
+    yield { type: 'finish', reason: { kind: 'stop' } };
+  } }, { capture: async () => snapshot(), allowModelSending: true, authorize: async () => { approved = true; return true; } });
+  const e = exec(), p = await service.preview({}, e);
+  assert.equal(calls, 0); assert.match(p.notice, /证据与反证复核/);
+  const { report, markdown } = await service.execute({ previewId: p.previewId, confirmed: true }, e);
+  assert.equal(calls, 2); assert.equal(report.modelCalls, 2);
+  assert.equal(report.findings[0].verification.verdict, 'uncertain');
+  assert.match(markdown, /复核状态：不确定/);
+});
 test('approved service supplies both related sides once per primary without excluded content', async () => {
   const source = snapshot();
   source.files = ['src/a.ts', 'test/a.test.ts'].map((path, i) => ({ ...source.files[0], id: 'f' + i, path }));
