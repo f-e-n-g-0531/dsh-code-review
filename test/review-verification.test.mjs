@@ -4,6 +4,27 @@ import { reviewSnapshot, markdownReport } from '../src/review.mjs';
 const snapshot = { id: 'snap', vcs: 'git', files: [{ id: 'f1', path: 'a.js', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] }] };
 const generated = { findings: [{ fileId: 'f1', severity: 'high', title: 'bug', evidence: 'e', trigger: 't', impact: 'i', suggestion: 's', anchor: { kind: 'file' } }], limitations: [] };
 const options = { enableRetrieval: true, enableVerification: true };
+test('cancellation during verification waits for cleanup and never starts next file', async () => {
+  const controller = new AbortController();
+  const input = structuredClone(snapshot);
+  input.files.push({ ...structuredClone(input.files[0]), id: 'f2', path: 'b.js' });
+  let calls = 0, cleaned = false;
+  const report = await reviewSnapshot(input, async ({ signal }) => {
+    if (++calls === 1) return generated;
+    const aborted = new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+    controller.abort(new Error('user cancelled verification'));
+    await aborted;
+    await new Promise(resolve => setImmediate(resolve));
+    cleaned = true;
+    throw signal.reason;
+  }, { ...options, signal: controller.signal });
+  assert.equal(cleaned, true);
+  assert.equal(calls, 2);
+  assert.equal(report.status, 'cancelled');
+  assert.equal(report.coverage.cancelled, 2);
+  assert.equal(report.findings.length, 1);
+  assert.equal(report.findings[0].verification.status, 'incomplete');
+});
 test('full review validates retrieved counterevidence and retains refuted candidate', async () => {
   let calls = 0;
   const report = await reviewSnapshot(snapshot, async request => {
