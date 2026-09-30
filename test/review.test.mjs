@@ -28,7 +28,7 @@ test('invalid JSON is failed, not clean', async () => {
   assert.equal(result.status, 'failed'); assert.match(markdownReport(result), /不能视为通过/);
 });
 test('budget and blocked files remain explicit partial coverage', async () => {
-  const input = snapshot(); input.files.push({ ...file(), id: 'f2' }, { ...file(), id: 'f3', eligibility: 'blocked', reason: 'conflict' });
+  const input = snapshot(); input.files.push({ ...file(), id: 'f2', path: 'second.js' }, { ...file(), id: 'f3', path: 'third.js', eligibility: 'blocked', reason: 'conflict' });
   const result = await reviewSnapshot(input, ok, { maxCalls: 1 });
   assert.equal(result.status, 'partial'); assert.equal(result.coverage.pending, 1); assert.equal(result.coverage.blocked, 1);
   const oversized = await reviewSnapshot(snapshot(), () => assert.fail('must not call'), { maxInputBytes: 10 });
@@ -54,7 +54,7 @@ test('timeout waits for executor cleanup before returning', async () => {
 });
 
 test('snapshot mutation during call cannot change later input', async () => {
-  const input = snapshot(); input.files.push({ ...file(), id: 'f2' }); let calls = 0;
+  const input = snapshot(); input.files.push({ ...file(), id: 'f2', path: 'second.js' }); let calls = 0;
   await reviewSnapshot(input, async request => {
     if (++calls === 1) input.files[1].right.text = 'mutated';
     else assert.equal(JSON.parse(request.input).file.right.text, 'unsafe();\n');

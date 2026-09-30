@@ -25,13 +25,13 @@ test('SVN explicit rules change snapshot identity without modifying working stat
   const before = await svn('status', '--xml');
   const a = await captureSnapshot(root, { rulePaths: ['rules.md'] });
   assert.equal(a.rules[0].text, 'Use bounded resources');
-  assert.deepEqual(await svn('status', '--xml'), before);
+  assert.deepEqual(xml(await svn('status', '--xml')), xml(before));
   await put('rules.md', 'Check cleanup');
   const modified = await svn('status', '--xml');
   const b = await captureSnapshot(root, { rulePaths: ['rules.md'] });
   assert.notEqual(a.id, b.id);
   assert.notEqual(a.rules[0].hash, b.rules[0].hash);
-  assert.deepEqual(await svn('status', '--xml'), modified);
+  assert.deepEqual(xml(await svn('status', '--xml')), xml(modified));
   await svn('delete', '--force', '--', 'rules.md@');
   await assert.rejects(captureSnapshot(root, { rulePaths: ['rules.md'] }), /deleted/);
 });
