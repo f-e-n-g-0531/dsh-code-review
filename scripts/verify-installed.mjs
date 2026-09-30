@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+const directory = process.argv[2];
+if (!directory) throw new Error('Pass the isolated installation directory');
+const require = createRequire(path.resolve(directory, 'package.json'));
+const entry = await import(pathToFileURL(require.resolve('@feng0531/dsh-code-review')).href);
+assert.equal(typeof entry.apply, 'function');
+const en = require('@feng0531/dsh-code-review/locale/en.json');
+const zh = require('@feng0531/dsh-code-review/locale/zh-CN.json');
+assert.equal(en.meta.title, 'Code Review');
+assert.equal(zh.meta.title, '代码审查');
+console.log('Installed plugin entry and localized title exports verified');

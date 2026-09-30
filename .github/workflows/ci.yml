@@ -83,6 +83,7 @@ jobs:
           npm init -y >/dev/null
           npm install --ignore-scripts "$package"
           node --input-type=module -e "const p = await import('@feng0531/dsh-code-review'); if (typeof p.apply !== 'function') throw new Error('Invalid entry')"
+          node "$GITHUB_WORKSPACE/scripts/verify-installed.mjs" "$checkdir"
           cd "$GITHUB_WORKSPACE/release"
           sha256sum *.tgz > SHA256SUMS.txt
       - name: Preserve exact release artifact before publishing
