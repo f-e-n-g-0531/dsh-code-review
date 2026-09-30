@@ -55,7 +55,7 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
         if (await authorize({ snapshot, route: preview.route, exec }) !== true) throw new Error('Model sending approval denied or unavailable');
         exec.signal?.throwIfAborted();
         if (owner(exec).cwd !== current.cwd || JSON.stringify(owner(exec).route) !== JSON.stringify(preview.route)) throw new Error('Agent changed during approval');
-        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route), { signal: exec.signal });
+        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route), { signal: exec.signal, enableRetrieval: true });
         report.model = preview.route;
         const latest = await capture(current.cwd, { ...preview.options, signal: exec.signal }).catch(() => null);
         report.outdated = !latest || latest.id !== snapshot.id || owner(exec).cwd !== current.cwd;
