@@ -34,6 +34,13 @@ test('rules are explicit inert UTF8 data; invalid lists fail before disk reads',
     await assert.rejects(captureProjectRules(root, ['b.txt']), /size limit/);
     for (const name of ['a.md','b.txt','c.md']) await writeFile(path.join(root, name), 'x'.repeat(12000));
     await assert.rejects(captureProjectRules(root, ['a.md','b.txt','c.md']), /budget/);
+    for (const name of ['a.md', 'b.txt']) await writeFile(path.join(root, name), '中'.repeat(5461) + 'x');
+    const exact = await captureProjectRules(root, ['b.txt', 'a.md']);
+    assert.equal(exact.reduce((sum, rule) => sum + rule.bytes, 0), 32768);
+    assert.deepEqual(exact.map(rule => rule.path), ['a.md', 'b.txt']);
+    assert.deepEqual(exact, await captureProjectRules(root, ['a.md', 'b.txt']));
+    await writeFile(path.join(root, 'c.md'), 'x');
+    await assert.rejects(captureProjectRules(root, ['a.md', 'b.txt', 'c.md']), /budget/);
   } finally {
     assert.ok(path.basename(root).startsWith('review-rules-'));
     await rm(root, { recursive: true, force: true });
