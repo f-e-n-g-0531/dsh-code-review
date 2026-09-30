@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { reviewSnapshot } from '../src/review.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, readFile, rm, symlink } from 'node:fs/promises';
 import os from 'node:os';
@@ -34,6 +35,18 @@ test('Git captures modified, deleted and explicitly selected untracked files wit
   assert.equal(snapshot.files.find(f => f.path === '-new.js').eligibility, 'excluded');
   const selected = await captureGit(root, { selectedPaths: ['-new.js'] });
   assert.equal(selected.files.find(f => f.path === '-new.js').right.text, 'added\n');
+  const reviewed = [];
+  const report = await reviewSnapshot(snapshot, async request => {
+    const { file, changes } = JSON.parse(request.input);
+    reviewed.push(file.path);
+    assert.equal(changes.status, 'changed');
+    assert.equal(changes.edits[0].old.start, 1);
+    if (file.path === 'deleted.js') assert.equal(changes.edits[0].new.count, 0);
+    else assert.equal(changes.edits[0].new.count, 1);
+    return { findings: [], limitations: [] };
+  });
+  assert.equal(report.status, 'completed');
+  assert.deepEqual(reviewed.sort(), ['deleted.js', '中文 @ [].js']);
   assert.deepEqual(await git('status', '--porcelain=v1', '-z'), before);
   assert.deepEqual(await readFile(path.join(root, '.git', 'index')), index);
   assert.equal((await captureGit(root)).id, snapshot.id);

@@ -7,7 +7,8 @@ const finding = () => ({ fileId: 'f1', severity: 'high', title: '具体问题', 
 const ok = async () => ({ findings: [], limitations: [] });
 test('valid finding and exact snippet produce Chinese report', async () => {
   const result = await reviewSnapshot(snapshot(), async () => ({ findings: [finding(), finding()], limitations: [] }));
-  assert.equal(result.status, 'completed'); assert.equal(result.findings.length, 1);
+  assert.equal(result.status, 'partial'); assert.equal(result.findings.length, 1);
+  assert.match(markdownReport(result), /缺少变更归因/);
   assert.equal(result.coverage.completed, 1); assert.match(markdownReport(result), /触发条件/);
   assert.doesNotThrow(() => JSON.parse(JSON.stringify(result)));
 });

@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { reviewSnapshot } from '../src/review.mjs';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, rm, rename } from 'node:fs/promises';
 import os from 'node:os';
@@ -35,6 +36,23 @@ test('SVN captures BASE text, deletion, additions and directory properties witho
   assert.equal(result.files.find(f => f.path === '-added').right.text, 'added');
   assert.deepEqual(result.files.find(f => f.path === 'dir').properties, [{ name: 'review:test', old: null, new: 'changed' }]);
   assert.equal(result.files.find(f => f.path === 'untracked').eligibility, 'excluded');
+  const reviewed = [];
+  const report = await reviewSnapshot(result, async request => {
+    const { file, changes } = JSON.parse(request.input);
+    reviewed.push(file.path);
+    if (file.path === 'dir') {
+      assert.equal(changes.status, 'unchanged');
+      assert.equal(file.properties[0].name, 'review:test');
+    } else {
+      assert.equal(changes.status, 'changed');
+      if (file.path === 'deleted') assert.equal(changes.edits[0].new.count, 0);
+      if (file.path === '-added') assert.equal(changes.edits[0].old.count, 0);
+    }
+    return { findings: [], limitations: [] };
+  });
+  assert.equal(report.status, 'completed');
+  assert.equal(reviewed.length, 4);
+  assert.ok(!reviewed.includes('untracked'));
   assert.deepEqual(xml(await svn('status', '--xml')), xml(before));
   const selected = await captureSvn(root, { selectedPaths: ['untracked'] });
   assert.equal(selected.files.find(f => f.path === 'untracked').right.text, 'secret');
