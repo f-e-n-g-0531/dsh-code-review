@@ -1,0 +1,6 @@
+- insert:
+    - id: dsh-code-review
+      name: dsh-code-review
+      disabled: false
+      config:
+        allowModelSending: false

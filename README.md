@@ -12,6 +12,16 @@
 - DSH 提供 tools、llm、approval 服务；当前已核对宿主 API，尚未承诺稳定跨版本兼容。
 - Windows SVN 必须支持 UTF-8 路径；CI 对临时 SVN 工具设置 UTF-8 manifest，不修改用户安装的 SVN。
 
+## 安装
+
+在 DSH 插件管理器中添加本仓库 Git 地址，或克隆后添加本地绝对路径。包包含组合声明，启用时默认 `allowModelSending: false`，只能预览。需要审查时在插件配置中显式设为 `true`，每次执行仍需宿主审批。
+
+```sh
+dsh plugin add https://github.com/f-e-n-g-0531/dsh-code-review.git
+```
+
+本项目不自动修改已有 profile；安装成功也不等于模型与审批链路已验收。
+
 ## 使用流程
 
 插件入口为 `index.mjs`，由 DSH 插件加载器装载（本项目不自动修改 profile）。配置 `allowModelSending: true` 才能执行模型审查；缺省只允许本地预览。
