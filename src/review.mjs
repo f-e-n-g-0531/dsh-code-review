@@ -152,6 +152,12 @@ const safe = text => Array.from(String(text ?? '')).map(c => {
 export function markdownReport(report) {
   const output = ['# Code Review 报告', '', '状态：' + report.status, '快照：' + report.snapshotId, '', '## 覆盖情况'];
   for (const file of report.files) output.push('- ' + safe(file.path) + '：' + file.status + (file.reason ? ' — ' + safe(file.reason) : ''));
+  if (report.grouping) {
+    const names = new Map(report.files.map(f => [f.fileId, f.path]));
+    output.push('', '## 关联上下文', '关联仅为命名提示，不证明依赖或缺陷；每个主文件独立审查。');
+    for (const link of report.grouping.links) output.push('- ' + safe(names.get(link.from)) + ' ↔ ' + safe(names.get(link.to)) + '：' + safe(link.reasons.join(', ')) + (link.split ? '（受组上限限制，已拆组）' : ''));
+    for (const file of report.files) if (file.relatedFileIds?.length) output.push('- ' + safe(file.path) + '：输入包含 ' + file.relatedFileIds.length + ' 个关联文件');
+  }
   output.push('', '## 审查发现');
   if (!report.findings.length) output.push(report.status === 'completed' ? '在已审查范围内未发现具体问题；不代表代码已被证明正确。' : '当前没有有效问题记录，但审查存在未完成项或限制，不能视为通过。');
   for (const finding of report.findings) {

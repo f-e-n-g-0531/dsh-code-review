@@ -1,6 +1,24 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { reviewSnapshot } from '../src/review.mjs';
+import { reviewSnapshot, markdownReport } from '../src/review.mjs';
+test('cross-file regression fixture passes related evidence and validates only primary anchor', async () => {
+  const s = snapshot();
+  s.files[0].left.text = 'export const timeout = 1000;';
+  s.files[0].right.text = 'export const timeout = 1;';
+  s.files[1].left.text = 'assert.equal(timeout, 1000);';
+  s.files[1].right.text = 'assert.ok(timeout >= 1000);';
+  const report = await reviewSnapshot(s, async r => {
+    const p = JSON.parse(r.input);
+    if (p.file.id.startsWith('test/')) return { findings: [], limitations: [] };
+    assert.match(p.relatedFiles[0].right.text, /timeout >= 1000/);
+    return { findings: [{ fileId: p.file.id, severity: 'high', title: '超时单位回归', evidence: '测试要求至少1000，实现改为1', trigger: '请求需要超过1毫秒', impact: '请求提前超时', suggestion: '恢复毫秒值', anchor: { kind: 'line', side: 'new', start: 1, end: 1, snippet: p.file.right.text }, attribution: { editIds: ['e1'], properties: [], beforeBehavior: '1000毫秒', afterBehavior: '1毫秒', reason: '本次降低超时阈值' } }], limitations: [] };
+  }, { enableGrouping: true, enableRetrieval: true });
+  assert.equal(report.status, 'completed'); assert.equal(report.findings.length, 1);
+  assert.equal(report.findings[0].fileId, s.files[0].id);
+  assert.match(markdownReport(report), /关联上下文/);
+  assert.match(markdownReport(report), /每个主文件独立审查/);
+});
+
 const snapshot = () => ({ id: 's', vcs: 'git', files: ['src/a.ts', 'test/a.test.ts'].map(id => ({ id, path: id, eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] })), context: [] });
 test('group context retains one primary review per file with approved related sides', async () => {
   const seen = [];
