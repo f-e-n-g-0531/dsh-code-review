@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-开发中，未发布。已通过真实临时 Git/SVN 仓库测试，以及隔离进程中的真实 DSH ToolRuntime 注册验证。尚未在当前 GUI 安装；尚未完成真实模型质量评估。
+首个正式版本为 0.1.0，发布状态以 npm 和 GitHub Release 为准。已通过真实临时 Git/SVN 仓库测试，以及隔离进程中的真实 DSH ToolRuntime 注册验证。尚未在当前 GUI 安装；尚未完成真实模型质量评估。
 
 ## 环境
 
@@ -55,8 +55,17 @@ node scripts/host-smoke.mjs <DSH-checkout>
 
 测试在 OS 临时目录创建仓库并清理，不修改用户业务仓库。宿主 smoke 只加载真实 Cordis/ToolRuntime；模型与审批为桩，不代表 GUI 或真实模型验收。
 
-CI 覆盖 Ubuntu/Windows × Node 22/24，版本 tag 或手动触发，普通 push 不触发；无自动发布。
+CI 覆盖 Ubuntu/Windows × Node 22/24，版本 tag 或手动触发，普通 push 不触发。正式发布需在版本 tag 上手动运行 CI 并勾选 `publish`；普通 tag 测试不会发布。
+
+## 正式发布
+
+1. 在本仓库 Actions Secrets 中配置 `NPM_AUTOMATION_TOKEN`，需要目标 npm 包的发布权限；工作流仅在 npm 发布步骤映射为 `NODE_AUTH_TOKEN`。
+2. 确认包名 `@feng0531/dsh-code-review` 的所有权、版本号和分发许可；更新版本及锁文件，提交并推送同名 `vX.Y.Z` 标签。
+3. 在 Actions → CI → Run workflow 选择该标签，设置 `publish: true`。四组测试全部通过后才进入发布任务。
+4. 打包一次，在临时目录安装检查，然后先发布 npm，核对 registry 的 SHA-512 完整性，再用同一 tgz 和 SHA256SUMS.txt 创建 GitHub Release。
+
+正式发布只通过 GitHub Actions，不使用本地 npm publish。当前流程尚未实际发布验收。若 npm 已成功而后续步骤失败，不要更换同版本安装包或盲目重跑发布；需核对 registry 工件并补齐 GitHub Release。缺少 token、版本不符、安装检查或 npm 发布失败均不会创建 Release。
 
 ## 项目与许可
 
-本仓库独立维护、测试和交付。项目尚未确定整体分发许可，当前 private 包禁止意外 npm 发布；随附组件的许可声明保留在 `LICENSES/` 中。
+本仓库独立维护、测试和交付。项目尚未确定整体分发许可，正式发布前须由维护者确认；随附组件的许可声明保留在 `LICENSES/` 中。

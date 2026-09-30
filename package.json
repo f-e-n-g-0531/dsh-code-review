@@ -1,7 +1,8 @@
 {
-  "name": "dsh-code-review",
+  "name": "@feng0531/dsh-code-review",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
+  "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
   "main": "./index.mjs",
   "exports": { ".": "./index.mjs", "./package.json": "./package.json" },
   "files": ["index.mjs", "cordis.patch.yml", "src/", "README.md", "LICENSES/"],

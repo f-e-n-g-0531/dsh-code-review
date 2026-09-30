@@ -1,6 +1,11 @@
 name: CI
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish npm and GitHub Release (run on a version tag)'
+        type: boolean
+        default: false
   push:
     tags:
       - 'v[0-9]*.[0-9]*.[0-9]*'
@@ -16,6 +21,10 @@ jobs:
         os: [ubuntu-latest, windows-latest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Pin every job to the commit resolved from the triggering ref.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
@@ -40,3 +49,54 @@ jobs:
       - run: svnadmin --version --quiet
       - run: npm ci --include=dev --ignore-scripts
       - run: npm test
+  release:
+    if: github.event_name == 'workflow_dispatch' && inputs.publish && startsWith(github.ref, 'refs/tags/')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: release-${{ github.ref }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Pin every job to the commit resolved from the triggering ref.
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: node scripts/verify-tag.mjs
+      - run: npm ci --ignore-scripts
+      - name: Pack and verify install
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir release
+          npm pack --ignore-scripts --pack-destination release
+          package=$(realpath release/*.tgz)
+          checkdir=$(mktemp -d)
+          cd "$checkdir"
+          npm init -y >/dev/null
+          npm install --ignore-scripts "$package"
+          node --input-type=module -e "const p = await import('@feng0531/dsh-code-review'); if (typeof p.apply !== 'function') throw new Error('Invalid entry')"
+          cd "$GITHUB_WORKSPACE/release"
+          sha256sum *.tgz > SHA256SUMS.txt
+      - name: Publish npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_AUTOMATION_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$NODE_AUTH_TOKEN" || { echo 'Missing NPM_AUTOMATION_TOKEN'; exit 1; }
+          npm publish release/*.tgz --access public --registry https://registry.npmjs.org
+      - name: Verify registry artifact
+        run: node scripts/verify-published.mjs
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh release create "$GITHUB_REF_NAME" release/*.tgz release/SHA256SUMS.txt --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
