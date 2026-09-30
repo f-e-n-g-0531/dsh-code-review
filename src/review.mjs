@@ -1,4 +1,5 @@
 import { hash } from './content.mjs';
+import { verificationLoop } from './verification-loop.mjs';
 import { inferTestRelations } from './file-relations.mjs';
 import { buildReviewGroups } from './review-groups.mjs';
 import { changeMap } from './change-map.mjs';
@@ -73,6 +74,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     identities.add(file.id);
     if (file.eligibility === 'reviewable' && (typeof file.left?.text !== 'string' || typeof file.right?.text !== 'string' || !Array.isArray(file.properties))) throw new Error('Missing review content');
   }
+  if (options.enableVerification === true && options.enableRetrieval !== true) throw new Error('Verification requires approved retrieval scope');
   const scope = options.enableRetrieval === true ? createRetrievalScope({ ...input, context: input.context ?? [] }, { signal }) : null;
   const report = { schemaVersion: 1, snapshotId: input.id, vcs: input.vcs, status: 'completed', files: [], findings: [], limitations: [], modelCalls: 0 };
   if (options.enableGrouping === true) report.grouping = buildReviewGroups(input.files, inferTestRelations(input.files));
@@ -119,10 +121,29 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           state.retrievalTruncated = true;
         } })
         : request => { beforeCall(); return model(request); };
-      const response = await invoke(executor, { instructions: REVIEW_INSTRUCTIONS, input: payload }, timeoutMs, signal);
+      const result = await invoke(async request => {
+        const generated = validateResponse(await executor(request), file, changes);
+        request.signal.throwIfAborted();
+        report.findings.push(...generated.findings);
+        if (options.enableVerification === true && generated.findings.length) {
+          for (const finding of generated.findings) finding.verification = { status: 'pending', causality: 'unverified' };
+          try {
+            const verdicts = await verificationLoop(model, request, generated.findings, scope, {
+              maxInputBytes, beforeCall,
+              onRetrieved: records => { (state.retrievalAudit ??= []).push(...records); },
+              onTruncated: () => { report.limitations.push({ fileId: file.id, text: '复核检索结果达到数量上限' }); },
+            });
+            request.signal.throwIfAborted();
+            generated.findings.forEach((finding, i) => { finding.verification = { status: 'completed', ...verdicts[i] }; });
+          } catch (error) {
+            for (const finding of generated.findings) finding.verification = { status: 'incomplete', causality: 'unverified' };
+            report.limitations.push({ fileId: file.id, text: '候选复核未完成：' + (error?.message ?? String(error)) });
+            request.signal.throwIfAborted();
+          }
+        }
+        return generated;
+      }, { instructions: REVIEW_INSTRUCTIONS, input: payload }, timeoutMs, signal);
       if (signal?.aborted) throw signal.reason;
-      const result = validateResponse(response, file, changes);
-      report.findings.push(...result.findings);
       if (result.findings.some(f => f.attribution.status === 'missing')) report.limitations.push({ fileId: file.id, text: '部分发现缺少变更归因，仅校验了定位，尚不能确认属于本次回归' });
       report.limitations.push(...result.limitations.map(text => ({ fileId: file.id, text })));
       state.status = 'completed';
