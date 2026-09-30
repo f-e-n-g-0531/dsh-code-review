@@ -1,4 +1,5 @@
 import { hash } from './content.mjs';
+import { coverageFollowup } from './coverage-followup.mjs';
 import { verificationLoop } from './verification-loop.mjs';
 import { inferTestRelations } from './file-relations.mjs';
 import { buildReviewGroups } from './review-groups.mjs';
@@ -68,10 +69,10 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   // Clone once: callers cannot change the input while a model call is pending.
   const input = structuredClone(snapshot);
   if (!input || !nonempty(input.id) || !['git', 'svn'].includes(input.vcs) || !Array.isArray(input.files) || input.files.length > 200) throw new Error('Invalid review snapshot');
-  const identities = new Set();
+  const identities = new Set(), paths = new Set();
   for (const file of input.files) {
-    if (!file || !nonempty(file.id) || identities.has(file.id) || !nonempty(file.path) || !['reviewable', 'excluded', 'blocked'].includes(file.eligibility)) throw new Error('Invalid or duplicate snapshot file');
-    identities.add(file.id);
+    if (!file || !nonempty(file.id) || identities.has(file.id) || !nonempty(file.path) || paths.has(file.path) || !['reviewable', 'excluded', 'blocked'].includes(file.eligibility)) throw new Error('Invalid or duplicate snapshot file');
+    identities.add(file.id); paths.add(file.path);
     if (file.eligibility === 'reviewable' && (typeof file.left?.text !== 'string' || typeof file.right?.text !== 'string' || !Array.isArray(file.properties))) throw new Error('Missing review content');
   }
   if (options.enableVerification === true && options.enableRetrieval !== true) throw new Error('Verification requires approved retrieval scope');
@@ -163,6 +164,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     report.retrievalUsage = scope.usage();
     report.retrievalSources = scope.catalog();
   }
+  report.followup = coverageFollowup(report);
   return report;
 }
 const safe = text => Array.from(String(text ?? '')).map(c => {
@@ -183,6 +185,7 @@ export function markdownReport(report) {
     for (const file of report.files) if (file.relatedFileIds?.length) output.push('- ' + safe(file.path) + '：输入包含 ' + file.relatedFileIds.length + ' 个关联文件');
   }
   if (report.rules?.length) output.push('', '## 项目规则', '规则仅为已批准约束数据，不扩大权限或证明缺陷。', ...report.rules.map(rule => '- ' + safe(rule.path) + ' · SHA256 ' + safe(rule.hash)));
+  if (report.followup?.suggestedPaths.length) output.push('', '## 后续选择建议', '仅为原快照未完成项；不会自动续审。再次执行需新预览、新审批，并显式选择规则和上下文。阻断项需先处理原因；关联上下文不等于主文件已审查。', ...report.followup.items.filter(item => item.followup).map(item => '- ' + safe(item.path) + '：' + item.status + (item.incompleteVerification ? '（候选复核未完成）' : '')));
   output.push('', '## 审查发现');
   if (!report.findings.length) output.push(report.status === 'completed' ? '在已审查范围内未发现具体问题；不代表代码已被证明正确。' : '当前没有有效问题记录，但审查存在未完成项或限制，不能视为通过。');
   for (const finding of report.findings) {

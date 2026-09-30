@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { reviewSnapshot, markdownReport } from '../src/review.mjs';
 import { coverageFollowup } from '../src/coverage-followup.mjs';
 test('followup distinguishes primary completion from incomplete verification', () => {
   const files = ['completed','excluded','blocked','failed','cancelled','pending'].map((status,i) => ({ fileId: String(i), path: i+'.js', status }));
@@ -12,6 +13,17 @@ test('followup distinguishes primary completion from incomplete verification', (
   result.items[0].path = 'mutation';
   assert.equal(files[0].path, '0.js');
   assert.deepEqual(coverageFollowup({ ...report, findings: [] }).suggestedPaths, ['2.js','3.js','4.js','5.js']);
+});
+test('review integrates budget followup without treating related files as reviewed', async () => {
+  const file = { id: 'a', path: 'a.js', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] };
+  const snapshot = { id: 's', vcs: 'git', files: [file, { ...file, id: 'b', path: '<b>.js' }] };
+  let calls = 0;
+  const report = await reviewSnapshot(snapshot, async () => { calls++; return { findings: [], limitations: [] }; }, { maxCalls: 1 });
+  assert.equal(calls, 1);
+  assert.deepEqual(report.followup.suggestedPaths, ['<b>.js']);
+  assert.match(markdownReport(report), /新预览、新审批/);
+  assert.ok(!markdownReport(report).includes('<b>'));
+  await assert.rejects(reviewSnapshot({ ...snapshot, files: [file, { ...file, id: 'b' }] }, () => assert.fail('duplicate sent')), /duplicate/);
 });
 test('invalid or ambiguous coverage does not produce suggestions', () => {
   const file = { fileId: 'f', path: 'a', status: 'completed' };
