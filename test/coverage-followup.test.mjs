@@ -14,7 +14,7 @@ test('followup distinguishes primary completion from incomplete verification', (
   assert.equal(files[0].path, '0.js');
   assert.deepEqual(coverageFollowup({ ...report, findings: [] }).suggestedPaths, ['2.js','3.js','4.js','5.js']);
 });
-test('review integrates budget followup without treating related files as reviewed', async () => {
+test('review integrates budget followup and escapes suggested paths', async () => {
   const file = { id: 'a', path: 'a.js', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] };
   const snapshot = { id: 's', vcs: 'git', files: [file, { ...file, id: 'b', path: '<b>.js' }] };
   let calls = 0;
@@ -24,6 +24,20 @@ test('review integrates budget followup without treating related files as review
   assert.match(markdownReport(report), /新预览、新审批/);
   assert.ok(!markdownReport(report).includes('<b>'));
   await assert.rejects(reviewSnapshot({ ...snapshot, files: [file, { ...file, id: 'b' }] }, () => assert.fail('duplicate sent')), /duplicate/);
+});
+test('related context sent once remains pending as an unaudited primary', async () => {
+  const file = { id: 'a', path: 'a.js', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] };
+  const snapshot = { id: 's', vcs: 'git', files: [file, { ...file, id: 'b', path: 'a.test.js' }] };
+  let calls = 0;
+  const report = await reviewSnapshot(snapshot, async request => {
+    calls++;
+    assert.deepEqual(JSON.parse(request.input).relatedFiles.map(f => f.id), ['b']);
+    return { findings: [], limitations: [] };
+  }, { enableGrouping: true, maxCalls: 1 });
+  assert.equal(calls, 1);
+  assert.deepEqual(report.files[0].relatedFileIds, ['b']);
+  assert.equal(report.files[1].status, 'pending');
+  assert.deepEqual(report.followup.suggestedPaths, ['a.test.js']);
 });
 test('cancelled and failed execution preserve exact remaining suggestions', async () => {
   const file = { id: 'a', path: 'a.js', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] };
