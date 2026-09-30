@@ -25,6 +25,24 @@ test('review integrates budget followup without treating related files as review
   assert.ok(!markdownReport(report).includes('<b>'));
   await assert.rejects(reviewSnapshot({ ...snapshot, files: [file, { ...file, id: 'b' }] }, () => assert.fail('duplicate sent')), /duplicate/);
 });
+test('cancelled and failed execution preserve exact remaining suggestions', async () => {
+  const file = { id: 'a', path: 'a.js', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] };
+  const input = { id: 's', vcs: 'svn', files: [file, { ...file, id: 'b', path: 'b.js' }, { id: 'c', path: 'excluded', eligibility: 'excluded' }] };
+  const c = new AbortController(); c.abort(new Error('cancel'));
+  const cancelled = await reviewSnapshot(input, () => assert.fail('cancelled model send'), { signal: c.signal });
+  assert.equal(cancelled.modelCalls, 0);
+  assert.equal(cancelled.coverage.cancelled, 2);
+  assert.deepEqual(cancelled.followup.suggestedPaths, ['a.js', 'b.js']);
+  let calls = 0;
+  const failed = await reviewSnapshot(input, async () => {
+    if (++calls === 1) throw new Error('adapter failure');
+    return { findings: [], limitations: [] };
+  });
+  assert.equal(calls, 2);
+  assert.equal(failed.coverage.failed, 1);
+  assert.equal(failed.coverage.completed, 1);
+  assert.deepEqual(failed.followup.suggestedPaths, ['a.js']);
+});
 test('invalid or ambiguous coverage does not produce suggestions', () => {
   const file = { fileId: 'f', path: 'a', status: 'completed' };
   for (const files of [[file,file], [{...file,status:'unknown'}], Array(201).fill(file)]) assert.throws(() => coverageFollowup({ snapshotId: 's', files, findings: [] }), /Invalid/);
