@@ -11,6 +11,11 @@ test('adjudication summary keeps failed and unresolved cases in total', () => {
   assert.equal(summarizeEvaluation([]).decidedCaseRecall, null);
   assert.equal(summarizeEvaluation(rows.slice(4)).decidedNegativeFalsePositiveRate, null);
 });
+test('summary rejects coercible non-string outcomes before counting', () => {
+  for (const outcome of [['hit'], new String('hit'), null, 1, { toString: () => 'hit' }]) {
+    assert.throws(() => summarizeEvaluation([{ id: 'a', expectedRegression: false, outcome }]), /Invalid evaluation row/);
+  }
+});
 test('summary rejects contradictory truth, duplicate cases and unknown decisions', () => {
   const row = { id: 'a', outcome: 'hit', expectedRegression: true };
   for (const rows of [[row,row], [{...row, expectedRegression:false}], [{...row,outcome:'supported'}], Array(201).fill(row)]) assert.throws(() => summarizeEvaluation(rows), /evaluation/);

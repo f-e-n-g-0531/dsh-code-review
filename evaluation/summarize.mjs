@@ -5,7 +5,7 @@ export function summarizeEvaluation(rows) {
   const counts = { hit: 0, miss: 0, falsePositive: 0, clean: 0, uncertain: 0, failed: 0, incomplete: 0 };
   const seen = new Set();
   for (const row of rows) {
-    if (!row || typeof row.id !== 'string' || !row.id || seen.has(row.id) || typeof row.expectedRegression !== 'boolean' || !Object.hasOwn(counts, row.outcome)) throw new Error('Invalid evaluation row');
+    if (!row || typeof row.id !== 'string' || !row.id || seen.has(row.id) || typeof row.expectedRegression !== 'boolean' || typeof row.outcome !== 'string' || !Object.hasOwn(counts, row.outcome)) throw new Error('Invalid evaluation row');
     if (['hit', 'miss'].includes(row.outcome) && !row.expectedRegression || ['falsePositive', 'clean'].includes(row.outcome) && row.expectedRegression) throw new Error('Inconsistent evaluation adjudication');
     seen.add(row.id); counts[row.outcome]++;
   }
