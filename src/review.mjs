@@ -121,10 +121,12 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           state.retrievalTruncated = true;
         } })
         : request => { beforeCall(); return model(request); };
-      const result = await invoke(async request => {
+      await invoke(async request => {
         const generated = validateResponse(await executor(request), file, changes);
         request.signal.throwIfAborted();
         report.findings.push(...generated.findings);
+        if (generated.findings.some(f => f.attribution.status === 'missing')) report.limitations.push({ fileId: file.id, text: '部分发现缺少变更归因，仅校验了定位，尚不能确认属于本次回归' });
+        report.limitations.push(...generated.limitations.map(text => ({ fileId: file.id, text })));
         if (options.enableVerification === true && generated.findings.length) {
           for (const finding of generated.findings) finding.verification = { status: 'pending', causality: 'unverified' };
           try {
@@ -135,6 +137,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             });
             request.signal.throwIfAborted();
             generated.findings.forEach((finding, i) => { finding.verification = { status: 'completed', ...verdicts[i] }; });
+            if (verdicts.some(v => v.verdict === 'uncertain')) report.limitations.push({ fileId: file.id, text: '部分候选复核仍不确定，不能视为已确认或已排除' });
           } catch (error) {
             for (const finding of generated.findings) finding.verification = { status: 'incomplete', causality: 'unverified' };
             report.limitations.push({ fileId: file.id, text: '候选复核未完成：' + (error?.message ?? String(error)) });
@@ -144,8 +147,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         return generated;
       }, { instructions: REVIEW_INSTRUCTIONS, input: payload }, timeoutMs, signal);
       if (signal?.aborted) throw signal.reason;
-      if (result.findings.some(f => f.attribution.status === 'missing')) report.limitations.push({ fileId: file.id, text: '部分发现缺少变更归因，仅校验了定位，尚不能确认属于本次回归' });
-      report.limitations.push(...result.limitations.map(text => ({ fileId: file.id, text })));
+
       state.status = 'completed';
     } catch (error) {
       state.status = signal?.aborted ? 'cancelled' : 'failed';

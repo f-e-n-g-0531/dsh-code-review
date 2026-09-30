@@ -25,12 +25,14 @@ test('optional verification shares model budget and retains candidates on exhaus
 test('generation and verification receive same timeout signal', async () => {
   let first; let calls = 0; let cleaned = false;
   const report = await reviewSnapshot(snapshot, async ({ signal }) => {
-    if (++calls === 1) { first = signal; return generated; }
+    if (++calls === 1) { first = signal; return { ...generated, limitations: ['Missing caller context'] }; }
     assert.equal(signal, first);
     await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
     cleaned = true; throw signal.reason;
   }, { ...options, timeoutMs: 30 });
   assert.equal(cleaned, true); assert.equal(report.status, 'failed');
+  assert.ok(report.limitations.some(l => l.text === 'Missing caller context'));
+  assert.ok(report.limitations.some(l => l.text.includes('缺少变更归因')));
   assert.equal(report.findings.length, 1);
   assert.equal(report.findings[0].verification.status, 'incomplete');
 });
@@ -39,6 +41,7 @@ test('uncertain verdict is retained without rewriting candidate anchor', async (
   const report = await reviewSnapshot(snapshot, async () => ++calls === 1 ? generated : { verdicts: [{ candidateId: 'c1', verdict: 'uncertain', reason: 'Need more context', evidence: [] }] }, options);
   assert.equal(report.modelCalls, 2);
   assert.equal(report.findings[0].verification.verdict, 'uncertain');
+  assert.ok(report.limitations.some(l => l.text.includes('仍不确定')));
   assert.deepEqual(report.findings[0].anchor, { kind: 'file' });
   assert.match(markdownReport(report), /复核状态：不确定/);
 });
