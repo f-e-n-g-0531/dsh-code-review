@@ -1,6 +1,25 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createSnapshotReader } from '../src/snapshot-reader.mjs';
+test('literal search shares call and serialized output budgets with reads', () => {
+  const reader = createSnapshotReader('s', [{ id: 'f', text: 'a.*\na.*\n' }], { maxCalls: 2 });
+  const result = reader.search({ query: '.*', limit: 1 });
+  assert.equal(result.matches[0].line, 1);
+  assert.equal(result.truncated, true);
+  reader.read({ id: 'f', start: 1, count: 1 });
+  assert.equal(reader.usage().calls, 2);
+  assert.throws(() => reader.search({ query: 'a' }), /call budget/);
+  const small = createSnapshotReader('s', [], { maxOutputBytes: 1 });
+  assert.throws(() => small.search({ query: 'x' }), /output budget/);
+});
+test('cancellation prevents further reads and searches', () => {
+  const controller = new AbortController();
+  const reader = createSnapshotReader('s', [], { signal: controller.signal });
+  controller.abort(new Error('stopped'));
+  assert.throws(() => reader.search({ query: 'x' }), /stopped/);
+  assert.throws(() => reader.read({ id: 'f', start: 1, count: 1 }), /stopped/);
+  assert.equal(reader.usage().calls, 0);
+});
 test('reader returns immutable snapshot text and source provenance', () => {
   const entries = [{ id: 'f:new', text: 'one\r\ntwo\nthree' }];
   const reader = createSnapshotReader('s1', entries);

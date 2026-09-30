@@ -1,10 +1,21 @@
 import { createHash } from 'node:crypto';
 
 // This capability reads only caller-approved text entries, never the filesystem.
-export function createSnapshotReader(snapshotId, entries, { maxBytes = 4 * 1024 * 1024 } = {}) {
+export function createSnapshotReader(snapshotId, entries, { maxBytes = 4 * 1024 * 1024, maxCalls = 50, maxOutputBytes = 256 * 1024, signal } = {}) {
   if (typeof snapshotId !== 'string' || !snapshotId || snapshotId.length > 200) throw new Error('Invalid snapshot identity');
   if (!Number.isSafeInteger(maxBytes) || maxBytes < 1 || maxBytes > 16 * 1024 * 1024) throw new Error('Invalid reader budget');
   if (!Array.isArray(entries) || entries.length > 500) throw new Error('Invalid reader entries');
+  for (const [value, cap] of [[maxCalls, 1000], [maxOutputBytes, 4 * 1024 * 1024]]) if (!Number.isSafeInteger(value) || value < 1 || value > cap) throw new Error('Invalid reader budget');
+  signal?.throwIfAborted();
+  let calls = 0, outputBytes = 0;
+  const begin = () => { signal?.throwIfAborted(); if (calls >= maxCalls) throw new Error('Reader call budget exceeded'); calls++; };
+  const finish = result => {
+    signal?.throwIfAborted();
+    const size = Buffer.byteLength(JSON.stringify(result));
+    if (size > 64 * 1024 || outputBytes + size > maxOutputBytes) throw new Error('Reader output budget exceeded');
+    outputBytes += size;
+    return result;
+  };
   const sources = new Map();
   let bytes = 0;
   for (const entry of entries) {
@@ -14,7 +25,24 @@ export function createSnapshotReader(snapshotId, entries, { maxBytes = 4 * 1024 
     sources.set(entry.id, { text: entry.text, hash: createHash('sha256').update(entry.text).digest('hex') });
   }
   return Object.freeze({
+    usage: () => ({ calls, outputBytes }),
+    search({ query, limit = 20 }) {
+      begin();
+      if (typeof query !== 'string' || !query || query.length > 256 || /[\r\n]/.test(query) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid search request');
+      const matches = [];
+      for (const [id, source] of sources) {
+        signal?.throwIfAborted();
+        const lines = source.text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+        for (let i = 0; i < lines.length; i++) {
+          if (!lines[i].includes(query)) continue;
+          if (matches.length === limit) return finish({ snapshotId, matches, truncated: true });
+          matches.push({ sourceId: id, hash: source.hash, line: i + 1 });
+        }
+      }
+      return finish({ snapshotId, matches, truncated: false });
+    },
     read({ id, start, count }) {
+      begin();
       if (!sources.has(id)) throw new Error('Source not authorized');
       if (!Number.isSafeInteger(start) || start < 1 || !Number.isSafeInteger(count) || count < 1 || count > 200) throw new Error('Invalid line range');
       const source = sources.get(id);
@@ -23,7 +51,7 @@ export function createSnapshotReader(snapshotId, entries, { maxBytes = 4 * 1024 
       const selected = lines.slice(start - 1, start - 1 + count);
       const text = selected.join('');
       if (Buffer.byteLength(text) > 64 * 1024) throw new Error('Reader output budget exceeded');
-      return { snapshotId, sourceId: id, hash: source.hash, start, count: selected.length, text, endOfSource: start - 1 + selected.length === lines.length };
+      return finish({ snapshotId, sourceId: id, hash: source.hash, start, count: selected.length, text, endOfSource: start - 1 + selected.length === lines.length });
     },
   });
 }
