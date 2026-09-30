@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "kind": "synthetic",
+  "hashEncoding": "utf8-lf",
+  "warning": "Local ground truth; never send this manifest to the review model.",
+  "cases": [
+    {
+      "id": "lifecycle-regression",
+      "expectedRegression": true,
+      "inputs": [
+        {
+          "role": "before",
+          "path": "lifecycle/before.mjs",
+          "sha256": "45b00f24a578babf591794433ea866d044cf45336c00d226d8ab4f9ce3634b89"
+        },
+        {
+          "role": "after",
+          "path": "lifecycle/after.mjs",
+          "sha256": "5ed3506281d8023cccb1e0b5e6b856286255db71e48a6c7dd51dac970e752774"
+        },
+        {
+          "role": "context",
+          "path": "lifecycle/contract.txt",
+          "sha256": "9305b8a7edb2c662b458efe869c097de6b772d4b04771c5fad2aafba1f03f9b8"
+        }
+      ]
+    },
+    {
+      "id": "lifecycle-control",
+      "expectedRegression": false,
+      "inputs": [
+        {
+          "role": "before",
+          "path": "lifecycle/before.mjs",
+          "sha256": "45b00f24a578babf591794433ea866d044cf45336c00d226d8ab4f9ce3634b89"
+        },
+        {
+          "role": "after",
+          "path": "lifecycle/guarded.mjs",
+          "sha256": "d92296e95894f939588b7c8d687688cc84df3c58a0866832eee1a06617ac440d"
+        },
+        {
+          "role": "context",
+          "path": "lifecycle/contract.txt",
+          "sha256": "9305b8a7edb2c662b458efe869c097de6b772d4b04771c5fad2aafba1f03f9b8"
+        }
+      ]
+    },
+    {
+      "id": "stale-result-regression",
+      "expectedRegression": true,
+      "inputs": [
+        {
+          "role": "before",
+          "path": "stale-result/before.mjs",
+          "sha256": "67934512bb42c24165cc95f41cf755b9b7cb4b9398e17c94aed2f00b61f8286d"
+        },
+        {
+          "role": "after",
+          "path": "stale-result/after.mjs",
+          "sha256": "6e91c12502e395328a0d179fc65d60a5790d25f77f21bc8a98e839a3b4a18b89"
+        },
+        {
+          "role": "context",
+          "path": "stale-result/contract.txt",
+          "sha256": "7594574385313df3fc9d6dc4744e1103a7523e781bd33c8d216d55f718c2ce30"
+        }
+      ]
+    },
+    {
+      "id": "stale-result-control",
+      "expectedRegression": false,
+      "inputs": [
+        {
+          "role": "before",
+          "path": "stale-result/before.mjs",
+          "sha256": "67934512bb42c24165cc95f41cf755b9b7cb4b9398e17c94aed2f00b61f8286d"
+        },
+        {
+          "role": "after",
+          "path": "stale-result/guarded.mjs",
+          "sha256": "2cf46d91e715af15ee249a1e9cc5ccb7c08cec4c7186f4f0e787d8b05d7ebf7e"
+        },
+        {
+          "role": "context",
+          "path": "stale-result/contract.txt",
+          "sha256": "7594574385313df3fc9d6dc4744e1103a7523e781bd33c8d216d55f718c2ce30"
+        }
+      ]
+    }
+  ]
+}

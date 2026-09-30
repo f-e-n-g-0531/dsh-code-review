@@ -1,0 +1,1 @@
+createLoader manages a selected value. The most recently started load owns permission to update value; an older request completing later must not replace the newer selection. Assume fetchValue resolves successfully.

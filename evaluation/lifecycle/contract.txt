@@ -1,0 +1,1 @@
+useResource acquires a resource and runs work. Every successfully acquired resource must be closed once when work settles, including rejection. Assume close succeeds. Successful work returns its result; failed work propagates its error.
