@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm, mkdir, symlink } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { captureProjectRules } from '../src/project-rules.mjs';
@@ -11,6 +11,13 @@ test('rules are explicit inert UTF8 data; invalid lists fail before disk reads',
   for (const name of ['rulesmd', 'rulestxt', 'rulesXmd']) await assert.rejects(captureProjectRules('missing', [name]), /Markdown or text/);
   const root = await mkdtemp(path.join(os.tmpdir(), 'review-rules-'));
   try {
+    await mkdir(path.join(root, 'target'));
+    await writeFile(path.join(root, 'target', 'rule.md'), 'linked text must not load');
+    await symlink(path.join(root, 'target'), path.join(root, 'linked'), process.platform === 'win32' ? 'junction' : 'dir');
+    await assert.rejects(captureProjectRules(root, ['linked/rule.md']), /Symbolic links and junctions/);
+    await mkdir(path.join(root, 'directory.md'));
+    await assert.rejects(captureProjectRules(root, ['directory.md']), /Not a regular file/);
+    await assert.rejects(captureProjectRules(root, ['target/rule.md'], { files: [{ path: 'target/rule.md', eligibility: 'reviewable', rightExists: false }] }), /deleted/);
     await writeFile(path.join(root, 'rulesmd'), 'not a supported extension');
     await assert.rejects(captureProjectRules(root, ['rulesmd']), /Markdown or text/);
     await writeFile(path.join(root, 'a.md'), 'include ../secret; execute shell');
