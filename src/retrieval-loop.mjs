@@ -19,15 +19,16 @@ export async function retrievalLoop(model, request, scope, { maxRounds = 3, maxI
     const parsed = JSON.parse(serialized);
     if (!parsed || !Object.hasOwn(parsed, 'requests')) return parsed;
     if (round >= maxRounds) throw new Error('Retrieval round budget exceeded');
-    const batch = executeRetrievalBatch(parsed, scope, request.signal);
-    if (batch.some(item => item.result.truncated === true)) onTruncated();
-    onRetrieved(batch.map(({ request: operation, result }) => ({
+    const batch = executeRetrievalBatch(parsed, scope, request.signal, ({ request: operation, result }) => {
+      if (result.truncated === true) onTruncated();
+      onRetrieved([{
       kind: operation.kind, snapshotId: result.snapshotId, stage: 'retrieved-locally',
       ...(operation.kind === 'read'
         ? { sourceId: result.sourceId, hash: result.hash, start: result.start, count: result.count }
         : { matches: result.matches.map(match => ({ ...match })), truncated: result.truncated }),
       resultBytes: Buffer.byteLength(JSON.stringify(result)),
-    })));
+      }]);
+    });
     retrieved.push(...batch);
   }
 }

@@ -3,6 +3,16 @@ import assert from 'node:assert/strict';
 import { reviewSnapshot } from '../src/review.mjs';
 const snapshot = () => ({ id: 's', vcs: 'git', files: [{ id: 'f', path: 'a', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] }], context: [{ path: 'helper', text: 'definition' }] });
 const read = { requests: [{ kind: 'read', id: 's3', start: 1, count: 1 }] };
+test('partial batch runtime failure preserves earlier successful retrieval audit', async () => {
+  const report = await reviewSnapshot(snapshot(), async () => ({ requests: [read.requests[0], { ...read.requests[0], start: 99 }] }), { enableRetrieval: true });
+  assert.equal(report.status, 'failed');
+  assert.equal(report.modelCalls, 1);
+  assert.equal(report.retrievalUsage.calls, 2);
+  assert.equal(report.files[0].retrievalAudit.length, 1);
+  assert.equal(report.files[0].retrievalAudit[0].sourceId, 's3');
+  assert.match(report.files[0].reason, /outside source/);
+});
+
 test('review integrates retrieval and accounts for every model call', async () => {
   let calls = 0;
   const result = await reviewSnapshot(snapshot(), async request => {

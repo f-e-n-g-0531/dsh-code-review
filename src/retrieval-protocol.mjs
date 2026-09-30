@@ -16,13 +16,15 @@ export function parseRetrievalResponse(response) {
   return value.requests;
 }
 
-export function executeRetrievalBatch(response, scope, signal) {
+export function executeRetrievalBatch(response, scope, signal, onResult = () => {}) {
   signal?.throwIfAborted();
   const requests = parseRetrievalResponse(response);
   const allowed = new Set(scope.catalog().map(item => item.id));
   if (requests.some(r => r.kind === 'read' && !allowed.has(r.id))) throw new Error('Source not authorized');
   return requests.map(request => {
     signal?.throwIfAborted();
-    return { request, result: request.kind === 'read' ? scope.read(request) : scope.search(request) };
+    const item = { request, result: request.kind === 'read' ? scope.read(request) : scope.search(request) };
+    onResult(item);
+    return item;
   });
 }
