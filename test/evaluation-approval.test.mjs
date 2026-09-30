@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+import { createReviewService } from '../src/service.mjs';
+import { prepareEvaluationSnapshot } from '../evaluation/prepare-snapshot.mjs';
+const root = fileURLToPath(new URL('../evaluation/', import.meta.url));
+const manifest = JSON.parse(await readFile(new URL('../evaluation/manifest.json', import.meta.url), 'utf8'));
+test('synthetic capture does not bypass disabled, unconfirmed or denied model sending', async t => {
+  let calls = 0, approvals = 0;
+  const llm = { async *stream() { calls++; throw new Error('Unexpected model call'); } };
+  const capture = async () => ({ ...await prepareEvaluationSnapshot(root, manifest.cases[0]), root });
+  const exec = { agent: { session: { header: { cwd: root } }, options: { provider: 'fake', model: 'fake' } } };
+  const disabled = createReviewService(llm, { capture });
+  t.after(() => disabled.dispose());
+  const p = await disabled.preview({}, exec);
+  await assert.rejects(disabled.execute({ previewId: p.previewId, confirmed: true }, exec), /disabled/);
+  const denied = createReviewService(llm, { capture, allowModelSending: true, authorize: async ({ snapshot }) => {
+    approvals++;
+    assert.equal(snapshot.origin, 'synthetic-evaluation');
+    assert.equal(snapshot.context[0].path, 'contract.txt');
+    return false;
+  } });
+  t.after(() => denied.dispose());
+  const q = await denied.preview({}, exec);
+  assert.equal(calls, 0); assert.equal(approvals, 0);
+  await assert.rejects(denied.execute({ previewId: q.previewId, confirmed: false }, exec), /Confirmed/);
+  assert.equal(approvals, 0);
+  await assert.rejects(denied.execute({ previewId: q.previewId, confirmed: true }, exec), /approval denied/);
+  assert.equal(approvals, 1); assert.equal(calls, 0);
+  await assert.rejects(denied.execute({ previewId: q.previewId, confirmed: true }, exec), /Preview missing/);
+});
