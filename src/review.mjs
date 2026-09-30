@@ -1,4 +1,6 @@
 import { hash } from './content.mjs';
+import { inferTestRelations } from './file-relations.mjs';
+import { buildReviewGroups } from './review-groups.mjs';
 import { changeMap } from './change-map.mjs';
 import { createRetrievalScope } from './retrieval-scope.mjs';
 import { retrievalLoop } from './retrieval-loop.mjs';
@@ -73,6 +75,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   }
   const scope = options.enableRetrieval === true ? createRetrievalScope({ ...input, context: input.context ?? [] }, { signal }) : null;
   const report = { schemaVersion: 1, snapshotId: input.id, vcs: input.vcs, status: 'completed', files: [], findings: [], limitations: [], modelCalls: 0 };
+  if (options.enableGrouping === true) report.grouping = buildReviewGroups(input.files, inferTestRelations(input.files));
   for (const file of input.files) {
     const state = { fileId: file.id, path: file.path, status: file.eligibility === 'reviewable' ? 'pending' : file.eligibility, reason: file.reason };
     report.files.push(state);
@@ -81,7 +84,22 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     if (report.modelCalls >= maxCalls) { state.reason = '模型调用预算耗尽'; continue; }
     const changes = changeMap(file.left.text, file.right.text);
     if (changes.status === 'limited') report.limitations.push({ fileId: file.id, text: '精确变更分析受限：' + changes.reason + '；仍按完整两侧内容审查' });
-    const payload = JSON.stringify({ snapshotId: input.id, file, changes, context: input.context ?? [] });
+    const base = { snapshotId: input.id, file, changes, context: input.context ?? [] };
+    let payload = JSON.stringify(base);
+    const group = report.grouping?.groups.find(g => g.fileIds.includes(file.id));
+    if (group) {
+      state.groupId = group.id;
+      const relatedFiles = input.files.filter(f => f.id !== file.id && group.fileIds.includes(f.id));
+      if (relatedFiles.length) {
+        const grouped = JSON.stringify({ ...base, relatedFiles, relationNotice: '命名关系仅为提示；只报告主file的问题，不为relatedFiles重复生成发现。' });
+        if (Buffer.byteLength(grouped) + Buffer.byteLength(REVIEW_INSTRUCTIONS) <= maxInputBytes) {
+          payload = grouped; state.relatedFileIds = relatedFiles.map(f => f.id);
+        } else {
+          state.groupFallback = 'input-budget';
+          report.limitations.push({ fileId: file.id, text: '关联组上下文超过输入预算，回退单文件审查' });
+        }
+      }
+    }
     if (Buffer.byteLength(payload) + Buffer.byteLength(REVIEW_INSTRUCTIONS) > maxInputBytes) { state.status = 'blocked'; state.reason = '输入超过预算，未截断或提交模型'; continue; }
     try {
       const beforeCall = () => {
