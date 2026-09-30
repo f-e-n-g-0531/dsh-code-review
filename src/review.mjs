@@ -89,7 +89,9 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         report.modelCalls++;
       };
       const executor = scope
-        ? request => retrievalLoop(model, request, scope, { maxInputBytes, beforeCall, onTruncated: () => {
+        ? request => retrievalLoop(model, request, scope, { maxInputBytes, beforeCall, onRetrieved: records => {
+          (state.retrievalAudit ??= []).push(...records);
+        }, onTruncated: () => {
           if (!state.retrievalTruncated) report.limitations.push({ fileId: file.id, text: '检索结果达到数量上限，部分匹配未提供给模型' });
           state.retrievalTruncated = true;
         } })
@@ -110,7 +112,10 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   report.status = signal?.aborted ? 'cancelled' : unfinished || report.limitations.length ? 'partial' : 'completed';
   if (report.files.some(f => f.status === 'failed') && !report.files.some(f => f.status === 'completed')) report.status = signal?.aborted ? 'cancelled' : 'failed';
   report.coverage = Object.fromEntries(['completed', 'excluded', 'blocked', 'failed', 'cancelled', 'pending'].map(s => [s, report.files.filter(f => f.status === s).length]));
-  if (scope) report.retrievalUsage = scope.usage();
+  if (scope) {
+    report.retrievalUsage = scope.usage();
+    report.retrievalSources = scope.catalog();
+  }
   return report;
 }
 const safe = text => Array.from(String(text ?? '')).map(c => {

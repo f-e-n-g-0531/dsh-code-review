@@ -13,11 +13,18 @@ test('review integrates retrieval and accounts for every model call', async () =
   }, { enableRetrieval: true });
   assert.equal(result.status, 'completed'); assert.equal(result.modelCalls, 2);
   assert.equal(result.retrievalUsage.calls, 1);
+  const audit = result.files[0].retrievalAudit[0];
+  assert.equal(audit.sourceId, 's3');
+  assert.equal(audit.stage, 'retrieved-locally');
+  assert.match(audit.hash, /^[0-9a-f]{64}$/);
+  assert.equal(audit.text, undefined);
+  assert.equal(result.retrievalSources.find(s => s.id === audit.sourceId).path, 'helper');
 });
 test('global call limit stops retrieval follow-up and preserves failure state', async () => {
   const result = await reviewSnapshot(snapshot(), async () => read, { enableRetrieval: true, maxCalls: 1 });
   assert.equal(result.modelCalls, 1); assert.equal(result.status, 'failed');
   assert.match(result.files[0].reason, /call budget/);
+  assert.equal(result.files[0].retrievalAudit[0].stage, 'retrieved-locally');
 });
 test('one timeout spans the entire retrieval loop and awaits cancellation', async () => {
   let calls = 0;
