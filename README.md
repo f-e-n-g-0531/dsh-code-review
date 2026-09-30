@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-当前代码版本为 0.3.0，发布状态以 npm 和 GitHub Release 为准。已通过真实临时 Git/SVN 仓库测试，以及隔离进程中的真实 DSH ToolRuntime 注册验证。尚未在当前 GUI 安装；尚未完成真实模型质量评估。
+当前代码版本为 0.3.1，发布状态以 npm 和 GitHub Release 为准。已通过真实临时 Git/SVN 仓库测试，以及隔离进程中的真实 DSH ToolRuntime 注册验证。尚未在当前 GUI 安装；尚未完成真实模型质量评估。
 
 ## 环境
 
