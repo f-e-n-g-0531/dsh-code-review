@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { buildCoveragePlan } from './coverage-plan.mjs';
+import { createRetrievalScope } from './retrieval-scope.mjs';
+import { buildReviewGroups } from './review-groups.mjs';
+import { inferTestRelations } from './file-relations.mjs';
 import { captureSnapshot } from './snapshot.mjs';
-import { reviewSnapshot, markdownReport } from './review.mjs';
+import { reviewSnapshot, markdownReport, REVIEW_INSTRUCTIONS } from './review.mjs';
 import { createDshModel } from './dsh-model.mjs';
 
 function owner(exec) {
@@ -30,11 +34,12 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
         const snapshot = await capture(current.cwd, { ...options, signal: exec.signal });
         exec.signal?.throwIfAborted();
         if (owner(exec).cwd !== current.cwd) throw new Error('Agent directory changed; preview again');
+        const plan = buildCoveragePlan(snapshot, { instructions: REVIEW_INSTRUCTIONS, scope: createRetrievalScope(snapshot, { signal: exec.signal }), grouping: buildReviewGroups(snapshot.files, inferTestRelations(snapshot.files)), maxInputBytes: 96 * 1024, signal: exec.signal });
         prune();
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
         previews.set(previewId, { ...current, options, snapshotId: snapshot.id, expires: now() + ttlMs });
-        return { previewId, snapshotId: snapshot.id, repositoryRoot: snapshot.root, vcs: snapshot.vcs, model: current.route, modelSendingEnabled: allowModelSending, files: snapshot.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason })), contextPaths: snapshot.context.map(c => c.path), rules: (snapshot.rules ?? []).map(({ path, hash }) => ({ path, hash })), notice: '执行会向上述模型提供方发送可审查文件两侧内容、显式上下文及所选项目规则全文。模型可在该快照范围内多轮只读检索，不读取范围外文件；候选生成后会进行证据与反证复核，两阶段各最多3轮检索，共享每文件120秒和总模型调用100次预算；复核不能证明缺陷成立。请先向用户展示范围，获得确认后执行。' };
+        return { previewId, plan, snapshotId: snapshot.id, repositoryRoot: snapshot.root, vcs: snapshot.vcs, model: current.route, modelSendingEnabled: allowModelSending, files: snapshot.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason })), contextPaths: snapshot.context.map(c => c.path), rules: (snapshot.rules ?? []).map(({ path, hash }) => ({ path, hash })), notice: '执行会向上述模型提供方发送可审查文件两侧内容、显式上下文及所选项目规则全文。模型可在该快照范围内多轮只读检索，不读取范围外文件；候选生成后会进行证据与反证复核，两阶段各最多3轮检索，共享每文件120秒和总模型调用100次预算；复核不能证明缺陷成立。plan仅预检初始输入，ready不代表已审查；minimumCalls不含后续检索/复核，实际预算可能不足。请先向用户展示范围，获得确认后执行。' };
       } finally { busy = false; }
     },
     async execute(args, exec) {

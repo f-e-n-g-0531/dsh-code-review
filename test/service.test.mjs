@@ -18,10 +18,10 @@ test('rule selection is previewed and authorized before sending', async () => {
     assert.equal(s.rules[0].hash, rule.hash); approved = true; return true;
   } });
   const e = exec(), p = await service.preview({ rulePaths: ['rules.md'] }, e);
-  assert.equal(calls, 0); assert.deepEqual(p.rules, [{ path: rule.path, hash: rule.hash }]);
+  assert.equal(calls, 0); assert.equal(p.plan.minimumCalls, 1); assert.equal(p.plan.items[0].status, 'ready'); assert.ok(!JSON.stringify(p.plan).includes('RULE_TEXT')); assert.deepEqual(p.rules, [{ path: rule.path, hash: rule.hash }]);
   assert.match(p.notice, /规则全文/);
   const result = await service.execute({ previewId: p.previewId, confirmed: true }, e);
-  assert.equal(calls, 1); assert.deepEqual(result.report.rules, p.rules);
+  assert.equal(calls, 1); assert.equal(result.report.files[0].initialInputBytes, p.plan.items[0].initialInputBytes); assert.deepEqual(result.report.rules, p.rules);
   assert.match(result.markdown, /fixture-hash/);
   assert.ok(!result.markdown.includes('RULE_TEXT'));
 });
