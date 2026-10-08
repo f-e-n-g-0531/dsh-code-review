@@ -26,7 +26,7 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
       exec = bind(exec);
       exec.signal.throwIfAborted();
       if (busy) throw new Error('Review service busy');
-      if (!args || Object.keys(args).some(k => !['repositoryPath', 'selectedPaths', 'contextPaths', 'rulePaths', 'autoContext'].includes(k))) throw new Error('Unknown preview argument');
+      if (!args || Object.keys(args).some(k => !['repositoryPath', 'selectedPaths', 'contextPaths', 'rulePaths', 'autoContext', 'commit', 'baseRevision', 'targetRevision'].includes(k))) throw new Error('Unknown preview argument');
       if (args.autoContext !== undefined && typeof args.autoContext !== 'boolean') throw new Error('Invalid autoContext option');
       for (const key of ['selectedPaths', 'contextPaths', 'rulePaths']) if (args[key] !== undefined && (!Array.isArray(args[key]) || args[key].length > (key === 'rulePaths' ? 4 : 200) || args[key].some(p => typeof p !== 'string'))) throw new Error('Invalid path list');
       const current = owner(exec);
@@ -42,7 +42,7 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
         previews.set(previewId, { ...current, target, options, snapshotId: snapshot.id, expires: now() + ttlMs });
-        return { previewId, plan, snapshotId: snapshot.id, repositoryRoot: snapshot.root, vcs: snapshot.vcs, model: current.route, modelSendingEnabled: allowModelSending, files: snapshot.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason })), contextPaths: snapshot.context.map(c => c.path), ...(snapshot.autoContext ? { autoContext: snapshot.autoContext } : {}), rules: (snapshot.rules ?? []).map(({ path, hash }) => ({ path, hash })), notice: (enableRiskPlanning ? '执行先制定风险假设计划，再审查并复核；计划不是证据，所有阶段共享原预算。' : '') + '执行会向上述模型提供方发送可审查文件两侧内容、预览列出的显式/自动上下文及所选项目规则全文。模型可在该快照范围内多轮只读检索，不读取范围外文件；候选生成后会进行证据与反证复核，两阶段各最多3轮检索，共享每文件120秒和总模型调用100次预算；复核不能证明缺陷成立。plan仅预检初始输入，ready不代表已审查；minimumCalls不含后续检索/复核/动态业务综合；多文件可先进行业务分组，分组失败保留原组并记录限制，动态综合数执行前未知，实际预算可能不足。请先向用户展示范围，获得确认后执行。' };
+        return { previewId, plan, snapshotId: snapshot.id, repositoryRoot: snapshot.root, vcs: snapshot.vcs, ...(snapshot.history ? { history: snapshot.history } : {}), model: current.route, modelSendingEnabled: allowModelSending, files: snapshot.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason })), contextPaths: snapshot.context.map(c => c.path), ...(snapshot.autoContext ? { autoContext: snapshot.autoContext } : {}), rules: (snapshot.rules ?? []).map(({ path, hash }) => ({ path, hash })), notice: (enableRiskPlanning ? '执行先制定风险假设计划，再审查并复核；计划不是证据，所有阶段共享原预算。' : '') + '执行会向上述模型提供方发送可审查文件两侧内容、预览列出的显式/自动上下文及所选项目规则全文。模型可在该快照范围内多轮只读检索，不读取范围外文件；候选生成后会进行证据与反证复核，两阶段各最多3轮检索，共享每文件120秒和总模型调用100次预算；复核不能证明缺陷成立。plan仅预检初始输入，ready不代表已审查；minimumCalls不含后续检索/复核/动态业务综合；多文件可先进行业务分组，分组失败保留原组并记录限制，动态综合数执行前未知，实际预算可能不足。请先向用户展示范围，获得确认后执行。' };
       } finally { busy = false; }
     },
     async execute(args, exec) {

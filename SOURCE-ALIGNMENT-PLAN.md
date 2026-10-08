@@ -16,6 +16,10 @@
 
 A 语言指引（0.18.0）；B 风险计划及业务分组；C 必要上下文；D 定位纠正；E Git提交/区间。每批发布核验后进下一批，不继续堆未发布代码。预计2+6+5+4+5轮，余量2轮；超出上限时诚实报告未完项。
 
+## 轮次26：历史工具入口
+
+注册commit或baseRevision/targetRevision接对象捕获，预览显示解析端点，执行原选项复捕获hash拒绝引用变化，报告JSON/Markdown保留语义；历史上下文/规则组合明确拒绝，SVN不支持。真实服务dirty源不发、预览零调用、执行1调用及不outdated，全量251宿主离线通过。测试首流无finish失败，修fixture标准协议未放宽生产。冻结0.22.0，目标侧上下文待接。
+
 ## 轮次24：历史对象快照
 
 低层captureGitHistory实现commit/range精确端点树对象捕获，无工作树读取/checkout/fetch。根提交空侧，merge单提交拒绝要求显式端点。链接/submodule阻塞，mode-only排除，重命名增删明确元数据。1MiB/10000树项，200变化/256KiB每文件/4MiB快照，ref参数校验与取消。真实Git根/commit/range/dirty不泄漏/稳定hash/状态不变，251通过。注册/历史上下文待接，不冒充SVN。冻结0.21.1。

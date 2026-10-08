@@ -93,6 +93,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     report.autoContext = structuredClone(input.autoContext);
     if (input.autoContext.truncated || input.autoContext.candidates.some(c => c.status === 'blocked')) report.limitations.push({ text: '自动上下文未完全捕获：存在截断或阻塞，仅实际捕获路径可用于证据。' });
   }
+  if (input.history) report.history = structuredClone(input.history);
   report.rules = (input.rules ?? []).map(({ path, hash }) => ({ path, hash }));
   if (options.enableGrouping === true) report.grouping = buildReviewGroups(input.files, inferFileRelations(input.files));
   report.interactions = [];
@@ -251,6 +252,7 @@ const safe = text => Array.from(String(text ?? '')).map(c => {
 export function markdownReport(report) {
   const output = ['# Code Review 报告', '', '状态：' + report.status, '快照：' + report.snapshotId, '', '## 覆盖情况'];
   for (const file of report.files) for (const correction of file.anchorCorrections ?? []) output.push('- 定位纠正：' + safe(correction.originalCandidate.fileId) + ' · ' + safe(correction.status) + ' · ' + safe(correction.reason) + '；原完整候选保留JSON，仅定位不证明因果');
+  if (report.history) output.push('- Git历史审查：' + safe(report.history.mode) + ' · ' + safe(report.history.base ?? 'empty') + ' → ' + safe(report.history.target) + '；精确端点树差异，重命名按增删，不含工作树');
   if (report.businessGrouping) output.push('- 业务分组：' + safe(report.businessGrouping.status) + (report.businessGrouping.reason ? ' — ' + safe(report.businessGrouping.reason) : '') + '；仅调度假设，不证明依赖或覆盖');
   for (const file of report.files) for (const plan of file.riskPlans ?? []) output.push('- 风险计划：' + safe(file.path) + ' · ' + safe(plan.status) + ' · ' + plan.risks.length + '项待证假设；不表示缺陷成立或覆盖完成');
   for (const file of report.files) output.push('- ' + safe(file.path) + '：' + file.status + (file.reason ? ' — ' + safe(file.reason) : ''));

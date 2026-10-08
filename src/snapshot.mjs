@@ -2,6 +2,7 @@ import { gitContextIndex, svnContextIndex } from './tracked-context.mjs';
 import { contextCandidates } from './context-candidates.mjs';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
+import { captureGitHistory } from './git-history.mjs';
 import { captureGit } from './git.mjs';
 import { captureProjectRules } from './project-rules.mjs';
 import { captureSvn } from './svn.mjs';
@@ -29,6 +30,12 @@ export async function captureSnapshot(cwd, options = {}) {
   for (const name of contextPaths) relativePath(name);
   if (options.autoContext !== undefined && typeof options.autoContext !== 'boolean') throw new Error('Invalid autoContext option');
   const type = await detectVcs(cwd);
+  if (['commit','baseRevision','targetRevision'].some(k => options[k] !== undefined)) {
+    if (type !== 'git') throw new Error('Git revision review is unsupported on SVN');
+    if (!Array.isArray(rulePaths) || contextPaths.length || rulePaths.length || options.autoContext === true) throw new Error('Historical context/rules not yet supported; do not mix working-tree sources');
+    const result = { ...await captureGitHistory(cwd, options), context: [] }; delete result.id;
+    return { ...result, id: hash(JSON.stringify(result)) };
+  }
   const capture = type === 'git' ? captureGit : captureSvn;
   const snapshot = await capture(cwd, options);
   if (!Array.isArray(rulePaths) || rulePaths.some(name => contextPaths.includes(name))) throw new Error('Rule paths must be separate from context paths');
