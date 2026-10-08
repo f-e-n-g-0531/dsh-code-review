@@ -6,7 +6,7 @@ export function groupDuplicateFindings(findings) {
     if (a?.status !== 'references-validated' || v?.status !== 'completed' || v.verdict !== 'supported' || !v.evidence?.length || v.evidence.some(e => e.status !== 'references-validated')) continue;
     // Require the entire exact evidence set, not mere overlap/transitive similarity.
     const evidence = v.evidence.map(e => JSON.stringify([e.snapshotId, e.sourceId, e.hash, e.start, e.count, e.text])).sort();
-    const key = JSON.stringify([f.severity, f.trigger, f.impact, a.beforeBehavior, a.afterBehavior, a.reason, v.reason, evidence]);
+    const key = JSON.stringify([f.severity, f.title, f.evidence, f.suggestion, f.trigger, f.impact, a.beforeBehavior, a.afterBehavior, a.reason, v.reason, evidence]);
     if (!buckets.has(key)) buckets.set(key, []);
     buckets.get(key).push(index);
   }

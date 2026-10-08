@@ -1,4 +1,5 @@
 import { validateWindowFindings } from './window-findings.mjs';
+import { groupDuplicateFindings } from './finding-groups.mjs';
 import { hash } from './content.mjs';
 import { coverageFollowup } from './coverage-followup.mjs';
 import { verificationLoop } from './verification-loop.mjs';
@@ -159,6 +160,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     report.retrievalUsage = scope.usage();
     report.retrievalSources = scope.catalog();
   }
+  report.findingGroups = groupDuplicateFindings(report.findings);
   report.followup = coverageFollowup(report);
   return report;
 }
@@ -184,10 +186,22 @@ export function markdownReport(report) {
   if (report.followup?.suggestedPaths.length) output.push('', '## 后续选择建议', '仅为原快照未完成项；不会自动续审。再次执行需新预览、新审批，并显式选择规则和上下文。阻断项需先处理原因；关联上下文不等于主文件已审查。', ...report.followup.items.filter(item => item.followup).map(item => '- ' + safe(item.path) + '：' + item.status + (item.incompleteVerification ? '（候选复核未完成）' : '')));
   output.push('', '## 审查发现');
   if (!report.findings.length) output.push(report.status === 'completed' ? '在已审查范围内未发现具体问题；不代表代码已被证明正确。' : '当前没有有效问题记录，但审查存在未完成项或限制，不能视为通过。');
-  for (const finding of report.findings) {
+  // Recompute from exact data rather than trusting potentially stale group metadata.
+  const duplicates = new Map();
+  for (const group of groupDuplicateFindings(report.findings)) {
+    for (const index of group.findingIndices.slice(1)) duplicates.set(index, group.findingIndices[0]);
+  }
+  for (const [index, finding] of report.findings.entries()) {
     const a = finding.anchor;
     const location = a.kind === 'line' ? a.side + ':' + a.start + '-' + a.end : a.kind === 'property' ? '属性 ' + a.name : '文件级';
     output.push('', '### [' + finding.severity + '] ' + safe(finding.title), safe(finding.path) + ' · ' + safe(location));
+    if (duplicates.has(index)) {
+      output.push('- 重复报告候选：与第 ' + (duplicates.get(index) + 1) + ' 条共享完整已校验证据及解释；不证明根因成立。原始候选保留于JSON。');
+      output.push('- 本处变更引用：' + safe([...finding.attribution.editIds, ...finding.attribution.properties].join(', ')));
+      output.push('- 本处定位原文：' + safe(a.snippet ?? '文件或属性定位'));
+      output.push('- 复核状态：模型复核支持；完整证据同前述发现，不是事实或因果证明');
+      continue;
+    }
     const verification = finding.verification;
     if (verification) {
       const label = verification.status !== 'completed' ? '未完成' : ({ supported: '模型复核支持', refuted: '模型复核反驳（保留候选供追溯）', uncertain: '不确定' }[verification.verdict] ?? '未知');
