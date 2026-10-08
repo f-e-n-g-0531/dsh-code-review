@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.26.0
+
+- Shader/HLSL/GLSL/cginc/hlsli/compute直接字面include纳入有界自动上下文，不宏/条件展开，不编译搜索路径。
+- 专用坐标空间、精度/NaN、采样/资源绑定/pass变体缺陷指引；270测试通过，不保证编译或绑定。
+
 ## 0.25.3
 
 - 历史C#方法语法提示按侧使用明确捕获的oldText/目标text，标记contextSide/contextVersion；缺oldText不回退新定义。

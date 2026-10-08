@@ -10,7 +10,7 @@ export function contextCandidates(files, trackedPaths, {maxCandidates=20,onProbe
   relativePath(f.path);if(f.eligibility!=='reviewable'||f.rightExists===false)continue;
   const text=f.right?.text;if(typeof text!=='string'||Buffer.byteLength(text)>256*1024)continue;
   if(text.includes('/*')||text.includes(String.fromCharCode(96))||text.includes('R"')||/\\\r?\n/.test(text))continue;
-  const cpp=/\.(c|cc|cpp|cxx|h|hh|hpp|hxx)$/i.test(f.path),js=/\.(mjs|cjs|js|jsx|ts|tsx)$/i.test(f.path);
+  const cpp=/\.(c|cc|cpp|cxx|h|hh|hpp|hxx|shader|hlsl|glsl|cginc|hlsli|compute)$/i.test(f.path),js=/\.(mjs|cjs|js|jsx|ts|tsx)$/i.test(f.path);
   if(cpp&&/^\s*#\s*(if|ifdef|ifndef|elif|else|define|undef)\b/m.test(text))continue;
   for(const line of text.split('\n')){
    const match=cpp?/^\s*#\s*include\s*"([^"\\]+)"\s*(?:\/\/.*)?$/.exec(line):js?/^\s*(?:import\s+(?:(?:[^'";]+)\s+from\s+)?|export\s+(?:[^'";]+)\s+from\s+)(['"])([^'"\\]+)\1\s*;?\s*(?:\/\/.*)?$/.exec(line):null;
