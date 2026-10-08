@@ -207,6 +207,7 @@ const safe = text => Array.from(String(text ?? '')).map(c => {
 }).join('');
 export function markdownReport(report) {
   const output = ['# Code Review 报告', '', '状态：' + report.status, '快照：' + report.snapshotId, '', '## 覆盖情况'];
+  for (const file of report.files) for (const plan of file.riskPlans ?? []) output.push('- 风险计划：' + safe(file.path) + ' · ' + safe(plan.status) + ' · ' + plan.risks.length + '项待证假设；不表示缺陷成立或覆盖完成');
   for (const file of report.files) output.push('- ' + safe(file.path) + '：' + file.status + (file.reason ? ' — ' + safe(file.reason) : ''));
   if (report.grouping) {
     const names = new Map(report.files.map(f => [f.fileId, f.path]));
