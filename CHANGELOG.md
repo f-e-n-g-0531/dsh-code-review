@@ -1,5 +1,11 @@
 # 变更记录
 
+## 0.17.0
+
+- 按用户选择的DSH工具权限执行，注册入口不再重复approval.request，不再要求allowModelSending开关；仅依赖tools/llm。
+- 保留preview确认、不可变快照、范围只读、证据校验及调用读取生命周期预算；不把never当自动批准，不改宿主策略。
+- 真实ToolRuntime离线入口回归：未确认0调用，正常执行0额外审批、当前Agent路由及源码不变；不是GUI权限策略或真实模型质量证明。
+
 ## 0.16.1
 
 - 宿主effectivePolicy为never时明确解释自动拒绝与完整文件权限不等于外发批准；保留宿主请求与唯一allowed-once授权，不修改策略。
