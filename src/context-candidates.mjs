@@ -10,6 +10,10 @@ export function contextCandidates(files, trackedPaths, {maxCandidates=20,onProbe
   relativePath(f.path);if(f.eligibility!=='reviewable'||f.rightExists===false)continue;
   const text=f.right?.text;if(typeof text!=='string'||Buffer.byteLength(text)>256*1024)continue;
   if(text.includes('/*')||text.includes(String.fromCharCode(96))||text.includes('R"')||/\\\r?\n/.test(text))continue;
+  if(f.path.endsWith('.cs')&&!/["'\x60#]|\/\/|\busing\b|\bdynamic\b/.test(text)){
+   const namespaces=[...text.matchAll(/^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;\s*$/gm)];
+   if(namespaces.length===1){const lines=text.split('\n');for(let i=0;i<lines.length;i++){const call=/^\s*(?:await\s+)?([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*;\s*$/.exec(lines[i]);if(!call)continue;const token=new RegExp('\\b'+call[1]+'\\b');if(lines.some((line,j)=>j!==i&&token.test(line)))continue;const candidate=path.posix.join(path.posix.dirname(f.path),call[1]+'.cs');onProbe?.([candidate]);add(candidate,f.path,'same-directory-csharp-static-call');}}
+  }
   const cpp=/\.(c|cc|cpp|cxx|h|hh|hpp|hxx|shader|hlsl|glsl|cginc|hlsli|compute)$/i.test(f.path),js=/\.(mjs|cjs|js|jsx|ts|tsx)$/i.test(f.path);
   if(cpp&&/^\s*#\s*(if|ifdef|ifndef|elif|else|define|undef)\b/m.test(text))continue;
   for(const line of text.split('\n')){
