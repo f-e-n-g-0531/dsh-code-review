@@ -20,6 +20,10 @@ A 语言指引（0.18.0）；B 风险计划及业务分组；C 必要上下文�
 
 用户提交831240284be52aeaa727c3c6ae1509888b14ed68因前置全树元数据超限未模型审查。改diff-tree --raw --no-abbrev -z -r --no-renames精确端点，仅变更元数据；上下文/规则字面非递归ls-tree路径lookup32批、自动512探针，不扩大整树限。真实11000无关文件元数据>1MiB、四Shader小改捕获/哈希稳定/auto/rules/目录通配拒绝；266测试。冻结0.25.1。实际用户仓库未重跑，不声称该提交审核通过。
 
+## 轮次43：跨文件专用指导及复核复用
+
+复核interaction input没有语言检查，verification跨文件.m退回路径默认。按group fileId/path附defectGuidance，用已捕获正文，新/删除旧侧；复核按目录path复用。无源码复制/新读取调用，原input测量覆盖。271测试含ObjC和Shader交互元数据/复核1call。冻结0.26.1；caller和更多必要上下文未完成。
+
 ## 轮次42：Shader必要上下文与缺陷指引
 
 用户实际Shader场景发现generic指导和include未覆盖。增加shader/hlsl/glsl/cginc/hlsli/compute直接相对字面include导航，沿用范围/预算/条件宏和多行字符串拒绝。原创坐标/精度/采样/pass/绑定缺陷指导进入主输入1调用。270测试，冻结0.26.0。非编译器/搜索路径/全caller，剩余核心对齐未完成。

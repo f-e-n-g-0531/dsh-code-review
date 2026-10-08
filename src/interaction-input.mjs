@@ -1,3 +1,4 @@
+import { defectGuidance } from './defect-guidance.mjs';
 import { changeMap } from './change-map.mjs';
 
 // Pure navigation over one already approved snapshot. No source reads or model sends.
@@ -8,7 +9,7 @@ export function prepareInteractionInput(snapshot, group, measure) {
   if (matches.length !== 1 || matches[0].eligibility !== 'reviewable' || typeof matches[0].left?.text !== 'string' || typeof matches[0].right?.text !== 'string') throw new Error('Interaction file outside approved reviewable scope');
   const file = matches[0], changes = changeMap(file.left.text, file.right.text);
   if (changes.status !== 'changed' || changes.precision !== 'exact') return { fileId: file.id, path: file.path, unavailable: true };
-  return { fileId: file.id, path: file.path, edits: changes.edits.map(({ id, old, new: after }) => ({ id, old, new: after })) };
+  return { fileId: file.id, path: file.path, defectGuidance: defectGuidance(file.path,file.rightExists===false?file.left.text:file.right.text), edits: changes.edits.map(({ id, old, new: after }) => ({ id, old, new: after })) };
  });
  if (group.fileIds.filter(id => { const file = snapshot.files.find(f => f.id === id); return file.left.text !== file.right.text; }).length < 2) return { status: 'not-applicable', fileIds: [...group.fileIds] };
  if (files.some(f => f.unavailable)) return { status: 'blocked', reason: 'exact-edit-analysis-unavailable', fileIds: [...group.fileIds] };

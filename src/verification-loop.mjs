@@ -15,7 +15,7 @@ export async function verificationLoop(model, request, candidates, scope, option
   const ids = candidates.map((_, i) => 'c' + (i + 1));
   const envelope = request.input ? JSON.parse(request.input) : {};
   const rules = envelope.rules ?? [];
-  const input = JSON.stringify({ defectGuidance: [...new Set(candidates.map(f => scope.catalog().find(s => s.fileId === f.fileId)?.path).filter(Boolean))].map(path => envelope.file?.path === path && envelope.defectGuidance ? envelope.defectGuidance : defectGuidance(path)), rules, candidates: candidates.map((finding, i) => ({ candidateId: ids[i], finding })) });
+  const input = JSON.stringify({ defectGuidance: [...new Set(candidates.map(f => scope.catalog().find(s => s.fileId === f.fileId)?.path).filter(Boolean))].map(path => envelope.file?.path === path && envelope.defectGuidance ? envelope.defectGuidance : envelope.files?.find(f=>f.path===path)?.defectGuidance ?? defectGuidance(path)), rules, candidates: candidates.map((finding, i) => ({ candidateId: ids[i], finding })) });
   const receipts = createEvidenceReceipts(scope.read);
   const retrievalScope = { ...scope, read: receipts.read };
   const response = await retrievalLoop(model, { ...request, input, instructions: VERIFICATION_INSTRUCTIONS }, retrievalScope, options);
