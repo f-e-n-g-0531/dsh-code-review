@@ -53,6 +53,30 @@ test('multiple window batches share signal and preserve completed windows on bud
   assert.equal(complete.files[0].windowCoverage.completed.length, 2);
   assert.equal(complete.files[0].windowCoverage.pending.length, 0);
 });
+test('window cancellation and timeout await adapter cleanup and leave coverage pending', async () => {
+  for (const mode of ['cancel', 'timeout']) {
+    const controller = new AbortController(); let cleaned = false, calls = 0;
+    const report = await reviewSnapshot(snapshot(), async r => {
+      calls++;
+      const aborted = new Promise(resolve => r.signal.addEventListener('abort', resolve, { once: true }));
+      if (mode === 'cancel') controller.abort(Error('cancel'));
+      await aborted; cleaned = true; throw r.signal.reason;
+    }, { enableRetrieval: true, maxInputBytes: 12000, signal: controller.signal, timeoutMs: 20 });
+    assert.equal(cleaned, true); assert.equal(calls, 1);
+    assert.equal(report.files[0].windowCoverage.completed.length, 0);
+    assert.equal(report.files[0].windowCoverage.pending.length, 1);
+    assert.equal(report.status, mode === 'cancel' ? 'cancelled' : 'failed');
+  }
+});
+test('local deletion retains old-side anchor at original source line', async () => {
+  const s = snapshot(); s.files[0].right.text = s.files[0].left.text.slice(0, -6);
+  const report = await reviewSnapshot(s, async r => {
+    const p = JSON.parse(r.input); assert.equal(p.sourceMode, 'change-windows');
+    return { findings: [{ fileId: 'f', severity: 'medium', title: 'deleted protection', evidence: 'before removed', trigger: 'run', impact: 'failure', suggestion: 'restore', anchor: { kind: 'line', side: 'old', start: 2001, end: 2001, snippet: 'before' }, attribution: { editIds: ['e1'], properties: [], beforeBehavior: 'protected', afterBehavior: 'unprotected', reason: 'deleted' } }], limitations: [] };
+  }, { enableRetrieval: true, maxInputBytes: 12000 });
+  assert.equal(report.status, 'completed');
+  assert.equal(report.findings[0].anchor.side, 'old');
+});
 test('no approved retrieval or window input still too large blocks without a send', async () => {
   for (const options of [{ maxInputBytes: 12000 }, { enableRetrieval: true, maxInputBytes: 10 }]) {
     const report = await reviewSnapshot(snapshot(), () => assert.fail('unexpected send'), options);
