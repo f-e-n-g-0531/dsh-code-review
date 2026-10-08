@@ -1,3 +1,4 @@
+import { cppCallSites } from './cpp-call-sites.mjs';
 import { inferCsharpContext } from './csharp-context.mjs';
 import { inferImportRelations } from './import-relations.mjs';
 import { inferContextRelations } from './context-relations.mjs';
@@ -15,6 +16,10 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
   if (contextRelations.length) {
     base.contextRelations = contextRelations;
     base.contextRelationNotice = '导入/include/命名与调用位置仅为语法线索；可能被宏、构建搜索路径或同名局部变量影响，不证明绑定、可达性或因果。context为批准当前文本，不是old历史内容。';
+  }
+  if (/\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/.test(file.path)) {
+    const calls = ['old','new'].flatMap(side => cppCallSites((side === 'old' ? file.left : file.right).text).map(site => ({ ...site, side })));
+    if (calls.length) base.cppCallSites = calls;
   }
   const csharpHints = inferCsharpContext(input, file);
   if (csharpHints.length) { base.csharpContextHints = csharpHints; base.csharpContextNotice = '仅批准当前context的C#静态类型/方法语法位置；不证明语义绑定或执行可达，也不是旧侧历史上下文。歧义不推定，线索不增加审查覆盖。'; }

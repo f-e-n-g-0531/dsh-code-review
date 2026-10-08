@@ -7,6 +7,10 @@
 3. 批准显式上下文必要调用/生命周期位置与小样本反例，不冒充编译器或完整调用图。
 4. 全量/宿主只读/隔离安装、冻结版本CI发布及工件核验，记录真实审批仍未获允许的部分。
 
+## 自动轮次3
+
+新增C++零参独立调用原行号导航（worker.join/debugger->Close/Allocator::Shutdown等），标syntax-only-unresolved，不解析重载或动态分派，不生成绑定；已知宏/条件文本拒绝，最多20条/侧，正常计入输入预算。新增线程退出、调试器关闭、分配器shutdown三组缺陷/safe合成样本，用明确抽象契约验证早释放顺序而非编译执行用户C++。全量228/228通过。下轮实际模型输入位置/共享预算与C++跨文件综合集成验收，源码表面顺序不当执行顺序证明。
+
 ## 自动轮次2
 
 C++显式批准context关联注释接入实际主输入：quoted include与头实现命名保留from/to路径、原include行，reverse方向标context，current内容明确不是old历史。selected/excluded路径作为竞争者不能重入context，不新增读取或coverage。全量225/225、diff检查通过。下一轮生命周期缺陷反例及必要调用位置，不把include当调用证明。
