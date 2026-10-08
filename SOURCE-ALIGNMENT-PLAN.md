@@ -20,6 +20,10 @@ A 语言指引（0.18.0）；B 风险计划及业务分组；C 必要上下文�
 
 用户提交831240284be52aeaa727c3c6ae1509888b14ed68因前置全树元数据超限未模型审查。改diff-tree --raw --no-abbrev -z -r --no-renames精确端点，仅变更元数据；上下文/规则字面非递归ls-tree路径lookup32批、自动512探针，不扩大整树限。真实11000无关文件元数据>1MiB、四Shader小改捕获/哈希稳定/auto/rules/目录通配拒绝；266测试。冻结0.25.1。实际用户仓库未重跑，不声称该提交审核通过。
 
+## 轮次45：历史依赖歧义保守性
+
+复核lookup候选regular过滤可隐藏链接/目录竞争，改所有已查询路径参与歧义；捕获仍regular限定。重叠目录/index批量探针会触发Git额外路径，分开字面查询拒绝展开，512总探针不变。真实目录/链接与大树测试，冻结0.26.3。核心caller和更多必要上下文仍待实现。
+
 ## 轮次44：交互上下文caller导航
 
 interaction正文虽有context但未接主审查已有关系，逐组primary调用inferContextRelations，带primaryFileId和版本侧、callSites/bindingHints，进入共享风险规划/生成输入及预算。272测试含已批准caller旧新绑定及不改快照/input-blocked。冻结0.26.2。自动caller发现/完整call graph未实现，不冒充全覆盖，进一步固定核心源码差距仍待复核。
