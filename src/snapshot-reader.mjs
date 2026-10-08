@@ -50,7 +50,8 @@ export function createSnapshotReader(snapshotId, entries, { maxBytes = 4 * 1024 
       }
       return finish({ snapshotId, matches, truncated: false });
     },
-    read({ id, start, count }) {
+    // decorate is a host-only callback; model requests never supply it.
+    read({ id, start, count }, decorate = value => value) {
       begin();
       if (!sources.has(id)) throw new Error('Source not authorized');
       if (!Number.isSafeInteger(start) || start < 1 || !Number.isSafeInteger(count) || count < 1 || count > 200) throw new Error('Invalid line range');
@@ -66,7 +67,7 @@ export function createSnapshotReader(snapshotId, entries, { maxBytes = 4 * 1024 
       if (beginOffset < 0) throw new Error('Line range outside source');
       const text = source.text.slice(beginOffset, endOffset);
       if (Buffer.byteLength(text) > 64 * 1024) throw new Error('Reader output budget exceeded');
-      return finish({ snapshotId, sourceId: id, hash: source.hash, start, count: selectedCount, text, endOfSource: endOffset === source.text.length });
+      return finish(decorate({ snapshotId, sourceId: id, hash: source.hash, start, count: selectedCount, text, endOfSource: endOffset === source.text.length }));
     },
   });
 }

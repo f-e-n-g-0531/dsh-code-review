@@ -10,10 +10,12 @@ export function createEvidenceReceipts(read, { limit = 50 } = {}) {
   return Object.freeze({
     read(request) {
       if (entries.size >= limit) throw new Error('Evidence receipt limit exceeded');
-      const result = read(request);
-      // Empty reads cannot substantiate a verdict. Do not mint a receipt.
-      if (!result.text || result.count < 1) return result;
       const receiptId = randomUUID();
+      // The approved reader measures the decorated response before returning.
+      // Failed reads must not leave a resolvable receipt behind.
+      const result = read(request, value => ({ ...value, receiptId }));
+      if (!result.text || result.count < 1) return result;
+      if (result.receiptId !== receiptId) throw new Error('Reader does not support budgeted evidence receipts');
       const reference = Object.freeze(Object.fromEntries(keys.map(k => [k, result[k]])));
       entries.set(receiptId, reference);
       return { ...result, receiptId };

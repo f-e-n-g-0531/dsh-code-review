@@ -19,6 +19,18 @@ test('receipt resolves exact returned EOF range and CRLF through ordinary budget
   assert.equal(verified.causality, 'unverified');
   assert.equal(reader.usage().calls, 2);
 });
+test('receipt metadata is included in exact serialized reader output limits', () => {
+  const request = { id: 's1', start: 1, count: 1 };
+  const baseline = createEvidenceReceipts(fixture().read).read(request);
+  const size = Buffer.byteLength(JSON.stringify(baseline));
+  const exact = fixture({ maxOutputBytes: size });
+  const output = createEvidenceReceipts(exact.read).read(request);
+  assert.equal(exact.usage().outputBytes, Buffer.byteLength(JSON.stringify(output)));
+  const short = fixture({ maxOutputBytes: size - 1 });
+  assert.throws(() => createEvidenceReceipts(short.read).read(request), /output budget/);
+  assert.equal(short.usage().calls, 1);
+  assert.equal(short.usage().outputBytes, 0);
+});
 test('unknown, cross-review and mixed receipt references fail closed', () => {
   const reader = fixture();
   const a = createEvidenceReceipts(reader.read), b = createEvidenceReceipts(reader.read);
