@@ -1,3 +1,4 @@
+import { inferCsharpContext } from './csharp-context.mjs';
 import { inferImportRelations } from './import-relations.mjs';
 import { inferContextRelations } from './context-relations.mjs';
 import { prepareWindowSynthesis } from './window-synthesis.mjs';
@@ -15,6 +16,8 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
     base.contextRelations = contextRelations;
     base.contextRelationNotice = '导入与调用位置仅为语法线索；可能被同名局部变量遮蔽，不证明绑定、可达性或因果。';
   }
+  const csharpHints = inferCsharpContext(input, file);
+  if (csharpHints.length) { base.csharpContextHints = csharpHints; base.csharpContextNotice = '仅批准当前context的C#静态类型/方法语法位置；不证明语义绑定或执行可达，也不是旧侧历史上下文。歧义不推定，线索不增加审查覆盖。'; }
   let payload = JSON.stringify(base);
   const measure = value => initialInputBudget({ instructions, input: value }, scope, maxInputBytes);
   const metadata = {};

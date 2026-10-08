@@ -17,7 +17,10 @@ export function inferCsharpContext(input, primary) {
    const token = new RegExp('\\b' + type + '\\b');
    // Other occurrences may introduce a variable/type that shadows the qualifier.
    if (lines.some((line,j) => j !== i && token.test(line))) continue;
-   const candidates = contexts.filter(c => safe(c.text) && namespaceOf(c.text) === ns && !/\busing\b|\bpartial\b|\bvirtual\b|\boverride\b|\binterface\b/.test(c.text));
+   // Unsupported declarations still compete; filtering them out must not create uniqueness.
+   const competitors = contexts.filter(c => typeof c.text !== 'string' || token.test(c.text));
+   if (competitors.length !== 1 || input.files.some(f => f !== primary && f.path.endsWith('.cs') && f.path.split('/').at(-1) === type + '.cs')) continue;
+   const candidates = competitors.filter(c => safe(c.text) && namespaceOf(c.text) === ns && !/\busing\b|\bpartial\b|\bvirtual\b|\boverride\b|\binterface\b/.test(c.text));
    const declarations = [];
    for (const context of candidates) {
     const targetLines = context.text.split(String.fromCharCode(10));
@@ -28,7 +31,7 @@ export function inferCsharpContext(input, primary) {
     const methods = targetLines.map((line,j) => ({ line, number:j+1 })).filter(item => new RegExp('^\\s*public\\s+static\\s+(?:void|int|bool|string)\\s+' + method + '\\s*\\(\\s*\\)\\s*(?:\\{|$)').test(item.line));
     if (occurrences.length === 1 && methods.length === 1) declarations.push({ contextPath:context.path, typeLine:classes[0].number, declarationLine:methods[0].number });
    }
-   if (declarations.length === 1) result.push({ primaryPath:primary.path, side, callLine:i+1, namespace:ns, type, method, ...declarations[0], confidence:'conservative-syntax-only' });
+   if (declarations.length === 1) result.push({ primaryPath:primary.path, side, contextVersion:'approved-current-not-historical', callLine:i+1, namespace:ns, type, method, ...declarations[0], confidence:'conservative-syntax-only' });
    if (result.length >= 20) return result;
   }
  }
