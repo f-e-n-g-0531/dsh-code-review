@@ -55,6 +55,27 @@ test('multiple window batches share signal and preserve completed windows on bud
   assert.equal(complete.files[0].synthesisStatus, 'completed');
   assert.equal(complete.modelCalls, 3);
 });
+test('synthesis budget exhaustion and cancellation keep completed local coverage separate', async () => {
+ const s = snapshot(); const lines = Array.from({ length: 100 }, (_, i) => 'line' + i + 'x'.repeat(200));
+ s.files[0].left.text = lines.join(String.fromCharCode(10));
+ const changed = [...lines]; changed[10] = 'changed10'; changed[80] = 'changed80'; s.files[0].right.text = changed.join(String.fromCharCode(10));
+ const exhausted = await reviewSnapshot(s, async () => ({ findings: [], limitations: [] }), { enableRetrieval: true, maxInputBytes: 8000, maxCalls: 2 });
+ assert.equal(exhausted.modelCalls, 2); assert.equal(exhausted.files[0].windowCoverage.completed.length, 2);
+ assert.equal(exhausted.files[0].synthesisStatus, 'pending'); assert.notEqual(exhausted.status, 'completed');
+ const controller = new AbortController(); let firstSignal;
+ const cancelled = await reviewSnapshot(s, async r => {
+  firstSignal ??= r.signal; assert.equal(r.signal, firstSignal);
+  if (JSON.parse(r.input).sourceMode === 'window-synthesis') { controller.abort(Error('stop synthesis')); throw r.signal.reason; }
+  return { findings: [], limitations: [] };
+ }, { enableRetrieval: true, maxInputBytes: 8000, signal: controller.signal });
+ assert.equal(cancelled.status, 'cancelled'); assert.equal(cancelled.files[0].windowCoverage.completed.length, 2);
+ assert.equal(cancelled.files[0].synthesisStatus, 'pending');
+ const found = await reviewSnapshot(s, async r => {
+  if (JSON.parse(r.input).sourceMode !== 'window-synthesis') return { findings: [], limitations: [] };
+  return { findings: [{ fileId: 'f', severity: 'high', title: 'interaction', evidence: 'combined edits', trigger: 'both changes', impact: 'failure', suggestion: 'align', anchor: { kind: 'line', side: 'new', start: 11, end: 11, snippet: 'changed10' }, attribution: { editIds: ['e1', 'e2'], properties: [], beforeBehavior: 'aligned', afterBehavior: 'mismatch', reason: 'combined' } }], limitations: [] };
+ }, { enableRetrieval: true, maxInputBytes: 8000 });
+ assert.equal(found.findings.length, 1); assert.equal(found.files[0].synthesisStatus, 'completed');
+});
 test('window cancellation and timeout await adapter cleanup and leave coverage pending', async () => {
   for (const mode of ['cancel', 'timeout']) {
     const controller = new AbortController(); let cleaned = false, calls = 0;
