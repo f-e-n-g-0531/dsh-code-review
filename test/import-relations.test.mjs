@@ -22,6 +22,20 @@ test('comments templates and strings do not pretend to be imports', () => {
     assert.deepEqual(inferImportRelations([file('a', 'a.js', text), file('b', 'dep.js')]), []);
   }
 });
+test('malformed quotes and continued string contents never form import edges', () => {
+  const nl = String.fromCharCode(10), slash = String.fromCharCode(92);
+  for (const text of ["import './dep.js\";", '"continued' + slash + nl + "import './dep.js';" + slash + nl + '";']) {
+    assert.deepEqual(inferImportRelations([file('a', 'a.js', text), file('b', 'dep.js')]), []);
+  }
+});
+test('old-side resolution refuses renamed targets and input order does not matter', () => {
+  const a = file('a', 'a.js'); a.left.text = "import './dep.js';";
+  const target = file('b', 'moved.js'); target.oldPath = 'dep.js';
+  const replacement = file('c', 'dep.js');
+  const files = [a, target, replacement];
+  assert.deepEqual(inferImportRelations(files), []);
+  assert.deepEqual(inferImportRelations(files), inferImportRelations([...files].reverse()));
+});
 test('exact and directory targets resolve only within supplied approved entries', () => {
   assert.equal(inferImportRelations([file('a', 'a.js', "import './dep';"), file('b', 'dep/index.js')])[0].to, 'b');
   assert.throws(() => inferImportRelations([file('a', '../a.js')]), /Invalid/);
