@@ -12,5 +12,5 @@ export function inferContextRelations(input, file) {
   const all = [primary, ...entries, ...competitors];
   if (all.length > 200) return [];
   const byId = new Map(all.map(f => [f.id, f.path]));
-  return inferImportRelations(all).filter(e => e.specifier && (e.from === 'primary' || e.to === 'primary')).map(e => ({ fromPath: byId.get(e.from), toPath: byId.get(e.to), side: e.from === 'primary' ? e.side : 'context', line: e.line, specifier: e.specifier, callSites: e.callSites, reason: 'relative-import:approved-context' }));
+  return inferImportRelations(all).filter(e => e.specifier && (e.from === 'primary' || e.to === 'primary')).map(e => ({ fromPath: byId.get(e.from), toPath: byId.get(e.to), side: e.from === 'primary' ? e.side : 'context', line: e.line, specifier: e.specifier, callSites: e.callSites, bindingHints: e.bindingHints, reason: 'relative-import:approved-context' }));
 }

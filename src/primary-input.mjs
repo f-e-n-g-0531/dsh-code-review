@@ -1,3 +1,4 @@
+import { inferImportRelations } from './import-relations.mjs';
 import { inferContextRelations } from './context-relations.mjs';
 import { prepareWindowSynthesis } from './window-synthesis.mjs';
 import { planWindowBatches } from './window-batches.mjs';
@@ -24,7 +25,8 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
     const relatedFiles = input.files.filter(f => f.id !== file.id && f.eligibility === 'reviewable' && group.fileIds.includes(f.id));
     if (relatedFiles.length) {
       const relations = grouping.links.filter(link => !link.split && group.fileIds.includes(link.from) && group.fileIds.includes(link.to));
-      const grouped = JSON.stringify({ ...base, relatedFiles, relations, relationNotice: '命名和相对导入关系仅为源码线索，可能被同名局部变量遮蔽，不证明绑定、调用可达或因果；只报告主file的问题，不为relatedFiles重复生成发现。' });
+      const bindingRelations = inferImportRelations(input.files).filter(edge => edge.bindingHints?.length && (edge.from === file.id || edge.to === file.id) && group.fileIds.includes(edge.from) && group.fileIds.includes(edge.to)).map(({ from, to, side, bindingHints }) => ({ from, to, side, bindingHints }));
+      const grouped = JSON.stringify({ ...base, relatedFiles, relations, bindingRelations, relationNotice: '命名和相对导入关系仅为源码线索，可能被同名局部变量遮蔽，不证明绑定、调用可达或因果；只报告主file的问题，不为relatedFiles重复生成发现。' });
       if (measure(grouped).fits) { payload = grouped; metadata.relatedFileIds = relatedFiles.map(f => f.id); }
       else metadata.groupFallback = 'input-budget';
     }
