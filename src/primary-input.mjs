@@ -7,7 +7,10 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
   const changes = changeMap(file.left.text, file.right.text);
   const base = { snapshotId: input.id, file, changes, context: input.context ?? [], rules: input.rules ?? [] };
   const contextRelations = inferContextRelations(input, file);
-  if (contextRelations.length) base.contextRelations = contextRelations;
+  if (contextRelations.length) {
+    base.contextRelations = contextRelations;
+    base.contextRelationNotice = '导入与调用位置仅为语法线索；可能被同名局部变量遮蔽，不证明绑定、可达性或因果。';
+  }
   let payload = JSON.stringify(base);
   const measure = value => initialInputBudget({ instructions, input: value }, scope, maxInputBytes);
   const metadata = {};
@@ -17,7 +20,7 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
     const relatedFiles = input.files.filter(f => f.id !== file.id && f.eligibility === 'reviewable' && group.fileIds.includes(f.id));
     if (relatedFiles.length) {
       const relations = grouping.links.filter(link => !link.split && group.fileIds.includes(link.from) && group.fileIds.includes(link.to));
-      const grouped = JSON.stringify({ ...base, relatedFiles, relations, relationNotice: '命名和相对导入关系仅为源码线索，不证明调用可达或因果；只报告主file的问题，不为relatedFiles重复生成发现。' });
+      const grouped = JSON.stringify({ ...base, relatedFiles, relations, relationNotice: '命名和相对导入关系仅为源码线索，可能被同名局部变量遮蔽，不证明绑定、调用可达或因果；只报告主file的问题，不为relatedFiles重复生成发现。' });
       if (measure(grouped).fits) { payload = grouped; metadata.relatedFileIds = relatedFiles.map(f => f.id); }
       else metadata.groupFallback = 'input-budget';
     }

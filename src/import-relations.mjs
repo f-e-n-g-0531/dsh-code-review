@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { importedCallSites } from './import-call-sites.mjs';
+import { importedCallSites, indexStandaloneCalls } from './import-call-sites.mjs';
 
 const extensions = ['.mjs', '.cjs', '.js', '.jsx', '.ts', '.tsx'];
 // Conservative syntax hints, not a module resolver or a call graph. No I/O.
@@ -22,6 +22,7 @@ export function inferImportRelations(files) {
       if (typeof text !== 'string') throw new Error('Missing import relation source');
       if (Buffer.byteLength(text) > 256 * 1024 || text.includes('/*') || text.includes(String.fromCharCode(96)) || text.includes(String.fromCharCode(92, 10)) || text.includes(String.fromCharCode(92, 13, 10))) continue;
       const lines = text.split(String.fromCharCode(10));
+      const callIndex = indexStandaloneCalls(lines);
       for (let i = 0; i < lines.length; i++) {
         const match = /^\s*(?:import\s+(?:(?:[^'";]+)\s+from\s+)?|export\s+(?:[^'";]+)\s+from\s+)(['"])([^'"\\]+)\1\s*;?\s*(?:\/\/.*)?$/.exec(lines[i]);
         if (!match || !(match[2].startsWith('./') || match[2].startsWith('../'))) continue;
@@ -34,7 +35,7 @@ export function inferImportRelations(files) {
         if (side === 'old' && files.some(f => f.oldPath && f.oldPath !== f.path && (candidates.has(f.oldPath) || candidates.has(f.path)))) continue;
         const matches = [...candidates].map(p => byPath.get(p)).filter(Boolean);
         if (matches.length !== 1 || matches[0].eligibility !== 'reviewable' || matches[0].id === file.id) continue;
-        const callSites = importedCallSites(lines, i + 1);
+        const callSites = importedCallSites(lines, i + 1, callIndex);
         edges.push({ from: file.id, to: matches[0].id, reason: 'relative-import:' + side + ':L' + (i + 1), side, line: i + 1, specifier: match[2], callSites });
         if (callSites.length && edges.length < 2000) edges.push({ from: file.id, to: matches[0].id, reason: 'imported-call-syntax:' + side + ':L' + callSites.map(c => c.line).join(','), side, callSites });
         if (edges.length >= 2000) return edges;
