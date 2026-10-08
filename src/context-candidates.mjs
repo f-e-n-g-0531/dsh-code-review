@@ -12,7 +12,7 @@ export function contextCandidates(files, trackedPaths, {maxCandidates=20,onProbe
   if(text.includes('/*')||text.includes(String.fromCharCode(96))||text.includes('R"')||/\\\r?\n/.test(text))continue;
   if(f.path.endsWith('.cs')&&!/["'\x60#]|\/\/|\busing\b|\bdynamic\b/.test(text)){
    const namespaces=[...text.matchAll(/^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;\s*$/gm)];
-   if(namespaces.length===1){const lines=text.split('\n');for(let i=0;i<lines.length;i++){const call=/^\s*(?:await\s+)?([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*;\s*$/.exec(lines[i]);if(!call)continue;const token=new RegExp('\\b'+call[1]+'\\b');if(lines.some((line,j)=>j!==i&&token.test(line)))continue;const candidate=path.posix.join(path.posix.dirname(f.path),call[1]+'.cs');onProbe?.([candidate]);add(candidate,f.path,'same-directory-csharp-static-call');}}
+   if(namespaces.length===1){const tokens=new Map();for(const match of text.matchAll(/\b[A-Za-z_][A-Za-z0-9_]*\b/g))tokens.set(match[0],(tokens.get(match[0])??0)+1);const lines=text.split('\n');for(let i=0;i<lines.length;i++){const call=/^\s*(?:await\s+)?([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*;\s*$/.exec(lines[i]);if(!call)continue;if(tokens.get(call[1])!==1)continue;const candidate=path.posix.join(path.posix.dirname(f.path),call[1]+'.cs');onProbe?.([candidate]);add(candidate,f.path,'same-directory-csharp-static-call');}}
   }
   const cpp=/\.(c|cc|cpp|cxx|h|hh|hpp|hxx|shader|hlsl|glsl|cginc|hlsli|compute)$/i.test(f.path),js=/\.(mjs|cjs|js|jsx|ts|tsx)$/i.test(f.path);
   if(cpp&&/^\s*#\s*(if|ifdef|ifndef|elif|else|define|undef)\b/m.test(text))continue;
