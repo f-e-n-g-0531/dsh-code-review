@@ -11,7 +11,7 @@ test('verification retrieves approved evidence and preserves refutation', async 
     const input = JSON.parse(request.input);
     assert.equal(input.candidates[0].candidateId, 'c1');
     if (!input.retrieved.length) return { requests: [{ kind: 'read', id: 's1', start: 1, count: 1 }] };
-    const { endOfSource, ...ref } = input.retrieved[0].result;
+    const { endOfSource, receiptId, ...ref } = input.retrieved[0].result;
     return { verdicts: [{ candidateId: 'c1', verdict: 'refuted', reason: 'Existing guard', evidence: [ref] }] };
   }, {}, [{ title: 'Potential failure' }], s, { beforeCall: () => calls++ });
   assert.equal(calls, 2); assert.equal(result[0].verdict, 'refuted');
@@ -25,7 +25,7 @@ test('verification uses returned EOF range and preserves exact CRLF evidence', a
     assert.match(request.instructions, /来源全文哈希/);
     const input = JSON.parse(request.input);
     if (!input.retrieved.length) return { requests: [{ kind: 'read', id: 's1', start: 1, count: 200 }] };
-    const { endOfSource, ...ref } = input.retrieved[0].result;
+    const { endOfSource, receiptId, ...ref } = input.retrieved[0].result;
     assert.ok(ref.count < 200);
     assert.equal(ref.text, text);
     return { verdicts: [{ candidateId: 'c1', verdict: 'supported', reason: 'Exact snapshot evidence', evidence: [ref] }] };

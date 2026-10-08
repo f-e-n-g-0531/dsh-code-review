@@ -77,9 +77,9 @@ test('full review validates retrieved counterevidence and retains refuted candid
     if (calls === 1) return generated;
     const input = JSON.parse(request.input);
     if (calls === 2) return { requests: [{ kind: 'read', id: 's1', start: 1, count: 1 }] };
-    const { endOfSource, ...ref } = input.retrieved[0].result;
+    const { receiptId, ...ref } = input.retrieved[0].result;
     assert.equal(ref.text, 'old');
-    return { verdicts: [{ candidateId: input.candidates[0].candidateId, verdict: 'refuted', reason: 'Old side already exhibits this behavior', evidence: [ref] }] };
+    return { verdicts: [{ candidateId: input.candidates[0].candidateId, verdict: 'refuted', reason: 'Old side already exhibits this behavior', evidence: [{ receiptId }] }] };
   }, options);
   assert.equal(report.modelCalls, 3);
   assert.equal(report.findings.length, 1);
@@ -88,6 +88,16 @@ test('full review validates retrieved counterevidence and retains refuted candid
   assert.equal(report.retrievalUsage.calls, 2); // retrieval plus exact evidence validation
   assert.equal(report.files[0].retrievalAudit.length, 1);
   assert.match(markdownReport(report), /模型复核反驳/);
+});
+test('forged receipt keeps candidate and reports incomplete followup', async () => {
+  let calls = 0;
+  const report = await reviewSnapshot(snapshot, async () => ++calls === 1 ? generated : { verdicts: [{ candidateId: 'c1', verdict: 'supported', reason: 'claimed proof', evidence: [{ receiptId: 'forged' }] }] }, options);
+  assert.equal(report.findings.length, 1);
+  assert.equal(report.findings[0].verification.status, 'incomplete');
+  assert.equal(report.status, 'partial');
+  assert.ok(report.limitations.some(l => l.text.includes('Invalid evidence receipt')));
+  assert.equal(report.retrievalUsage.calls, 0);
+  assert.equal(report.followup.items[0].incompleteVerification, true);
 });
 test('forged verification evidence preserves candidates without accepting a verdict', async () => {
   let calls = 0;

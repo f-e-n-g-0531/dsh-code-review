@@ -1,6 +1,6 @@
 import { validateEvidenceReference } from './evidence-reference.mjs';
 // Offline only. Candidate ids come from the host, not the model.
-export function validateCandidateVerification(value, candidateIds, read) {
+export function validateCandidateVerification(value, candidateIds, read, resolveEvidence = value => value) {
   if (!Array.isArray(candidateIds) || candidateIds.length > 50 || candidateIds.some(id => typeof id !== 'string' || !id || id.length > 200) || new Set(candidateIds).size !== candidateIds.length) throw new Error('Invalid candidate identities');
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 1 || !Array.isArray(value.verdicts) || value.verdicts.length !== candidateIds.length) throw new Error('Incomplete verification response');
   const seen = new Set();
@@ -14,7 +14,7 @@ export function validateCandidateVerification(value, candidateIds, read) {
   }
   const results = new Map(value.verdicts.map(item => [item.candidateId, {
     candidateId: item.candidateId, verdict: item.verdict, reason: item.reason,
-    evidence: item.evidence.map(ref => validateEvidenceReference(ref, read)),
+    evidence: item.evidence.map(ref => validateEvidenceReference(resolveEvidence(ref), read)),
     causality: 'unverified',
   }]));
   return candidateIds.map(id => results.get(id));
