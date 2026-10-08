@@ -1,3 +1,5 @@
+import { gitContextIndex } from './tracked-context.mjs';
+import { contextCandidates } from './context-candidates.mjs';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { captureGit } from './git.mjs';
@@ -31,6 +33,20 @@ export async function captureSnapshot(cwd, options = {}) {
   if (!Array.isArray(rulePaths) || rulePaths.some(name => contextPaths.includes(name))) throw new Error('Rule paths must be separate from context paths');
   const rules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
   const context = [];
+  let autoContext, index;
+  if (options.autoContext === true) {
+    if (type !== 'git') throw new Error('Automatic SVN context is not yet supported');
+    index = await gitContextIndex(snapshot.root, options);
+    const plan = contextCandidates(snapshot.files, index.paths);
+    autoContext = { ...plan, candidates: plan.candidates.filter(c => !contextPaths.includes(c.path) && !rulePaths.includes(c.path)), capturedPaths: [] };
+    for (const candidate of autoContext.candidates) {
+      if (context.length + new Set(contextPaths).size >= maxContextFiles) { candidate.status = 'blocked'; candidate.reason = 'Context file limit exceeded'; continue; }
+      try {
+        context.push({ path: candidate.path, ...await readLocal(snapshot.root, candidate.path, options) });
+        candidate.status = 'captured'; autoContext.capturedPaths.push(candidate.path);
+      } catch (error) { options.signal?.throwIfAborted(); candidate.status = 'blocked'; candidate.reason = error.message; }
+    }
+  }
   for (const name of [...new Set(contextPaths)].sort()) {
     const changed = snapshot.files.find(f => f.path === name);
     if (changed) {
@@ -42,9 +58,10 @@ export async function captureSnapshot(cwd, options = {}) {
   // Re-capture verifies both selected sides while collecting explicit context.
   if ((await capture(cwd, options)).id !== snapshot.id) throw new Error('Snapshot changed while collecting context');
   for (const item of context) if ((await readLocal(snapshot.root, item.path, options)).hash !== item.hash) throw new Error('Context changed during capture');
+  if (index && (await gitContextIndex(snapshot.root, options)).fingerprint !== index.fingerprint) throw new Error('Tracked context index changed during capture');
   const verifiedRules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
   if (JSON.stringify(verifiedRules) !== JSON.stringify(rules)) throw new Error('Rules changed during capture');
-  const result = { ...snapshot, context, ...(rules.length ? { rules } : {}) };
+  const result = { ...snapshot, context, ...(autoContext ? { autoContext } : {}), ...(rules.length ? { rules } : {}) };
   delete result.id;
   const serialized = JSON.stringify(result);
   if (Buffer.byteLength(serialized) > maxSnapshotBytes) throw new Error('Snapshot size limit exceeded');
