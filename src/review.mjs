@@ -88,6 +88,10 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   if (options.enableVerification === true && options.enableRetrieval !== true) throw new Error('Verification requires approved retrieval scope');
   const scope = options.enableRetrieval === true ? createRetrievalScope({ ...input, context: input.context ?? [] }, { signal }) : null;
   const report = { schemaVersion: 1, snapshotId: input.id, vcs: input.vcs, status: 'completed', files: [], findings: [], limitations: [], modelCalls: 0 };
+  if (input.autoContext) {
+    report.autoContext = structuredClone(input.autoContext);
+    if (input.autoContext.truncated || input.autoContext.candidates.some(c => c.status === 'blocked')) report.limitations.push({ text: '自动上下文未完全捕获：存在截断或阻塞，仅实际捕获路径可用于证据。' });
+  }
   report.rules = (input.rules ?? []).map(({ path, hash }) => ({ path, hash }));
   if (options.enableGrouping === true) report.grouping = buildReviewGroups(input.files, inferFileRelations(input.files));
   report.interactions = [];

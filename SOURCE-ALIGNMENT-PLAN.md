@@ -16,6 +16,10 @@
 
 A 语言指引（0.18.0）；B 风险计划及业务分组；C 必要上下文；D 定位纠正；E Git提交/区间。每批发布核验后进下一批，不继续堆未发布代码。预计2+6+5+4+5轮，余量2轮；超出上限时诚实报告未完项。
 
+## 轮次18：SVN自动上下文
+
+离线status --verbose --ignore-externals只索引normal/props none且非switched/copied/external/conflict节点；1MiB/10000项，原readLocal拒绝目录/链接，再读完整规范化状态验证。首次测试发现XML序列化差异，改完整parsed状态规范排序，不放宽语义。真实SVN验证稳定hash/不改状态/unversioned和modified不可重新进入。报告传播autoContext及阻塞截断限制。全量246通过。冻结0.20.1，调用者/定义搜索仍未完成。
+
 ## 轮次16：自动Git上下文工具选项
 
 显式autoContext:boolean注册入口接安全捕获，预览显示候选/阻塞/截断及实际contextPaths不含正文，服务校验类型，执行按原选项重新捕获并比较完整快照hash。默认不自动扩大选择；SVN明确不支持。真实服务预览零发送及哈希/排除边界全量245通过，真实宿主离线通过。索引支持合法含换行文件名。冻结0.20.0，调用者/定义搜索及SVN待继续。

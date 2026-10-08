@@ -1,5 +1,16 @@
+import { xml } from './svn.mjs';
 import { checked } from './process.mjs';
 import { relativePath } from './content.mjs';
+export async function svnContextIndex(root, options = {}) {
+ const bytes = await checked('svn',['--non-interactive','status','--xml','--verbose','--ignore-externals','--','.@'],{...options,cwd:root,maxBytes:1024*1024});
+ const entries=(xml(bytes).status?.target ?? []).flatMap(t=>t.entry ?? []);
+ if(entries.length>10000)throw new Error('Tracked context index limit exceeded');
+ const paths=[], seen=new Set();
+ for(const e of entries){const name=e['@_path'].replaceAll('\\','/');if(name==='.')continue;relativePath(name);if(seen.has(name))throw new Error('Duplicate SVN context path');seen.add(name);const s=e['wc-status'];if(s?.['@_item']==='normal'&&s['@_props']==='none'&&!['@_switched','@_copied','@_file-external','@_tree-conflicted'].some(k=>s[k]==='true'))paths.push(name);}
+ // SVN may reorder XML attributes; compare canonical parsed state, not serialization.
+ const canonical=v=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;
+ return {paths:paths.sort(),fingerprint:JSON.stringify(canonical([...entries].sort((a,b)=>a['@_path']<b['@_path']?-1:a['@_path']>b['@_path']?1:0)))};
+}
 // Index metadata only; never invokes network, diff drivers or source reads.
 export async function gitContextIndex(root, options = {}) {
  const bytes = await checked('git', ['--no-optional-locks','-c','core.fsmonitor=false','-c','core.untrackedCache=false','ls-files','--stage','-z'], {...options,cwd:root,maxBytes:1024*1024});

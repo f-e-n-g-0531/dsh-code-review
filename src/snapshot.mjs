@@ -1,4 +1,4 @@
-import { gitContextIndex } from './tracked-context.mjs';
+import { gitContextIndex, svnContextIndex } from './tracked-context.mjs';
 import { contextCandidates } from './context-candidates.mjs';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -36,8 +36,7 @@ export async function captureSnapshot(cwd, options = {}) {
   const context = [];
   let autoContext, index;
   if (options.autoContext === true) {
-    if (type !== 'git') throw new Error('Automatic SVN context is not yet supported');
-    index = await gitContextIndex(snapshot.root, options);
+    index = await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, options);
     const plan = contextCandidates(snapshot.files, index.paths);
     autoContext = { ...plan, candidates: plan.candidates.filter(c => !contextPaths.includes(c.path) && !rulePaths.includes(c.path)), capturedPaths: [] };
     for (const candidate of autoContext.candidates) {
@@ -59,7 +58,7 @@ export async function captureSnapshot(cwd, options = {}) {
   // Re-capture verifies both selected sides while collecting explicit context.
   if ((await capture(cwd, options)).id !== snapshot.id) throw new Error('Snapshot changed while collecting context');
   for (const item of context) if ((await readLocal(snapshot.root, item.path, options)).hash !== item.hash) throw new Error('Context changed during capture');
-  if (index && (await gitContextIndex(snapshot.root, options)).fingerprint !== index.fingerprint) throw new Error('Tracked context index changed during capture');
+  if (index && (await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, options)).fingerprint !== index.fingerprint) throw new Error('Tracked context index changed during capture');
   const verifiedRules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
   if (JSON.stringify(verifiedRules) !== JSON.stringify(rules)) throw new Error('Rules changed during capture');
   const result = { ...snapshot, context, ...(autoContext ? { autoContext } : {}), ...(rules.length ? { rules } : {}) };

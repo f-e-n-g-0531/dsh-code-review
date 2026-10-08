@@ -18,6 +18,7 @@ async function fixture(t) {
   const put = (name, value) => writeFile(path.join(root, name), value);
   return { root, svn, put, repository: path.join(base, 'repo') };
 }
+test('SVN automatic context uses offline normal tracked nodes and cannot reintroduce modified or unversioned sources',async t=>{const {root,svn,put}=await fixture(t);await put('a.cpp','old');await put('dep.h','definition');await svn('add','--','a.cpp@','dep.h@');await svn('commit','-m','fixture');await put('a.cpp','#include \"dep.h\"\n#include \"untracked.h\"');await put('untracked.h','SECRET');const before=xml(await svn('status','--xml'));const s=await captureSnapshot(root,{autoContext:true,selectedPaths:['a.cpp']});assert.deepEqual(s.autoContext.capturedPaths,['dep.h']);assert.equal(s.context[0].text,'definition');assert.deepEqual(xml(await svn('status','--xml')),before);assert.equal(s.id,(await captureSnapshot(root,{autoContext:true,selectedPaths:['a.cpp']})).id);await put('dep.h','modified');assert.equal((await captureSnapshot(root,{autoContext:true,selectedPaths:['a.cpp']})).context.length,0);});
 test('SVN explicit rules change snapshot identity without modifying working state', async t => {
   const { root, svn, put } = await fixture(t);
   await put('rules.md', 'Use bounded resources');
