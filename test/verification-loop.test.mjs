@@ -17,6 +17,22 @@ test('verification retrieves approved evidence and preserves refutation', async 
   assert.equal(calls, 2); assert.equal(result[0].verdict, 'refuted');
   assert.equal(result[0].causality, 'unverified');
 });
+test('verification uses returned EOF range and preserves exact CRLF evidence', async () => {
+  const text = 'first' + String.fromCharCode(13, 10) + 'last' + String.fromCharCode(13, 10);
+  const s = { ...createSnapshotReader('snap', [{ id: 's1', text }]), catalog: () => [{ id: 's1' }] };
+  const result = await verificationLoop(async request => {
+    assert.match(request.instructions, /EOF/);
+    assert.match(request.instructions, /来源全文哈希/);
+    const input = JSON.parse(request.input);
+    if (!input.retrieved.length) return { requests: [{ kind: 'read', id: 's1', start: 1, count: 200 }] };
+    const { endOfSource, ...ref } = input.retrieved[0].result;
+    assert.ok(ref.count < 200);
+    assert.equal(ref.text, text);
+    return { verdicts: [{ candidateId: 'c1', verdict: 'supported', reason: 'Exact snapshot evidence', evidence: [ref] }] };
+  }, {}, [{}], s);
+  assert.equal(result[0].evidence[0].text, text);
+  assert.equal(result[0].causality, 'unverified');
+});
 test('shared call budget and cancellation prevent extra model sends', async () => {
   let calls = 0;
   await assert.rejects(verificationLoop(() => { calls++; }, {}, [{}], scope(), { beforeCall: () => { throw Error('shared budget'); } }), /shared budget/);
