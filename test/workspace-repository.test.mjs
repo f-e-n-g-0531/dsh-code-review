@@ -3,13 +3,13 @@ import assert from 'node:assert/strict';
 import { xml } from '../src/svn.mjs';
 import { checked } from '../src/process.mjs';
 import { pathToFileURL } from 'node:url';
-import { mkdtemp, mkdir, rm, symlink, writeFile, rename } from 'node:fs/promises';
+import { mkdtemp, mkdir, rm, symlink, writeFile, rename, realpath } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { resolveWorkspaceRepository as resolve } from '../src/workspace-repository.mjs';
 import { createReviewService } from '../src/service.mjs';
 test('real Git and SVN children review independently and preserve working status', async t => {
- const root = await mkdtemp(path.join(os.tmpdir(), 'review-workspace-'));
+ const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'review-workspace-')));
  t.after(async () => { assert.ok(path.basename(root).startsWith('review-workspace-')); await rm(root, { recursive: true, force: true }); });
  const git = path.join(root, 'git-child'), svn = path.join(root, 'svn-child');
  await mkdir(git); await checked('git', ['init'], { cwd: git });
@@ -45,7 +45,7 @@ test('real Git and SVN children review independently and preserve working status
  assert.equal(calls, 2);
 });
 test('workspace sibling repositories can be independently selected without changing session cwd', async () => {
- const root = await mkdtemp(path.join(os.tmpdir(), 'review-workspace-'));
+ const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'review-workspace-')));
  try {
   for (const name of ['a', 'b']) await mkdir(path.join(root, name, '.git'), { recursive: true });
   const captured = [];
