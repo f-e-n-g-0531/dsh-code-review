@@ -1,6 +1,14 @@
+import { createReviewService } from '../src/service.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { requestModelApproval } from '../src/model-approval.mjs';
+test('host denial diagnostics propagate through preview execute with zero model sends',async()=>{
+ for(const outcome of ['rejected','cancelled','unavailable']){
+  let sends=0;const agent={session:{header:{cwd:'/repo'}},options:{provider:'fake',model:'offline'}};const exec={agent,signal:new AbortController().signal};
+  const service=createReviewService({async *stream(){sends++;}}, {capture:async()=>({id:'s',vcs:'git',root:'/repo',context:[],files:[{id:'f',path:'Skin.cpp',eligibility:'reviewable',properties:[],left:{text:'old'},right:{text:'new'}}]}),allowModelSending:true,authorize:async()=>requestModelApproval({request:async()=>outcome},{agent,signal:exec.signal})});
+  const preview=await service.preview({},exec);await assert.rejects(service.execute({previewId:preview.previewId,confirmed:true},exec),new RegExp(outcome));assert.equal(sends,0);service.dispose();
+ }
+});
 test('only literal host allowed-once grants and request identity signal remain intact',async()=>{
  const request={agent:{},signal:new AbortController().signal,toolName:'code_review_execute'};let seen;
  assert.equal(await requestModelApproval({request:async r=>{seen=r;return 'allowed-once';}},request),true);assert.equal(seen,request);

@@ -19,7 +19,7 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
   }
   if (/\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/.test(file.path)) {
     const calls = ['old','new'].flatMap(side => cppCallSites((side === 'old' ? file.left : file.right).text).map(site => ({ ...site, side })));
-    if (calls.length) base.cppCallSites = calls;
+    if (calls.length) { base.cppCallSites = calls; base.cppCallNotice = '最多20条零参语法位置/侧，仅导航子集；不表示全部调用覆盖，不证明宏展开、重载选择、动态分派或执行顺序。其他源码须在批准范围内读取。'; }
   }
   const csharpHints = inferCsharpContext(input, file);
   if (csharpHints.length) { base.csharpContextHints = csharpHints; base.csharpContextNotice = '仅批准当前context的C#静态类型/方法语法位置；不证明语义绑定或执行可达，也不是旧侧历史上下文。歧义不推定，线索不增加审查覆盖。'; }
