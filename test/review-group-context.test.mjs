@@ -26,6 +26,26 @@ test('cross-file regression fixture passes related evidence and validates only p
 });
 
 const snapshot = () => ({ id: 's', vcs: 'git', files: ['src/a.ts', 'test/a.test.ts'].map(id => ({ id, path: id, eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' }, properties: [] })), context: [] });
+test('importing caller receives changed dependency guard as context without double coverage', async () => {
+  const s = snapshot();
+  s.files[0].path = 'src/caller.ts'; s.files[0].id = 'caller';
+  s.files[0].left.text = s.files[0].right.text = "import { guardedRun } from './guard';";
+  s.files[1].path = 'src/guard.ts'; s.files[1].id = 'guard';
+  s.files[1].left.text = 'export const guardedRun = () => validate();';
+  s.files[1].right.text = 'export const guardedRun = () => validateAndRun();';
+  const seen = [];
+  const report = await reviewSnapshot(s, async request => {
+    const p = JSON.parse(request.input); seen.push(p.file.id);
+    assert.equal(p.relatedFiles.length, 1);
+    assert.ok(p.relations[0].reasons.some(r => r.startsWith('relative-import:')));
+    if (p.file.id === 'caller') assert.match(p.relatedFiles[0].right.text, /validateAndRun/);
+    return { findings: [], limitations: [] };
+  }, { enableGrouping: true, enableRetrieval: true });
+  assert.equal(report.status, 'completed');
+  assert.equal(seen.length, 2);
+  assert.equal(report.coverage.completed, 2);
+  assert.equal(report.findings.length, 0);
+});
 test('group context retains one primary review per file with approved related sides', async () => {
   const seen = [];
   const report = await reviewSnapshot(snapshot(), async request => {

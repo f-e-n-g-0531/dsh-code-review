@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { buildCoveragePlan } from './coverage-plan.mjs';
 import { createRetrievalScope } from './retrieval-scope.mjs';
 import { buildReviewGroups } from './review-groups.mjs';
-import { inferTestRelations } from './file-relations.mjs';
+import { inferFileRelations } from './file-relations.mjs';
 import { captureSnapshot } from './snapshot.mjs';
 import { reviewSnapshot, markdownReport, REVIEW_INSTRUCTIONS } from './review.mjs';
 import { createDshModel } from './dsh-model.mjs';
@@ -34,7 +34,7 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
         const snapshot = await capture(current.cwd, { ...options, signal: exec.signal });
         exec.signal?.throwIfAborted();
         if (owner(exec).cwd !== current.cwd) throw new Error('Agent directory changed; preview again');
-        const plan = buildCoveragePlan(snapshot, { instructions: REVIEW_INSTRUCTIONS, scope: createRetrievalScope(snapshot, { signal: exec.signal }), grouping: buildReviewGroups(snapshot.files, inferTestRelations(snapshot.files)), maxInputBytes: 96 * 1024, signal: exec.signal });
+        const plan = buildCoveragePlan(snapshot, { instructions: REVIEW_INSTRUCTIONS, scope: createRetrievalScope(snapshot, { signal: exec.signal }), grouping: buildReviewGroups(snapshot.files, inferFileRelations(snapshot.files)), maxInputBytes: 96 * 1024, signal: exec.signal });
         prune();
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();

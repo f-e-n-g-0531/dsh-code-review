@@ -15,6 +15,8 @@ export function inferImportRelations(files) {
   for (const file of [...files].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0)) {
     if (file.eligibility !== 'reviewable' || !extensions.some(ext => file.path.endsWith(ext))) continue;
     for (const side of ['old', 'new']) {
+      // Old-path module resolution for renames needs a separate path index.
+      if (side === 'old' && file.oldPath && file.oldPath !== file.path) continue;
       const text = (side === 'old' ? file.left : file.right)?.text;
       if (typeof text !== 'string') throw new Error('Missing import relation source');
       if (Buffer.byteLength(text) > 256 * 1024 || text.includes('/*') || text.includes(String.fromCharCode(96))) continue;

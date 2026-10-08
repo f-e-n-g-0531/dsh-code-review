@@ -1,3 +1,10 @@
+import { inferImportRelations } from './import-relations.mjs';
+
+export function inferFileRelations(files) {
+  // Keep the existing group edge budget; naming hints have priority at the cap.
+  return [...inferTestRelations(files), ...inferImportRelations(files)].slice(0, 2000);
+}
+
 // Conservative naming hints only. No filesystem access or dependency claims.
 export function inferTestRelations(files) {
   if (!Array.isArray(files) || files.length > 200) throw new Error('Invalid relation input');

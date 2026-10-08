@@ -13,7 +13,8 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
     metadata.groupId = group.id;
     const relatedFiles = input.files.filter(f => f.id !== file.id && f.eligibility === 'reviewable' && group.fileIds.includes(f.id));
     if (relatedFiles.length) {
-      const grouped = JSON.stringify({ ...base, relatedFiles, relationNotice: '命名关系仅为提示；只报告主file的问题，不为relatedFiles重复生成发现。' });
+      const relations = grouping.links.filter(link => !link.split && group.fileIds.includes(link.from) && group.fileIds.includes(link.to));
+      const grouped = JSON.stringify({ ...base, relatedFiles, relations, relationNotice: '命名和相对导入关系仅为源码线索，不证明调用可达或因果；只报告主file的问题，不为relatedFiles重复生成发现。' });
       if (measure(grouped).fits) { payload = grouped; metadata.relatedFileIds = relatedFiles.map(f => f.id); }
       else metadata.groupFallback = 'input-budget';
     }

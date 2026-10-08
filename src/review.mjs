@@ -1,7 +1,7 @@
 import { hash } from './content.mjs';
 import { coverageFollowup } from './coverage-followup.mjs';
 import { verificationLoop } from './verification-loop.mjs';
-import { inferTestRelations } from './file-relations.mjs';
+import { inferFileRelations } from './file-relations.mjs';
 import { buildReviewGroups } from './review-groups.mjs';
 import { changeMap } from './change-map.mjs';
 import { createRetrievalScope } from './retrieval-scope.mjs';
@@ -80,7 +80,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   const scope = options.enableRetrieval === true ? createRetrievalScope({ ...input, context: input.context ?? [] }, { signal }) : null;
   const report = { schemaVersion: 1, snapshotId: input.id, vcs: input.vcs, status: 'completed', files: [], findings: [], limitations: [], modelCalls: 0 };
   report.rules = (input.rules ?? []).map(({ path, hash }) => ({ path, hash }));
-  if (options.enableGrouping === true) report.grouping = buildReviewGroups(input.files, inferTestRelations(input.files));
+  if (options.enableGrouping === true) report.grouping = buildReviewGroups(input.files, inferFileRelations(input.files));
   for (const file of input.files) {
     const state = { fileId: file.id, path: file.path, status: file.eligibility === 'reviewable' ? 'pending' : file.eligibility, reason: file.reason };
     report.files.push(state);
