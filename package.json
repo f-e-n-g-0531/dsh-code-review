@@ -1,6 +1,6 @@
 {
   "name": "@feng0531/dsh-code-review",
-  "version": "0.18.0",
+  "version": "0.18.1",
   "private": false,
   "license": "SEE LICENSE IN LICENSE",
   "publishConfig": { "access": "public", "registry": "https://registry.npmjs.org/" },
