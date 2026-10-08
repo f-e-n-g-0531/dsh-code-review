@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.23.3
+
+- 发布验收实际有界下载npm tarball并逐字节/内容SHA512验证，不再仅相信metadata integrity；tarball404重试耗尽失败。
+- 仅https registry.npmjs.org且拒绝redirect，流输出限原工件长度；260测试通过。0.23.2本地tarball404验收仍未通过不冒充。
+
 ## 0.23.2
 
 - .m使用已有快照前8KiB首个非空行提示区分Objective-C/MATLAB，.mm与Swift专用生命周期缺陷指引，不新读取。

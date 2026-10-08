@@ -8,5 +8,5 @@ if (files.length !== 1) throw new Error('Expected exactly one release package');
 const bytes = await readFile(new URL(files[0], dir));
 const integrity = 'sha512-' + createHash('sha512').update(bytes).digest('base64');
 const url = 'https://registry.npmjs.org/' + encodeURIComponent(manifest.name) + '/' + encodeURIComponent(manifest.version);
-await waitForRegistry(url, integrity);
+await waitForRegistry(url, integrity, { expectedBytes: bytes });
 console.log('npm version and artifact integrity verified');

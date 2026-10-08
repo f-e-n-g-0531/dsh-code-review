@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {createHash} from 'node:crypto';
+import {waitForRegistry} from '../scripts/registry-wait.mjs';
+const bytes=Buffer.from('release'),integrity='sha512-'+createHash('sha512').update(bytes).digest('base64');
+const metadata=(url='https://registry.npmjs.org/pkg/-/pkg.tgz')=>new Response(JSON.stringify({dist:{integrity,tarball:url}}));
+test('metadata success never bypasses tarball 404; bounded retries eventually verify actual bytes',async()=>{let calls=0,sleeps=0;await waitForRegistry('metadata',integrity,{expectedBytes:bytes,attempts:2,fetchImpl:async u=>{calls++;return u==='metadata'?metadata():calls===2?new Response('',{status:404}):new Response(bytes);},sleep:async()=>sleeps++});assert.equal(calls,4);assert.equal(sleeps,1);});
+test('tarball exhaustion mismatch oversize and untrusted URL fail closed',async()=>{for(const body of [new Response('',{status:404}),new Response('wrong'),new Response('releaseX')])await assert.rejects(waitForRegistry('metadata',integrity,{expectedBytes:bytes,attempts:1,fetchImpl:async u=>u==='metadata'?metadata():body}));await assert.rejects(waitForRegistry('metadata',integrity,{expectedBytes:bytes,fetchImpl:async()=>metadata('https://evil.example/package')}),/Invalid registry artifact URL/);});
