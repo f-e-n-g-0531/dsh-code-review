@@ -15,8 +15,8 @@ export function apply(ctx, config = {}) {
     render: (_args, value) => [{ type: 'text', text: value.markdown || value.json }],
   };
   ctx.tools.register({
-    name: 'code_review_preview', description: 'Preview Git/SVN working-copy review scope and model destination without sending source to a model. Paths are repository-relative. Show the preview before execution.',
-    parameters: { type: 'object', additionalProperties: false, properties: { selectedPaths: { type: 'array', items: { type: 'string' }, maxItems: 200 }, contextPaths: { type: 'array', items: { type: 'string' }, maxItems: 20 }, rulePaths: { type: 'array', items: { type: 'string' }, maxItems: 4 } } },
+    name: 'code_review_preview', description: 'Preview Git/SVN working-copy review scope and model destination without sending source to a model. repositoryPath selects an explicit child repository relative to session workspace; file paths are repository-relative. Preview each repository separately. Show the preview before execution.',
+    parameters: { type: 'object', additionalProperties: false, properties: { repositoryPath: { type: 'string', description: 'Workspace-relative explicit child Git/SVN repository root, forward slashes; omit for current repository.' }, selectedPaths: { type: 'array', items: { type: 'string' }, maxItems: 200 }, contextPaths: { type: 'array', items: { type: 'string' }, maxItems: 20 }, rulePaths: { type: 'array', items: { type: 'string' }, maxItems: 4 } } },
     output,
     async execute(args, exec) { const preview = await service.preview(args, exec); return { json: JSON.stringify(preview), markdown: '' }; },
   });
