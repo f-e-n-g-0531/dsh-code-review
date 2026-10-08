@@ -15,6 +15,8 @@ export function directImportBindings(lines, importLine, calls, targetText) {
   if (lines.some((line, i) => i + 1 !== importLine && !positions.some(c => c.line === i + 1) && token.test(line))) continue;
   const declarations = targets.map((line, i) => ({ line, number: i + 1 })).filter(item => /^\s*export\s+(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.exec(item.line)?.[1] === imported);
   if (declarations.length !== 1) continue;
+  const exportedToken = new RegExp('(^|[^A-Za-z0-9_$])' + imported.replaceAll('$', String.fromCharCode(92) + '$') + '([^A-Za-z0-9_$]|$)');
+  if (targets.some((line, i) => i + 1 !== declarations[0].number && exportedToken.test(line))) continue;
   result.push(...positions.map(call => ({ imported, local, importLine, callLine: call.line, declarationLine: declarations[0].number, confidence: 'conservative-syntax-only' })));
  }
  return result.slice(0, 20);

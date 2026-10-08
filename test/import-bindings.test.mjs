@@ -1,3 +1,4 @@
+import { reviewSnapshot } from '../src/review.mjs';
 import { inferImportRelations } from '../src/import-relations.mjs';
 import { inferContextRelations } from '../src/context-relations.mjs';
 import test from 'node:test';
@@ -18,6 +19,19 @@ test('binding hints reach approved selected and explicit context relations only'
  const context = inferContextRelations({ files: [file], context: [{ path: 'target.js', text: target }] }, file);
  assert.equal(context[0].bindingHints[0].local, 'execute');
  assert.deepEqual(inferImportRelations([file, { ...dep, eligibility: 'excluded' }]), []);
+});
+test('actual primary inputs preserve binding locations and target mutation rejects', async () => {
+ const file = { id: 'a', path: 'a.js', eligibility: 'reviewable', properties: [], left: { text: '' }, right: { text: lines.join(String.fromCharCode(10)) } };
+ const dep = { id: 'b', path: 'target.js', eligibility: 'reviewable', properties: [], left: { text: '' }, right: { text: target } };
+ let seen = 0;
+ const report = await reviewSnapshot({ id: 's', vcs: 'git', context: [], files: [file, dep] }, async r => {
+  const p = JSON.parse(r.input); assert.equal(p.bindingRelations[0].bindingHints[0].callLine, 2);
+  assert.equal(p.bindingRelations[0].bindingHints[0].declarationLine, 1); seen++;
+  return { findings: [], limitations: [] };
+ }, { enableGrouping: true });
+ assert.equal(seen, 2); assert.equal(report.status, 'completed');
+ assert.deepEqual(resolve(lines, target + String.fromCharCode(10) + 'run = other;'), []);
+ assert.deepEqual(resolve(lines, target + String.fromCharCode(10) + 'const run = replacement;'), []);
 });
 test('shadowing assignment escapes ambiguous exports and reexports fail closed', () => {
  for (const extra of ['function outer(execute) {', 'const execute = local;', 'execute = local;', 'consume(execute);']) assert.deepEqual(resolve([...lines, extra]), []);
