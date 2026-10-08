@@ -1,7 +1,7 @@
 import path from 'node:path';
 import {relativePath} from './content.mjs';
 // Navigation only over caller-supplied tracked regular paths; no reads or authority.
-export function contextCandidates(files, trackedPaths, {maxCandidates=20}={}) {
+export function contextCandidates(files, trackedPaths, {maxCandidates=20,onProbe}={}) {
  if(!Array.isArray(files)||files.length>200||!Array.isArray(trackedPaths)||trackedPaths.length>10000||!Number.isSafeInteger(maxCandidates)||maxCandidates<1||maxCandidates>20)throw new Error('Invalid context candidate limit');
  const tracked=new Set();for(const p of trackedPaths){relativePath(p);if(tracked.has(p))throw new Error('Duplicate tracked path');tracked.add(p);}
  const changed=new Set(files.flatMap(f=>[f.path,...(f.oldPath?[f.oldPath]:[])]));
@@ -17,6 +17,7 @@ export function contextCandidates(files, trackedPaths, {maxCandidates=20}={}) {
    if(!match)continue;const spec=cpp?match[1]:match[2];if(!cpp&&!/^\.\.?\//.test(spec))continue;
    const target=path.posix.normalize(path.posix.join(path.posix.dirname(f.path),spec));try{relativePath(target);}catch{continue;}
    const candidates=js&&!path.posix.extname(target)?[target,...['.mjs','.cjs','.js','.jsx','.ts','.tsx'].flatMap(e=>[target+e,target+'/index'+e])]:[target];
+   onProbe?.(candidates);
    const matches=candidates.filter(p=>tracked.has(p));if(matches.length===1)add(matches[0],f.path,cpp?'literal-relative-include':'literal-relative-import');
   }
  }

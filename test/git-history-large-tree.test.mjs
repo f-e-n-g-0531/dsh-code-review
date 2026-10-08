@@ -1,0 +1,14 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {mkdtemp,writeFile,mkdir,rm} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
+import {checked} from '../src/process.mjs';import {captureSnapshot} from '../src/snapshot.mjs';
+test('large unrelated tree exceeding old metadata limits does not block four-file historical review',async t=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),'dsh-large-history-'));t.after(async()=>{assert.ok(path.basename(root).startsWith('dsh-large-history-'));await rm(root,{recursive:true,force:true});});
+ const git=(...args)=>checked('git',args,{cwd:root,timeoutMs:120000,maxBytes:4*1024*1024});await git('init');await git('config','user.name','test');await git('config','user.email','test@example.com');await mkdir(path.join(root,'unrelated'));
+ for(let i=0;i<11000;i+=100)await Promise.all(Array.from({length:100},(_,j)=>writeFile(path.join(root,'unrelated',String(i+j).padStart(5,'0')+'-'+ 'x'.repeat(60)+'.txt'),'irrelevant')));
+ await mkdir(path.join(root,'Debug32'));await mkdir(path.join(root,'Test'));const selected=['Debug32/a.shader','Debug32/b.shader','Test/a.shader','Test/b.shader'];for(const p of selected)await writeFile(path.join(root,p),'old');await writeFile(path.join(root,'dep.ts'),'dependency');await writeFile(path.join(root,'main.ts'),'old');await writeFile(path.join(root,'rules.md'),'rule');await git('add','.');await git('commit','-qm','base');
+ for(const p of selected)await writeFile(path.join(root,p),'new');await writeFile(path.join(root,'main.ts'),'import x from "./dep";');await git('commit','-qam','target');const commit=(await git('rev-parse','HEAD')).toString().trim();
+ assert.ok((await git('ls-tree','-rz','--full-tree','HEAD')).length>1024*1024);const status=await git('status','--porcelain');await git('config','core.abbrev','5');
+ const s=await captureSnapshot(root,{commit,selectedPaths:selected});assert.equal(s.files.filter(f=>f.eligibility==='reviewable').length,4);assert.equal(s.files.length,5);assert.equal(s.id,(await captureSnapshot(root,{commit,selectedPaths:selected})).id);
+ const auto=await captureSnapshot(root,{commit,selectedPaths:['main.ts'],autoContext:true,rulePaths:['rules.md']});assert.deepEqual(auto.autoContext.capturedPaths,['dep.ts']);assert.equal(auto.rules[0].text,'rule');assert.ok(!JSON.stringify(auto).includes('irrelevant'));
+ await assert.rejects(captureSnapshot(root,{commit,contextPaths:['unrelated']}),/regular blob/);await assert.rejects(captureSnapshot(root,{commit,contextPaths:['unrelated/*']}),/regular blob/);assert.deepEqual(await git('status','--porcelain'),status);
+});
