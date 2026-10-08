@@ -1,7 +1,7 @@
 import { readLocal, relativePath } from './content.mjs';
 
 // Explicit paths only. This helper neither authorizes sending nor follows includes.
-export async function captureProjectRules(root, paths, { signal, files = [] } = {}) {
+export async function captureProjectRules(root, paths, { signal, files = [], read = readLocal } = {}) {
   if (!Array.isArray(paths) || paths.length > 4) throw new Error('Rule file limit exceeded');
   const seen = new Set();
   for (const name of paths) {
@@ -15,7 +15,7 @@ export async function captureProjectRules(root, paths, { signal, files = [] } = 
   const rules = [];
   let bytes = 0;
   for (const name of [...paths].sort()) {
-    const content = await readLocal(root, name, { signal, maxFileBytes: 16 * 1024 });
+    const content = await read(root, name, { signal, maxFileBytes: 16 * 1024 });
     if (content.encoding !== 'utf-8') throw new Error('Rules must use UTF-8');
     bytes += content.bytes;
     if (bytes > 32 * 1024) throw new Error('Rule content budget exceeded');

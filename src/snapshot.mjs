@@ -32,7 +32,6 @@ export async function captureSnapshot(cwd, options = {}) {
   const type = await detectVcs(cwd);
   if (['commit','baseRevision','targetRevision'].some(k => options[k] !== undefined)) {
     if (type !== 'git') throw new Error('Git revision review is unsupported on SVN');
-    if (!Array.isArray(rulePaths) || rulePaths.length) throw new Error('Historical rules not yet supported; do not mix working-tree sources');
     return captureGitHistory(cwd, options);
   }
   const capture = type === 'git' ? captureGit : captureSvn;
