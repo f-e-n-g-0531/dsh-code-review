@@ -36,11 +36,14 @@ export function createSnapshotReader(snapshotId, entries, { maxBytes = 4 * 1024 
   }
   return Object.freeze({
     usage: () => ({ calls, outputBytes }),
-    search({ query, limit = 20 }) {
+    search({ query, limit = 20, sourceIds }) {
       begin();
       if (typeof query !== 'string' || !query || query.length > 256 || /[\r\n]/.test(query) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid search request');
+      if (sourceIds !== undefined && (!Array.isArray(sourceIds) || !sourceIds.length || sourceIds.length > 20 || new Set(sourceIds).size !== sourceIds.length || sourceIds.some(id=>!sources.has(id)))) throw new Error('Invalid search source filter');
+      const selected = sourceIds === undefined ? null : new Set(sourceIds);
       const matches = [];
       for (const [id, source] of sources) {
+        if (selected && !selected.has(id)) continue;
         signal?.throwIfAborted();
         for (const range of lineRanges(source.text)) {
           if (!source.text.slice(range.start, range.end).includes(query)) continue;

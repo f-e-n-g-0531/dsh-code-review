@@ -20,6 +20,10 @@ A 语言指引（0.18.0）；B 风险计划及业务分组；C 必要上下文�
 
 用户提交831240284be52aeaa727c3c6ae1509888b14ed68因前置全树元数据超限未模型审查。改diff-tree --raw --no-abbrev -z -r --no-renames精确端点，仅变更元数据；上下文/规则字面非递归ls-tree路径lookup32批、自动512探针，不扩大整树限。真实11000无关文件元数据>1MiB、四Shader小改捕获/哈希稳定/auto/rules/目录通配拒绝；266测试。冻结0.25.1。实际用户仓库未重跑，不声称该提交审核通过。
 
+## 轮次48检查点：快照搜索来源筛选
+
+读取固定2d67596 internal/tool/code_search.go，对照现有检索补sourceIds限定1至20批准catalog，按文件/版本搜索，未填兼容全快照literal。未知/重复/超限整批执行前拒绝，共享calls/output预算不变。278测试protocol+reader+loop，无额外权限。冻结0.28.0。总体仍未完成，goal保持active而非完成/blocked。待办优先：固定参考agent/llmloop搜索规划与验证逐文件清单；有界caller发现；旧侧独有context provenance；更多language指导；当前自动C#非编译器且窄语法限制。48上限是检查点不充当功能对齐证据。
+
 ## 轮次47：Csharp捕获全链路与候选成本
 
 自动探针每call lines.some改一次标识符计数，保守唯一Type token不重扫。真实Git old/new static call -> Util.cs两侧对象正文/定义提示/脏worktree SECRET不泄漏/稳定hash/status不改，276测试。冻结0.27.1。自动caller发现、旧侧独有上下文与固定核心搜索能力尚未完整对齐，不以48检查点标完成。
