@@ -29,7 +29,7 @@ test('Markdown condenses only exact repeated explanation but keeps both original
   findings[1].verification.verdict = 'refuted';
   assert.ok(!markdownReport(report).includes('重复报告候选'));
 });
-test('full review groups shared validated receipts without new calls or losing raw findings', async () => {
+test('legacy full review retains shared receipts without inferring assessed regression duplicates', async () => {
   const snapshot = { id: 'snap', vcs: 'git', context: [], files: ['a.js', 'b.js'].map(id => ({ id, path: id, eligibility: 'reviewable', properties: [], left: { text: 'before' }, right: { text: 'after' } })) };
   const report = await reviewSnapshot(snapshot, async r => {
     const p = JSON.parse(r.input);
@@ -39,9 +39,18 @@ test('full review groups shared validated receipts without new calls or losing r
   }, { enableRetrieval: true, enableVerification: true });
   assert.equal(report.modelCalls, 6);
   assert.equal(report.findings.length, 2);
-  assert.deepEqual(report.findingGroups[0].findingIndices, [0, 1]);
+  assert.deepEqual(report.findingGroups, []);
+  assert.equal(report.regressionCoverage.unassessed, 2);
   assert.equal(report.findings[1].verification.evidence[0].text, 'after');
-  assert.match(markdownReport(report), /重复报告候选/);
+  assert.match(markdownReport(report), /尚未评估修改前后/);
+  assert.ok(!markdownReport(report).includes('重复报告候选'));
+});
+test('conflicting before-after classifications and reasons never collapse', () => {
+  const a = finding('a'), b = finding('b');
+  a.verification.regression = { classification: 'introduced', reason: 'guard removed', oldEvidence: [0], newEvidence: [0] };
+  for (const regression of [{ ...a.verification.regression, classification: 'preexisting' }, { ...a.verification.regression, classification: 'uncertain' }, { ...a.verification.regression, reason: 'other path' }]) {
+    b.verification.regression = regression; assert.deepEqual(groupDuplicateFindings([a, b]), []);
+  }
 });
 test('partial evidence overlap never produces transitive root-cause merge', () => {
   const a = finding('a'), b = finding('b');

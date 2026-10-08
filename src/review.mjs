@@ -130,6 +130,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             });
             request.signal.throwIfAborted();
             generated.findings.forEach((finding, i) => { finding.verification = { status: 'completed', ...verdicts[i] }; });
+            if (verdicts.some(v => v.verdict === 'supported' && v.regression?.classification === 'uncertain')) report.limitations.push({ fileId: file.id, text: '部分模型支持候选缺少充分前后对照，不能确认由本次变更引入' });
             if (verdicts.some(v => v.verdict === 'uncertain')) report.limitations.push({ fileId: file.id, text: '部分候选复核仍不确定，不能视为已确认或已排除' });
           } catch (error) {
             for (const finding of generated.findings) finding.verification = { status: 'incomplete', causality: 'unverified' };
@@ -160,6 +161,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     report.retrievalUsage = scope.usage();
     report.retrievalSources = scope.catalog();
   }
+  report.regressionCoverage = Object.fromEntries(['introduced', 'preexisting', 'uncertain', 'unassessed'].map(classification => [classification, report.findings.filter(f => (f.verification?.regression?.classification ?? 'unassessed') === classification).length]));
   report.findingGroups = groupDuplicateFindings(report.findings);
   report.followup = coverageFollowup(report);
   return report;
@@ -195,6 +197,11 @@ export function markdownReport(report) {
     const a = finding.anchor;
     const location = a.kind === 'line' ? a.side + ':' + a.start + '-' + a.end : a.kind === 'property' ? '属性 ' + a.name : '文件级';
     output.push('', '### [' + finding.severity + '] ' + safe(finding.title), safe(finding.path) + ' · ' + safe(location));
+    const regression = finding.verification?.regression;
+    const regressionLabel = ({ introduced: '模型判断本次引入', preexisting: '模型判断原有问题', uncertain: '前后对照证据不足', unassessed: '尚未评估修改前后' }[regression?.classification ?? 'unassessed']);
+    output.push('- 回归分类：' + regressionLabel + '；不等于因果事实证明');
+    if (regression?.reason) output.push('- 前后对照理由：' + safe(regression.reason));
+    if (regression?.oldEvidence) output.push('- 前后对照证据索引（本候选复核证据零基）：old=' + regression.oldEvidence.join(',') + '；new=' + regression.newEvidence.join(','));
     if (duplicates.has(index)) {
       output.push('- 重复报告候选：与第 ' + (duplicates.get(index) + 1) + ' 条共享完整已校验证据及解释；不证明根因成立。原始候选保留于JSON。');
       output.push('- 本处变更引用：' + safe([...finding.attribution.editIds, ...finding.attribution.properties].join(', ')));
