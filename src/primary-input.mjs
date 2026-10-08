@@ -1,3 +1,4 @@
+import { inferContextRelations } from './context-relations.mjs';
 import { changeMap } from './change-map.mjs';
 import { initialInputBudget } from './input-budget.mjs';
 
@@ -5,6 +6,8 @@ import { initialInputBudget } from './input-budget.mjs';
 export function preparePrimaryInput(input, file, { instructions, scope, grouping, maxInputBytes }) {
   const changes = changeMap(file.left.text, file.right.text);
   const base = { snapshotId: input.id, file, changes, context: input.context ?? [], rules: input.rules ?? [] };
+  const contextRelations = inferContextRelations(input, file);
+  if (contextRelations.length) base.contextRelations = contextRelations;
   let payload = JSON.stringify(base);
   const measure = value => initialInputBudget({ instructions, input: value }, scope, maxInputBytes);
   const metadata = {};
