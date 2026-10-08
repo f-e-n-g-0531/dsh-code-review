@@ -30,6 +30,29 @@ test('invalid response leaves every prepared window explicitly pending', async (
   assert.deepEqual(report.files[0].windowCoverage.completed, []);
   assert.equal(report.files[0].windowCoverage.pending.length, 1);
 });
+test('multiple window batches share signal and preserve completed windows on budget exhaustion', async () => {
+  const s = snapshot();
+  const lines = Array.from({ length: 100 }, (_, i) => 'line' + i + 'x'.repeat(200));
+  s.files[0].left.text = lines.join(String.fromCharCode(10));
+  const changed = [...lines]; changed[10] = 'changed10'; changed[80] = 'changed80';
+  s.files[0].right.text = changed.join(String.fromCharCode(10));
+  const scope = createRetrievalScope(s);
+  const plan = buildCoveragePlan(s, { instructions: REVIEW_INSTRUCTIONS, scope, maxInputBytes: 8000 });
+  assert.equal(plan.items[0].minimumCalls, 2);
+  let firstSignal, calls = 0;
+  const report = await reviewSnapshot(s, async r => {
+    calls++; firstSignal ??= r.signal; assert.equal(r.signal, firstSignal);
+    assert.equal(JSON.parse(r.input).windows.length, 1);
+    return { findings: [], limitations: [] };
+  }, { enableRetrieval: true, maxInputBytes: 8000, maxCalls: 1 });
+  assert.equal(calls, 1);
+  assert.equal(report.files[0].windowCoverage.completed.length, 1);
+  assert.equal(report.files[0].windowCoverage.pending.length, 1);
+  assert.notEqual(report.status, 'completed');
+  const complete = await reviewSnapshot(s, async () => ({ findings: [], limitations: [] }), { enableRetrieval: true, maxInputBytes: 8000 });
+  assert.equal(complete.files[0].windowCoverage.completed.length, 2);
+  assert.equal(complete.files[0].windowCoverage.pending.length, 0);
+});
 test('no approved retrieval or window input still too large blocks without a send', async () => {
   for (const options of [{ maxInputBytes: 12000 }, { enableRetrieval: true, maxInputBytes: 10 }]) {
     const report = await reviewSnapshot(snapshot(), () => assert.fail('unexpected send'), options);
