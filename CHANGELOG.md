@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.25.2
+
+- 修预览已知跨文件minimumCalls计入风险规划，动态业务交互maximumAdditionalInitialCalls同样计入规划阶段。
+- 预览/实际链路一致预算断言，避免静态调用下界漏计。
+
 ## 0.25.1
 
 - 修复大仓库小提交历史快照Command output limit exceeded：用diff-tree raw NUL元数据取代两端全树ls-tree，不扩大整树上限。
