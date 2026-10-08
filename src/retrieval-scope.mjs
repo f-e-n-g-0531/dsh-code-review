@@ -27,6 +27,10 @@ export function createRetrievalScope(snapshot, options) {
       continue;
     }
     add(item.path, 'context', item.text);
+    if (item.oldText !== undefined) {
+      if (!snapshot.history || item.oldRevision !== snapshot.history.base || item.revision !== snapshot.history.target || typeof item.oldText !== 'string') throw new Error('Invalid historical context provenance');
+      add(item.path, 'context-old', item.oldText);
+    }
   }
   const reader = createSnapshotReader(snapshot.id, entries, options);
   return Object.freeze({ ...reader, catalog: () => structuredClone(catalog) });

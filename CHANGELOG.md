@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.24.0
+
+- 历史旧侧import/include导航未修改上下文，保留oldText/oldRevision/目标revision，context-old检索身份分离并校验来源。
+- 同时保留目标侧正文，原总文件/大小预算与排除边界不变；旧侧独有/删除上下文和调用者搜索尚不支持。
+
 ## 0.23.3
 
 - 发布验收实际有界下载npm tarball并逐字节/内容SHA512验证，不再仅相信metadata integrity；tarball404重试耗尽失败。

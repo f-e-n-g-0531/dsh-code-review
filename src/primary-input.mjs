@@ -16,7 +16,7 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
   const contextRelations = inferContextRelations(input, file);
   if (contextRelations.length) {
     base.contextRelations = contextRelations;
-    base.contextRelationNotice = '导入/include/命名与调用位置仅为语法线索；可能被宏、构建搜索路径或同名局部变量影响，不证明绑定、可达性或因果。context为批准当前文本，不是old历史内容。';
+    base.contextRelationNotice = '导入/include/命名与调用位置仅为语法线索；可能被宏、构建搜索路径或同名局部变量影响，不证明绑定、可达性或因果。context.text为批准当前/目标侧文本；仅明确oldText/oldRevision字段是历史旧侧，禁止互换。';
   }
   if (/\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/.test(file.path)) {
     const calls = ['old','new'].flatMap(side => cppCallSites((side === 'old' ? file.left : file.right).text).map(site => ({ ...site, side })));
