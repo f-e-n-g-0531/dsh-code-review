@@ -1,0 +1,21 @@
+import {realpath} from 'node:fs/promises';
+import {checked} from './process.mjs';
+import {hash,decode,relativePath} from './content.mjs';
+const utf8=b=>new TextDecoder('utf-8',{fatal:true}).decode(b);
+// Object-only capture: no checkout, worktree reads, external diff or fetch.
+export async function captureGitHistory(cwd, options={}) {
+ const {commit,baseRevision,targetRevision,selectedPaths,signal,maxFiles=200,maxFileBytes=256*1024,maxSnapshotBytes=4*1024*1024}=options;
+ if(!Number.isSafeInteger(maxFiles)||maxFiles<1||maxFiles>200||!Number.isSafeInteger(maxFileBytes)||maxFileBytes<1||maxFileBytes>256*1024||!Number.isSafeInteger(maxSnapshotBytes)||maxSnapshotBytes<1||maxSnapshotBytes>4*1024*1024)throw new Error('Invalid historical capture limits');
+ if(selectedPaths!==undefined&&(!Array.isArray(selectedPaths)||selectedPaths.some(p=>relativePath(p)!==p)))throw new Error('Invalid selected paths');
+ const git=(root,args,limit=1024*1024)=>checked('git',['--no-optional-locks','-c','core.fsmonitor=false','-c','core.untrackedCache=false',...args],{...options,cwd:root,maxBytes:limit});
+ const root=await realpath(utf8(await git(cwd,['rev-parse','--show-toplevel'])).trim());
+ const resolve=async ref=>{if(typeof ref!=='string'||!ref||ref.length>256||ref.startsWith('-')||/[\s\0]/.test(ref))throw new Error('Invalid revision');const oid=utf8(await git(root,['rev-parse','--verify','--end-of-options',ref+'^{commit}'])).trim();if(!/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(oid))throw new Error('Invalid commit object');return oid;};
+ let base,target;
+ if(commit!==undefined){if(baseRevision!==undefined||targetRevision!==undefined)throw new Error('Commit and range are mutually exclusive');target=await resolve(commit);const ancestry=utf8(await git(root,['rev-list','--parents','-n','1',target])).trim().split(' ');if(ancestry.length>2)throw new Error('Merge commit requires explicit revision range');base=ancestry[1]??null;}
+ else {base=await resolve(baseRevision);target=await resolve(targetRevision);}
+ const tree=async oid=>{const map=new Map();if(!oid)return map;const records=utf8(await git(root,['ls-tree','-rz','--full-tree',oid])).split('\0').filter(Boolean);if(records.length>10000)throw new Error('Historical tree entry limit exceeded');for(const r of records){const m=/^(\d{6}) (blob|commit) ([a-f0-9]+)\t([\s\S]+)$/.exec(r);if(!m)throw new Error('Invalid historical tree');relativePath(m[4]);map.set(m[4],{mode:m[1],type:m[2],oid:m[3]});}return map;};
+ const left=await tree(base),right=await tree(target),names=[...new Set([...left.keys(),...right.keys()])].filter(p=>JSON.stringify(left.get(p))!==JSON.stringify(right.get(p))).sort();
+ if(names.length>maxFiles)throw new Error('Historical change count limit exceeded');if(selectedPaths?.some(p=>!names.includes(p)))throw new Error('Selected path is not a historical change');
+ const files=[];for(const name of names){signal?.throwIfAborted();const l=left.get(name),r=right.get(name),item={id:hash(name),path:name,rawStatus:!l?'A':!r?'D':'M',eligibility:'reviewable',properties:[]};files.push(item);if(selectedPaths&&!selectedPaths.includes(name)){item.eligibility='excluded';item.reason='Not explicitly selected';continue;}try{for(const e of [l,r].filter(Boolean))if(e.type!=='blob'||!['100644','100755'].includes(e.mode))throw new Error('Historical link or submodule excluded');const read=async e=>decode(e?await git(root,['cat-file','blob',e.oid],maxFileBytes):Buffer.alloc(0));item.left=await read(l);item.right=await read(r);item.rightExists=!!r;if(l&&r&&item.left.hash===item.right.hash){item.eligibility='excluded';item.reason='Mode-only historical change not analyzed';}}catch(error){signal?.throwIfAborted();item.eligibility='blocked';item.reason=error.message;delete item.left;delete item.right;}if(Buffer.byteLength(JSON.stringify(files))>maxSnapshotBytes)throw new Error('Historical snapshot limit exceeded');}
+ const snapshot={schemaVersion:1,vcs:'git',root,baseline:base,history:{mode:commit!==undefined?'commit':'range',base,target,semantics:'exact-tree-endpoints; renames represented as add/delete'},files};const serialized=JSON.stringify(snapshot);if(Buffer.byteLength(serialized)>maxSnapshotBytes)throw new Error('Historical snapshot limit exceeded');return {...snapshot,id:hash(serialized)};
+}
