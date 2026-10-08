@@ -14,7 +14,7 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
   const contextRelations = inferContextRelations(input, file);
   if (contextRelations.length) {
     base.contextRelations = contextRelations;
-    base.contextRelationNotice = '导入与调用位置仅为语法线索；可能被同名局部变量遮蔽，不证明绑定、可达性或因果。';
+    base.contextRelationNotice = '导入/include/命名与调用位置仅为语法线索；可能被宏、构建搜索路径或同名局部变量影响，不证明绑定、可达性或因果。context为批准当前文本，不是old历史内容。';
   }
   const csharpHints = inferCsharpContext(input, file);
   if (csharpHints.length) { base.csharpContextHints = csharpHints; base.csharpContextNotice = '仅批准当前context的C#静态类型/方法语法位置；不证明语义绑定或执行可达，也不是旧侧历史上下文。歧义不推定，线索不增加审查覆盖。'; }
