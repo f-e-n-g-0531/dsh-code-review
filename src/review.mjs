@@ -1,3 +1,4 @@
+import { validateWindowFindings } from './window-findings.mjs';
 import { hash } from './content.mjs';
 import { coverageFollowup } from './coverage-followup.mjs';
 import { verificationLoop } from './verification-loop.mjs';
@@ -113,6 +114,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         enclosingRequest.signal.throwIfAborted();
         const request = { ...enclosingRequest, input: batch.payload };
         const generated = validateResponse(await executor(request), file, changes);
+        if (state.sourceMode === 'change-windows') validateWindowFindings(generated.findings, JSON.parse(batch.payload).windows);
         request.signal.throwIfAborted();
         report.findings.push(...generated.findings);
         if (generated.findings.some(f => f.attribution.status === 'missing')) report.limitations.push({ fileId: file.id, text: '部分发现缺少变更归因，仅校验了定位，尚不能确认属于本次回归' });
@@ -177,6 +179,7 @@ export function markdownReport(report) {
     for (const link of report.grouping.links) output.push('- ' + safe(names.get(link.from)) + ' ↔ ' + safe(names.get(link.to)) + '：' + safe(link.reasons.join(', ')) + (link.split ? '（受组上限限制，已拆组）' : ''));
     for (const file of report.files) if (file.relatedFileIds?.length) output.push('- ' + safe(file.path) + '：输入包含 ' + file.relatedFileIds.length + ' 个关联文件');
   }
+  for (const file of report.files) if (file.windowCoverage) output.push('- ' + safe(file.path) + '：变更窗口已完成 ' + file.windowCoverage.completed.length + '，待审 ' + file.windowCoverage.pending.length + '；仅表示窗口分析完成，不证明全文正确');
   if (report.rules?.length) output.push('', '## 项目规则', '规则仅为已批准约束数据，不扩大权限或证明缺陷。', ...report.rules.map(rule => '- ' + safe(rule.path) + ' · SHA256 ' + safe(rule.hash)));
   if (report.followup?.suggestedPaths.length) output.push('', '## 后续选择建议', '仅为原快照未完成项；不会自动续审。再次执行需新预览、新审批，并显式选择规则和上下文。阻断项需先处理原因；关联上下文不等于主文件已审查。', ...report.followup.items.filter(item => item.followup).map(item => '- ' + safe(item.path) + '：' + item.status + (item.incompleteVerification ? '（候选复核未完成）' : '')));
   output.push('', '## 审查发现');
