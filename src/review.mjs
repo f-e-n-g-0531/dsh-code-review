@@ -1,5 +1,6 @@
 import { validateWindowFindings } from './window-findings.mjs';
 import { groupDuplicateFindings } from './finding-groups.mjs';
+import { validateSynthesisReads } from './synthesis-evidence.mjs';
 import { hash } from './content.mjs';
 import { coverageFollowup } from './coverage-followup.mjs';
 import { verificationLoop } from './verification-loop.mjs';
@@ -117,7 +118,9 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         for (const batch of batches) {
         enclosingRequest.signal.throwIfAborted();
         const request = { ...enclosingRequest, input: batch.payload };
+        const auditStart = state.retrievalAudit?.length ?? 0;
         const generated = validateResponse(await executor(request), file, changes);
+        if (batch.synthesis) validateSynthesisReads(generated.findings, changes, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog(), file.id, input.id);
         if (state.sourceMode === 'change-windows') validateWindowFindings(generated.findings, batch.synthesis ? prepared.synthesis.windows : JSON.parse(batch.payload).windows, batch.synthesis === true);
         request.signal.throwIfAborted();
         report.findings.push(...generated.findings);

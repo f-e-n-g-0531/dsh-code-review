@@ -72,6 +72,7 @@ test('synthesis budget exhaustion and cancellation keep completed local coverage
  assert.equal(cancelled.files[0].synthesisStatus, 'pending');
  const found = await reviewSnapshot(s, async r => {
   if (JSON.parse(r.input).sourceMode !== 'window-synthesis') return { findings: [], limitations: [] };
+  if (!JSON.parse(r.input).retrieved.length) return { requests: [{ kind: 'read', id: 's2', start: 11, count: 1 }, { kind: 'read', id: 's2', start: 81, count: 1 }] };
   return { findings: [{ fileId: 'f', severity: 'high', title: 'interaction', evidence: 'combined edits', trigger: 'both changes', impact: 'failure', suggestion: 'align', anchor: { kind: 'line', side: 'new', start: 11, end: 11, snippet: 'changed10' }, attribution: { editIds: ['e1', 'e2'], properties: [], beforeBehavior: 'aligned', afterBehavior: 'mismatch', reason: 'combined' } }], limitations: [] };
  }, { enableRetrieval: true, maxInputBytes: 8000 });
  assert.equal(found.findings.length, 1); assert.equal(found.files[0].synthesisStatus, 'completed');
