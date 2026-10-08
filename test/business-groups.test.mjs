@@ -1,0 +1,7 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {validateBusinessGroups,prepareBusinessGroups,BUSINESS_GROUP_INSTRUCTIONS} from '../src/business-groups.mjs';
+import {reviewSnapshot} from '../src/review.mjs';
+const files=()=>['a','b'].map(id=>({id,path:id+'.cpp',eligibility:'reviewable',properties:[],left:{text:'old'},right:{text:'new'}}));
+test('business grouping covers approved files exactly once and metadata contains no source',()=>{assert.ok(!prepareBusinessGroups(files()).includes('old'));assert.equal(validateBusinessGroups({groups:[{fileIds:['a','b'],reason:'contract'}]},files()).groups[0].confidence,'model-hypothesis');for(const ids of [['a'],['a','a'],['a','outside']])assert.throws(()=>validateBusinessGroups({groups:[{fileIds:ids,reason:'r'}]},files()));});
+test('business tasks reach interaction pipeline inside first-primary shared lifecycle',async()=>{let signal;const r=await reviewSnapshot({id:'s',vcs:'git',files:files(),context:[]},async req=>{if(req.instructions===BUSINESS_GROUP_INSTRUCTIONS){signal=req.signal;return {groups:[{fileIds:['a','b'],reason:'shared contract'}]};}const input=JSON.parse(req.input);if(input.file?.id==='a')assert.equal(req.signal,signal);return {findings:[],limitations:[]};},{enableRetrieval:true,enableBusinessGrouping:true});assert.equal(r.businessGrouping.status,'completed');assert.equal(r.interactions.length,1);assert.equal(r.interactions[0].status,'completed');assert.equal(r.modelCalls,4);});

@@ -1,3 +1,4 @@
+import { BUSINESS_GROUP_INSTRUCTIONS, prepareBusinessGroups, validateBusinessGroups } from './business-groups.mjs';
 import { RISK_PLAN_INSTRUCTIONS, validateRiskPlan } from './risk-plan.mjs';
 import { prepareInteractionInput } from './interaction-input.mjs';
 import { validateInteractionFindings } from './interaction-findings.mjs';
@@ -83,6 +84,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     identities.add(file.id); paths.add(file.path);
     if (file.eligibility === 'reviewable' && (typeof file.left?.text !== 'string' || typeof file.right?.text !== 'string' || !Array.isArray(file.properties))) throw new Error('Missing review content');
   }
+  if (options.enableBusinessGrouping === true && options.enableRetrieval !== true) throw new Error('Business grouping requires approved retrieval scope');
   if (options.enableVerification === true && options.enableRetrieval !== true) throw new Error('Verification requires approved retrieval scope');
   const scope = options.enableRetrieval === true ? createRetrievalScope({ ...input, context: input.context ?? [] }, { signal }) : null;
   const report = { schemaVersion: 1, snapshotId: input.id, vcs: input.vcs, status: 'completed', files: [], findings: [], limitations: [], modelCalls: 0 };
@@ -120,10 +122,32 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         } })
         : request => { beforeCall(); return model(request); };
       await invoke(async enclosingRequest => {
+        if (options.enableBusinessGrouping === true && !report.businessGrouping && prepareBusinessGroups(input.files)) {
+          report.businessGrouping = { status: 'pending' };
+          try {
+            const groupInput = prepareBusinessGroups(input.files);
+            if (Buffer.byteLength(groupInput) + Buffer.byteLength(BUSINESS_GROUP_INSTRUCTIONS) > maxInputBytes) throw new Error('Business grouping input budget exceeded');
+            beforeCall();
+            const response = await model({ ...enclosingRequest, instructions: BUSINESS_GROUP_INSTRUCTIONS, input: groupInput });
+            enclosingRequest.signal.throwIfAborted();
+            const grouped = validateBusinessGroups(response, input.files);
+            report.businessGrouping = { status: 'completed', ...grouped };
+            for (const group of grouped.groups.filter(g => g.fileIds.length > 1)) {
+              if (interactionPlans.some(p => [...p.group.fileIds].sort().join(',') === [...group.fileIds].sort().join(','))) continue;
+              const prepared = prepareInteractionInput(input, group, payload => initialInputBudget({ instructions: REVIEW_INSTRUCTIONS, input: payload }, scope, maxInputBytes));
+              interactionPlans.push({ group, prepared });
+              if (prepared.status !== 'not-applicable') report.interactions.push({ groupId: group.id, fileIds: prepared.fileIds, status: prepared.status === 'ready' ? 'pending' : 'blocked', reason: prepared.reason, lifecycle: 'shares-last-primary-timeout' });
+            }
+          } catch (error) {
+            report.businessGrouping = { status: 'fallback', reason: error.message };
+            report.limitations.push({ text: '业务分组未完成，保留原分组：' + error.message });
+            enclosingRequest.signal.throwIfAborted();
+          }
+        }
         const batches = [...(prepared.batches ?? [{ payload, windowIds: state.windowIds ?? [] }])];
         if (prepared.synthesis?.budget.fits) batches.push({ payload: prepared.synthesis.payload, windowIds: [], synthesis: true });
-        const interactionPlan = interactionPlans.find(p => input.files.filter(f => p.group.fileIds.includes(f.id)).at(-1)?.id === file.id);
-        if (interactionPlan?.prepared.status === 'ready') batches.push({ payload: interactionPlan.prepared.payload, windowIds: [], interaction: interactionPlan.group });
+        const matchingInteractionPlans = interactionPlans.filter(p => input.files.filter(f => p.group.fileIds.includes(f.id)).at(-1)?.id === file.id);
+        for (const interactionPlan of matchingInteractionPlans.filter(p => p.prepared.status === 'ready')) batches.push({ payload: interactionPlan.prepared.payload, windowIds: [], interaction: interactionPlan.group });
         for (const batch of batches) {
         enclosingRequest.signal.throwIfAborted();
         let batchPayload = batch.payload;
