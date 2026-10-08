@@ -27,6 +27,7 @@ export async function captureSnapshot(cwd, options = {}) {
   for (const value of [maxContextFiles, maxSnapshotBytes]) if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid snapshot limit');
   if (!Array.isArray(contextPaths) || contextPaths.length > maxContextFiles) throw new Error('Context file limit exceeded');
   for (const name of contextPaths) relativePath(name);
+  if (options.autoContext !== undefined && typeof options.autoContext !== 'boolean') throw new Error('Invalid autoContext option');
   const type = await detectVcs(cwd);
   const capture = type === 'git' ? captureGit : captureSvn;
   const snapshot = await capture(cwd, options);

@@ -7,7 +7,7 @@ export async function gitContextIndex(root, options = {}) {
  if(records.length>10000)throw new Error('Tracked context index limit exceeded');
  const entries=new Map();
  for(const record of records){
-  const match=/^(\d{6}) ([a-f0-9]+) ([0-3])\t(.+)$/.exec(record);if(!match)throw new Error('Invalid Git context index');
+  const match=/^(\d{6}) ([a-f0-9]+) ([0-3])\t([\s\S]+)$/.exec(record);if(!match)throw new Error('Invalid Git context index');
   const name=relativePath(match[4]);const valid=match[3]==='0'&&['100644','100755'].includes(match[1]);
   if(entries.has(name))entries.set(name,false);else entries.set(name,valid);
  }
