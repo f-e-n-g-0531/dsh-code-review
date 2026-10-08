@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.24.1
+
+- 历史上下文关系分别对基线/目标文本推断，标记contextSide/contextVersion；缺少oldText不回退目标正文。
+- 避免旧import绑定新definition；263测试通过，不增读取调用。
+
 ## 0.24.0
 
 - 历史旧侧import/include导航未修改上下文，保留oldText/oldRevision/目标revision，context-old检索身份分离并校验来源。

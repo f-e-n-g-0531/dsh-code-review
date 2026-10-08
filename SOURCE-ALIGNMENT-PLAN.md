@@ -16,6 +16,10 @@
 
 A 语言指引（0.18.0）；B 风险计划及业务分组；C 必要上下文；D 定位纠正；E Git提交/区间。每批发布核验后进下一批，不继续堆未发布代码。预计2+6+5+4+5轮，余量2轮；超出上限时诚实报告未完项。
 
+## 轮次38：历史关系版本隔离
+
+复核发现旧import可绑定目标上下文定义。按侧分别推断关系并标注contextSide/contextVersion，缺oldText不旧侧推断。263测试含版本不同函数绑定/缺旧正文。冻结0.24.1；caller与删除旧侧上下文仍未完成。
+
 ## 轮次37：历史旧侧必要上下文
 
 旧import/include对基线树普通blob导航，仅两侧存在且未修改候选（所有changed含excluded不重入）。捕获oldText/oldRevision/目标revision，catalog context-old身份与目标context隔离、来源验证。原20文件及4MiB快照预算，候选sourceSides/阻塞可见，JSON主输入明确侧不互换。真实旧导入与来源失败测试；旧侧独有/删除上下文、caller/full semantic未支持。冻结0.24.0。

@@ -4,6 +4,19 @@ import { inferImportRelations } from './import-relations.mjs';
 // Context entries are already sent with every primary. These annotations add
 // explanations only, never reads, group members, or reviewed coverage.
 export function inferContextRelations(input, file) {
+  if (input.history) {
+    const relations=[];
+    for (const side of ['old','new']) {
+      const contexts=(input.context ?? []).filter(c=>side==='new'||typeof c.oldText==='string').map(c=>({...c,text:side==='old'?c.oldText:c.text}));
+      const text=side==='old'?file.left.text:file.right.text;
+      // Infer each version independently: never bind an old import to target definitions.
+      const one={...file,left:{...file.left,text:''},right:{...file.right,text}};
+      const version=side==='old'?input.history.base:input.history.target;
+      const scoped={...input,history:undefined,context:contexts};
+      relations.push(...inferContextRelations(scoped,one).filter(e=>e.side!=='old').map(e=>({...e,side:e.fromPath===file.path?side:side==='old'?'context-old':'context',contextVersion:version,contextSide:side})));
+    }
+    return relations.slice(0,2000);
+  }
   const paths = new Set(input.files.map(f => f.path));
   const contexts = (input.context ?? []).filter(c => !paths.has(c.path));
   const primary = { ...file, id: 'primary' };

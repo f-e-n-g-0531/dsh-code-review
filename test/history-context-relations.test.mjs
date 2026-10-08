@@ -1,0 +1,6 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {inferContextRelations} from '../src/context-relations.mjs';
+const file={id:'f',path:'a.ts',eligibility:'reviewable',left:{text:'import { oldFn } from "./dep";\noldFn();'},right:{text:'import { newFn } from "./dep";\nnewFn();'}};
+const input={history:{base:'base',target:'target'},files:[file],context:[{path:'dep.ts',text:'export function newFn() {}',oldText:'export function oldFn() {}'}]};
+test('historical relations never bind old imports to target context definitions',()=>{const r=inferContextRelations(input,file);const old=r.filter(e=>e.side==='old'),fresh=r.filter(e=>e.side==='new');assert.ok(old.length);assert.ok(fresh.length);assert.ok(old.every(e=>e.contextSide==='old'&&e.contextVersion==='base'));assert.ok(fresh.every(e=>e.contextSide==='new'&&e.contextVersion==='target'));assert.ok(!JSON.stringify(old).includes('newFn'));assert.ok(!JSON.stringify(fresh).includes('oldFn'));});
+test('missing old context declines old relation rather than falling back to target',()=>{const r=inferContextRelations({...input,context:[{path:'dep.ts',text:'export function newFn() {}'}]},file);assert.ok(!r.some(e=>e.side==='old'));assert.ok(r.some(e=>e.side==='new'));});
