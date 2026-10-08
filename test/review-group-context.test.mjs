@@ -15,6 +15,7 @@ test('cross-file regression fixture passes related evidence and validates only p
   s.files[1].right.text = 'assert.ok(timeout >= 1000);';
   const report = await reviewSnapshot(s, async r => {
     const p = JSON.parse(r.input);
+    if (p.sourceMode === 'file-interaction') return { findings: [], limitations: [] };
     if (p.file.id.startsWith('test/')) return { findings: [], limitations: [] };
     assert.match(p.relatedFiles[0].right.text, /timeout >= 1000/);
     return { findings: [{ fileId: p.file.id, severity: 'high', title: '超时单位回归', evidence: '测试要求至少1000，实现改为1', trigger: '请求需要超过1毫秒', impact: '请求提前超时', suggestion: '恢复毫秒值', anchor: { kind: 'line', side: 'new', start: 1, end: 1, snippet: p.file.right.text }, attribution: { editIds: ['e1'], properties: [], beforeBehavior: '1000毫秒', afterBehavior: '1毫秒', reason: '本次降低超时阈值' } }], limitations: [] };

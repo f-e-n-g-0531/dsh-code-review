@@ -53,6 +53,11 @@ test('approved service supplies both related sides once per primary without excl
   const service = createReviewService({ async *stream(r) {
     assert.ok(approved); assert.deepEqual(r.tools, []);
     const p = JSON.parse(r.messages[0].content[0].text);
+    if (p.sourceMode === 'file-interaction') {
+      assert.ok(!r.messages[0].content[0].text.includes('SECRET'));
+      yield { type: 'text-delta', text: JSON.stringify({ findings: [], limitations: [] }) };
+      yield { type: 'finish', reason: { kind: 'stop' } }; return;
+    }
     seen.push(p.file.id); assert.equal(p.relatedFiles.length, 1);
     assert.equal(p.relatedFiles[0].left.text, 'old');
     assert.ok(!r.messages[0].content[0].text.includes('SECRET'));
@@ -62,7 +67,8 @@ test('approved service supplies both related sides once per primary without excl
   const e = exec(), p = await service.preview({}, e);
   assert.equal(seen.length, 0);
   const { report } = await service.execute({ previewId: p.previewId, confirmed: true }, e);
-  assert.deepEqual(seen, ['f0', 'f1']); assert.equal(report.modelCalls, 2);
+  assert.deepEqual(seen, ['f0', 'f1']); assert.equal(report.modelCalls, 3);
+  assert.equal(report.interactions[0].status, 'completed');
   assert.equal(report.coverage.excluded, 1); assert.equal(report.status, 'completed');
 });
 

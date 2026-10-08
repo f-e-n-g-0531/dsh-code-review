@@ -1,3 +1,6 @@
+import { prepareInteractionInput } from './interaction-input.mjs';
+import { validateInteractionFindings } from './interaction-findings.mjs';
+import { initialInputBudget } from './input-budget.mjs';
 import { validateWindowFindings } from './window-findings.mjs';
 import { groupDuplicateFindings } from './finding-groups.mjs';
 import { validateSynthesisReads } from './synthesis-evidence.mjs';
@@ -84,6 +87,9 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   const report = { schemaVersion: 1, snapshotId: input.id, vcs: input.vcs, status: 'completed', files: [], findings: [], limitations: [], modelCalls: 0 };
   report.rules = (input.rules ?? []).map(({ path, hash }) => ({ path, hash }));
   if (options.enableGrouping === true) report.grouping = buildReviewGroups(input.files, inferFileRelations(input.files));
+  report.interactions = [];
+  const interactionPlans = scope && report.grouping ? report.grouping.groups.filter(g => g.fileIds.length > 1).map(group => ({ group, prepared: prepareInteractionInput(input, group, payload => initialInputBudget({ instructions: REVIEW_INSTRUCTIONS, input: payload }, scope, maxInputBytes)) })) : [];
+  for (const plan of interactionPlans.filter(p => p.prepared.status !== 'not-applicable')) report.interactions.push({ groupId: plan.group.id, fileIds: plan.prepared.fileIds, status: plan.prepared.status === 'ready' ? 'pending' : 'blocked', reason: plan.prepared.reason, lifecycle: 'shares-last-primary-timeout' });
   for (const file of input.files) {
     const state = { fileId: file.id, path: file.path, status: file.eligibility === 'reviewable' ? 'pending' : file.eligibility, reason: file.reason };
     report.files.push(state);
@@ -115,13 +121,16 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       await invoke(async enclosingRequest => {
         const batches = [...(prepared.batches ?? [{ payload, windowIds: state.windowIds ?? [] }])];
         if (prepared.synthesis?.budget.fits) batches.push({ payload: prepared.synthesis.payload, windowIds: [], synthesis: true });
+        const interactionPlan = interactionPlans.find(p => input.files.filter(f => p.group.fileIds.includes(f.id)).at(-1)?.id === file.id);
+        if (interactionPlan?.prepared.status === 'ready') batches.push({ payload: interactionPlan.prepared.payload, windowIds: [], interaction: interactionPlan.group });
         for (const batch of batches) {
         enclosingRequest.signal.throwIfAborted();
         const request = { ...enclosingRequest, input: batch.payload };
         const auditStart = state.retrievalAudit?.length ?? 0;
-        const generated = validateResponse(await executor(request), file, changes);
+        const response = await executor(request);
+        const generated = batch.interaction ? validateInteractionFindings(response, input, batch.interaction, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog()) : validateResponse(response, file, changes);
         if (batch.synthesis) validateSynthesisReads(generated.findings, changes, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog(), file.id, input.id);
-        if (state.sourceMode === 'change-windows') validateWindowFindings(generated.findings, batch.synthesis ? prepared.synthesis.windows : JSON.parse(batch.payload).windows, batch.synthesis === true);
+        if (!batch.interaction && state.sourceMode === 'change-windows') validateWindowFindings(generated.findings, batch.synthesis ? prepared.synthesis.windows : JSON.parse(batch.payload).windows, batch.synthesis === true);
         request.signal.throwIfAborted();
         report.findings.push(...generated.findings);
         if (generated.findings.some(f => f.attribution.status === 'missing')) report.limitations.push({ fileId: file.id, text: '部分发现缺少变更归因，仅校验了定位，尚不能确认属于本次回归' });
@@ -145,6 +154,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           }
         }
         if (batch.synthesis) state.synthesisStatus = 'completed';
+        if (batch.interaction) report.interactions.find(p => p.groupId === batch.interaction.id).status = 'completed';
         if (state.windowCoverage) {
           state.windowCoverage.completed.push(...batch.windowIds);
           state.windowCoverage.pending = state.windowCoverage.pending.filter(id => !batch.windowIds.includes(id));
@@ -160,6 +170,8 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       state.reason = error?.message ?? String(error);
     }
   }
+  for (const interaction of report.interactions) if (interaction.status !== 'completed') report.limitations.push({ text: '跨文件综合未完成：' + interaction.groupId + ' (' + interaction.status + ')' });
+  if (report.grouping?.links.some(l => l.split)) report.limitations.push({ text: '跨组关系未综合覆盖；关联分组不代表全部跨文件交互覆盖' });
   const unfinished = report.files.some(f => !['completed', 'excluded'].includes(f.status));
   report.status = signal?.aborted ? 'cancelled' : unfinished || report.limitations.length ? 'partial' : 'completed';
   if (report.files.some(f => f.status === 'failed') && !report.files.some(f => f.status === 'completed')) report.status = signal?.aborted ? 'cancelled' : 'failed';

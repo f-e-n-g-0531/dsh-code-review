@@ -1,3 +1,5 @@
+import { prepareInteractionInput } from './interaction-input.mjs';
+import { initialInputBudget } from './input-budget.mjs';
 import { preparePrimaryInput } from './primary-input.mjs';
 
 // Metadata only. No retained payload, file reads, model calls, or approval grants.
@@ -16,5 +18,6 @@ export function buildCoveragePlan(input, options) {
     const prepared = preparePrimaryInput(input, file, options);
     return { ...item, ...prepared.metadata, status: prepared.budget.fits ? 'ready' : 'input-blocked', minimumCalls: prepared.budget.fits ? ((prepared.batches?.length ?? 1) + (prepared.synthesis?.budget.fits ? 1 : 0)) : 0 };
   });
-  return { snapshotId: input.id, maxInputBytes: options.maxInputBytes, items, minimumCalls: items.reduce((sum,item) => sum + item.minimumCalls, 0), initialRequestsOnly: true };
+  const interactions = options.scope && options.grouping ? options.grouping.groups.filter(g => g.fileIds.length > 1).map(group => { const prepared = prepareInteractionInput(input, group, payload => initialInputBudget({ instructions: options.instructions, input: payload }, options.scope, options.maxInputBytes)); return { groupId: group.id, fileIds: prepared.fileIds, status: prepared.status, reason: prepared.reason, minimumCalls: prepared.status === 'ready' ? 1 : 0 }; }) : [];
+  return { interactions, snapshotId: input.id, maxInputBytes: options.maxInputBytes, items, minimumCalls: items.reduce((sum,item) => sum + item.minimumCalls, 0) + interactions.reduce((sum,item) => sum + item.minimumCalls, 0), initialRequestsOnly: true };
 }
