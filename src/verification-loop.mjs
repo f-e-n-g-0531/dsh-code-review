@@ -1,3 +1,4 @@
+import { defectGuidance } from './defect-guidance.mjs';
 import { createEvidenceReceipts } from './evidence-receipts.mjs';
 import { retrievalLoop } from './retrieval-loop.mjs';
 import { validateCandidateVerification } from './candidate-verification.mjs';
@@ -13,7 +14,7 @@ export async function verificationLoop(model, request, candidates, scope, option
   if (!candidates.length) return [];
   const ids = candidates.map((_, i) => 'c' + (i + 1));
   const rules = request.input ? (JSON.parse(request.input).rules ?? []) : [];
-  const input = JSON.stringify({ rules, candidates: candidates.map((finding, i) => ({ candidateId: ids[i], finding })) });
+  const input = JSON.stringify({ defectGuidance: [...new Set(candidates.map(f => scope.catalog().find(s => s.fileId === f.fileId)?.path).filter(Boolean))].map(defectGuidance), rules, candidates: candidates.map((finding, i) => ({ candidateId: ids[i], finding })) });
   const receipts = createEvidenceReceipts(scope.read);
   const retrievalScope = { ...scope, read: receipts.read };
   const response = await retrievalLoop(model, { ...request, input, instructions: VERIFICATION_INSTRUCTIONS }, retrievalScope, options);
