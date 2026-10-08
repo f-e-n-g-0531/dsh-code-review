@@ -1,3 +1,4 @@
+import { requestModelApproval } from './src/model-approval.mjs';
 import { createReviewService } from './src/service.mjs';
 export const name = 'dsh-code-review';
 export const inject = ['tools', 'llm', 'approval'];
@@ -5,10 +6,10 @@ export const inject = ['tools', 'llm', 'approval'];
 export function apply(ctx, config = {}) {
   const service = createReviewService(ctx.llm, {
     allowModelSending: config.allowModelSending === true,
-    authorize: async ({ snapshot, route, exec }) => (await ctx.approval.request({
+    authorize: async ({ snapshot, route, exec }) => requestModelApproval(ctx.approval, {
       agent: exec.agent, toolName: 'code_review_execute', signal: exec.signal,
       reason: '只读代码审查将发送代码给 ' + route.provider + '/' + route.model + '。仓库：' + snapshot.root + '；快照：' + snapshot.id + '；文件：' + JSON.stringify(snapshot.files.filter(f => f.eligibility === 'reviewable').map(f => f.path)) + '；上下文：' + JSON.stringify(snapshot.context.map(c => c.path)) + '；项目规则（全文将发送）：' + JSON.stringify((snapshot.rules ?? []).map(({ path, hash }) => ({ path, hash }))),
-    })) === 'allowed-once',
+    }),
   });
   const output = {
     schema: { type: 'object', additionalProperties: false, properties: { json: { type: 'string' }, markdown: { type: 'string' } }, required: ['json', 'markdown'] },
