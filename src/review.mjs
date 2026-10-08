@@ -204,6 +204,7 @@ export function markdownReport(report) {
   }
   for (const file of report.files) if (file.windowCoverage) output.push('- ' + safe(file.path) + '：变更窗口已完成 ' + file.windowCoverage.completed.length + '，待审 ' + file.windowCoverage.pending.length + '；仅表示窗口分析完成，不证明全文正确');
   for (const file of report.files) if (file.synthesisStatus) output.push('- ' + safe(file.path) + '：跨窗口综合 ' + safe(file.synthesisStatus) + '；不等于事实正确性证明');
+  for (const interaction of report.interactions ?? []) output.push('- 跨文件综合 ' + safe(interaction.groupId) + '：' + safe(interaction.status) + '；共享组末主文件超时，不证明完整交互覆盖');
   if (report.rules?.length) output.push('', '## 项目规则', '规则仅为已批准约束数据，不扩大权限或证明缺陷。', ...report.rules.map(rule => '- ' + safe(rule.path) + ' · SHA256 ' + safe(rule.hash)));
   if (report.followup?.suggestedPaths.length) output.push('', '## 后续选择建议', '仅为原快照未完成项；不会自动续审。再次执行需新预览、新审批，并显式选择规则和上下文。阻断项需先处理原因；关联上下文不等于主文件已审查。', ...report.followup.items.filter(item => item.followup).map(item => '- ' + safe(item.path) + '：' + item.status + (item.incompleteVerification ? '（候选复核未完成）' : '')));
   output.push('', '## 审查发现');
@@ -217,6 +218,7 @@ export function markdownReport(report) {
     const a = finding.anchor;
     const location = a.kind === 'line' ? a.side + ':' + a.start + '-' + a.end : a.kind === 'property' ? '属性 ' + a.name : '文件级';
     output.push('', '### [' + finding.severity + '] ' + safe(finding.title), safe(finding.path) + ' · ' + safe(location));
+    if (finding.interaction) output.push('- 跨文件编辑引用：' + safe(finding.interaction.editRefs.map(r => r.fileId + ':' + r.editId).join(', ')) + '；引用及读取已校验，因果未经证实');
     const regression = finding.verification?.regression;
     const regressionLabel = ({ introduced: '模型判断本次引入', preexisting: '模型判断原有问题', uncertain: '前后对照证据不足', unassessed: '尚未评估修改前后' }[regression?.classification ?? 'unassessed']);
     output.push('- 回归分类：' + regressionLabel + '；不等于因果事实证明');

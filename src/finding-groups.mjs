@@ -3,6 +3,8 @@ export function groupDuplicateFindings(findings) {
   const buckets = new Map();
   for (let index = 0; index < findings.length; index++) {
     const f = findings[index], a = f.attribution, v = f.verification;
+    // Cross-file candidates carry distinct qualified causal references; never collapse them.
+    if (f.interaction) continue;
     if (a?.status !== 'references-validated' || v?.status !== 'completed' || v.verdict !== 'supported' || !v.evidence?.length || v.evidence.some(e => e.status !== 'references-validated')) continue;
     // Require the entire exact evidence set, not mere overlap/transitive similarity.
     const evidence = v.evidence.map(e => JSON.stringify([e.snapshotId, e.sourceId, e.hash, e.start, e.count, e.text])).sort();
