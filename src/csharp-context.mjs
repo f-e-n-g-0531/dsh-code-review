@@ -3,9 +3,10 @@ const safe = text => typeof text === 'string' && Buffer.byteLength(text) <= 256 
 const namespaceOf = text => { const matches = [...text.matchAll(/^\s*namespace\s+([A-Za-z_][A-Za-z0-9_.]*)\s*;\s*$/gm)]; return matches.length === 1 ? matches[0][1] : null; };
 export function inferCsharpContext(input, primary) {
  if (!primary.path.endsWith('.cs')) return [];
- const contexts = (input.context ?? []).filter(c => c.path.endsWith('.cs') && !input.files.some(f => f.path === c.path));
+ const approvedContexts = (input.context ?? []).filter(c => c.path.endsWith('.cs') && !input.files.some(f => f.path === c.path));
  const result = [];
  for (const side of ['old', 'new']) {
+  const contexts = input.history ? approvedContexts.map(c=>({...c,text:side==='old'?c.oldText:c.text})) : approvedContexts;
   const source = (side === 'old' ? primary.left : primary.right)?.text;
   if (!safe(source) || /\busing\b|\bdynamic\b/.test(source)) continue;
   const ns = namespaceOf(source); if (!ns) continue;
@@ -38,7 +39,7 @@ export function inferCsharpContext(input, primary) {
     if (malformed || depth !== 0 || typeDepth !== 0 || methodDepth !== 1 || methods[0]?.number <= classes[0].number) continue;
     if (occurrences.length === 1 && methods.length === 1) declarations.push({ contextPath:context.path, typeLine:classes[0].number, declarationLine:methods[0].number });
    }
-   if (declarations.length === 1) result.push({ primaryPath:primary.path, side, contextVersion:'approved-current-not-historical', callLine:i+1, namespace:ns, type, method, ...declarations[0], confidence:'conservative-syntax-only' });
+   if (declarations.length === 1) result.push({ primaryPath:primary.path, side, contextVersion:input.history ? (side==='old'?input.history.base:input.history.target) : 'approved-current-not-historical', ...(input.history ? {contextSide:side} : {}), callLine:i+1, namespace:ns, type, method, ...declarations[0], confidence:'conservative-syntax-only' });
    if (result.length >= 20) return result;
   }
  }

@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.25.3
+
+- 历史C#方法语法提示按侧使用明确捕获的oldText/目标text，标记contextSide/contextVersion；缺oldText不回退新定义。
+- 268测试通过，线索不作为语义绑定或因果证明，不额外读取。
+
 ## 0.25.2
 
 - 修预览已知跨文件minimumCalls计入风险规划，动态业务交互maximumAdditionalInitialCalls同样计入规划阶段。

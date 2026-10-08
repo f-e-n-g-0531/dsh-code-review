@@ -23,7 +23,7 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
     if (calls.length) { base.cppCallSites = calls; base.cppCallNotice = '最多20条零参语法位置/侧，仅导航子集；不表示全部调用覆盖，不证明宏展开、重载选择、动态分派或执行顺序。其他源码须在批准范围内读取。'; }
   }
   const csharpHints = inferCsharpContext(input, file);
-  if (csharpHints.length) { base.csharpContextHints = csharpHints; base.csharpContextNotice = '仅批准当前context的C#静态类型/方法语法位置；不证明语义绑定或执行可达，也不是旧侧历史上下文。歧义不推定，线索不增加审查覆盖。'; }
+  if (csharpHints.length) { base.csharpContextHints = csharpHints; base.csharpContextNotice = '仅批准context的C#静态类型/方法语法位置；历史输入按contextSide/contextVersion区分正文，无旧正文不回退目标侧。不证明语义绑定或执行可达。歧义不推定，线索不增加审查覆盖。'; }
   let payload = JSON.stringify(base);
   const measure = value => initialInputBudget({ instructions, input: value }, scope, maxInputBytes);
   const metadata = {};
