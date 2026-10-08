@@ -92,6 +92,8 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     const prepared = preparePrimaryInput(input, file, { instructions: REVIEW_INSTRUCTIONS, scope, grouping: report.grouping, maxInputBytes });
     const { changes, payload } = prepared;
     Object.assign(state, prepared.metadata);
+    if (prepared.synthesis) state.synthesisStatus = prepared.synthesis.budget.fits ? 'pending' : 'blocked';
+    if (prepared.synthesis && !prepared.synthesis.budget.fits) report.limitations.push({ fileId: file.id, text: '跨窗口综合输入超限，未发送；单窗口完成不表示交互影响已检查' });
     if (state.sourceMode === 'change-windows') state.windowCoverage = { completed: [], pending: [...state.windowIds] };
     if (changes.status === 'limited') report.limitations.push({ fileId: file.id, text: '精确变更分析受限：' + changes.reason + '；仍按完整两侧内容审查' });
     if (state.groupFallback) report.limitations.push({ fileId: file.id, text: '关联组上下文超过输入预算，回退单文件审查' });
@@ -110,12 +112,13 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         } })
         : request => { beforeCall(); return model(request); };
       await invoke(async enclosingRequest => {
-        const batches = prepared.batches ?? [{ payload, windowIds: state.windowIds ?? [] }];
+        const batches = [...(prepared.batches ?? [{ payload, windowIds: state.windowIds ?? [] }])];
+        if (prepared.synthesis?.budget.fits) batches.push({ payload: prepared.synthesis.payload, windowIds: [], synthesis: true });
         for (const batch of batches) {
         enclosingRequest.signal.throwIfAborted();
         const request = { ...enclosingRequest, input: batch.payload };
         const generated = validateResponse(await executor(request), file, changes);
-        if (state.sourceMode === 'change-windows') validateWindowFindings(generated.findings, JSON.parse(batch.payload).windows);
+        if (state.sourceMode === 'change-windows') validateWindowFindings(generated.findings, batch.synthesis ? prepared.synthesis.windows : JSON.parse(batch.payload).windows, batch.synthesis === true);
         request.signal.throwIfAborted();
         report.findings.push(...generated.findings);
         if (generated.findings.some(f => f.attribution.status === 'missing')) report.limitations.push({ fileId: file.id, text: '部分发现缺少变更归因，仅校验了定位，尚不能确认属于本次回归' });
@@ -138,6 +141,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             request.signal.throwIfAborted();
           }
         }
+        if (batch.synthesis) state.synthesisStatus = 'completed';
         if (state.windowCoverage) {
           state.windowCoverage.completed.push(...batch.windowIds);
           state.windowCoverage.pending = state.windowCoverage.pending.filter(id => !batch.windowIds.includes(id));
@@ -184,6 +188,7 @@ export function markdownReport(report) {
     for (const file of report.files) if (file.relatedFileIds?.length) output.push('- ' + safe(file.path) + '：输入包含 ' + file.relatedFileIds.length + ' 个关联文件');
   }
   for (const file of report.files) if (file.windowCoverage) output.push('- ' + safe(file.path) + '：变更窗口已完成 ' + file.windowCoverage.completed.length + '，待审 ' + file.windowCoverage.pending.length + '；仅表示窗口分析完成，不证明全文正确');
+  for (const file of report.files) if (file.synthesisStatus) output.push('- ' + safe(file.path) + '：跨窗口综合 ' + safe(file.synthesisStatus) + '；不等于事实正确性证明');
   if (report.rules?.length) output.push('', '## 项目规则', '规则仅为已批准约束数据，不扩大权限或证明缺陷。', ...report.rules.map(rule => '- ' + safe(rule.path) + ' · SHA256 ' + safe(rule.hash)));
   if (report.followup?.suggestedPaths.length) output.push('', '## 后续选择建议', '仅为原快照未完成项；不会自动续审。再次执行需新预览、新审批，并显式选择规则和上下文。阻断项需先处理原因；关联上下文不等于主文件已审查。', ...report.followup.items.filter(item => item.followup).map(item => '- ' + safe(item.path) + '：' + item.status + (item.incompleteVerification ? '（候选复核未完成）' : '')));
   output.push('', '## 审查发现');

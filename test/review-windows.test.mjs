@@ -38,7 +38,7 @@ test('multiple window batches share signal and preserve completed windows on bud
   s.files[0].right.text = changed.join(String.fromCharCode(10));
   const scope = createRetrievalScope(s);
   const plan = buildCoveragePlan(s, { instructions: REVIEW_INSTRUCTIONS, scope, maxInputBytes: 8000 });
-  assert.equal(plan.items[0].minimumCalls, 2);
+  assert.equal(plan.items[0].minimumCalls, 3);
   let firstSignal, calls = 0;
   const report = await reviewSnapshot(s, async r => {
     calls++; firstSignal ??= r.signal; assert.equal(r.signal, firstSignal);
@@ -52,6 +52,8 @@ test('multiple window batches share signal and preserve completed windows on bud
   const complete = await reviewSnapshot(s, async () => ({ findings: [], limitations: [] }), { enableRetrieval: true, maxInputBytes: 8000 });
   assert.equal(complete.files[0].windowCoverage.completed.length, 2);
   assert.equal(complete.files[0].windowCoverage.pending.length, 0);
+  assert.equal(complete.files[0].synthesisStatus, 'completed');
+  assert.equal(complete.modelCalls, 3);
 });
 test('window cancellation and timeout await adapter cleanup and leave coverage pending', async () => {
   for (const mode of ['cancel', 'timeout']) {

@@ -1,4 +1,5 @@
 import { inferContextRelations } from './context-relations.mjs';
+import { prepareWindowSynthesis } from './window-synthesis.mjs';
 import { planWindowBatches } from './window-batches.mjs';
 import { changeWindows } from './change-windows.mjs';
 import { changeMap } from './change-map.mjs';
@@ -16,7 +17,7 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
   let payload = JSON.stringify(base);
   const measure = value => initialInputBudget({ instructions, input: value }, scope, maxInputBytes);
   const metadata = {};
-  let batches;
+  let batches, synthesis;
   const group = grouping?.groups.find(g => g.fileIds.includes(file.id));
   if (group) {
     metadata.groupId = group.id;
@@ -53,6 +54,11 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
       }
     }
   }
+  if (batches?.length > 1) {
+    synthesis = prepareWindowSynthesis(batches.map(batch => batch.payload), measure);
+    metadata.synthesisStatus = synthesis.budget.fits ? 'ready' : 'input-blocked';
+    metadata.synthesisInputBytes = synthesis.budget.bytes;
+  }
   const budget = measure(payload);
-  return { changes, payload, batches, budget, metadata: { ...metadata, initialInputBytes: budget.bytes } };
+  return { changes, payload, batches, synthesis, budget, metadata: { ...metadata, initialInputBytes: budget.bytes } };
 }
