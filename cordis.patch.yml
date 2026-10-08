@@ -2,5 +2,4 @@
     - id: dsh-code-review
       name: '@feng0531/dsh-code-review'
       disabled: false
-      config:
-        allowModelSending: false
+      config: {}

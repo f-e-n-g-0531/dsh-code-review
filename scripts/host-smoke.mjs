@@ -15,7 +15,7 @@ const patches = boot.bundlePatchPaths(packageDir, manifest.dsh.bundle).map(file 
 const entries = boot.composeEntries(patches);
 assert.equal(entries.length, 1);
 assert.equal(entries[0].name, manifest.name);
-assert.equal(entries[0].config.allowModelSending, false);
+assert.deepEqual(entries[0].config, {});
 console.log('Host bundle parser accepted safe-default composition.');
 const display = boot.readPluginMeta(manifest.name, new URL('../index.mjs', import.meta.url).href);
 assert.equal(display?.error, undefined);
@@ -60,22 +60,22 @@ try {
   const preview = JSON.parse((await previewTool.execute({}, exec)).json);
   assert.equal(preview.files.length, 1);
   assert.equal(preview.files[0].eligibility, 'reviewable');
-  await assert.rejects(tools.get('code_review_execute').execute({ previewId: preview.previewId, confirmed: true }, exec), /approval denied/);
+  await assert.rejects(tools.get('code_review_execute').execute({ previewId: preview.previewId, confirmed: false }, exec), /confirm/i);
   assert.equal(modelCalls, 0);
-  console.log('Registered tool preview captured real Git content; rejected approval prevented LLM execution.');
+  console.log('Registered tool preview captured real Git content; unconfirmed execution prevented LLM execution.');
   allowed = true;
   const approvedPreview = JSON.parse((await previewTool.execute({}, exec)).json);
   const statusBefore = await checked('git', ['status', '--porcelain=v1'], { cwd: root });
   const output = await tools.get('code_review_execute').execute({ previewId: approvedPreview.previewId, confirmed: true }, exec);
   const report = JSON.parse(output.json);
-  assert.equal(modelCalls, 1); assert.equal(approvalCalls, 2);
+  assert.equal(modelCalls, 1); assert.equal(approvalCalls, 0);
   assert.equal(report.coverage.completed, 1);
   assert.equal(report.outdated, false);
   assert.equal(report.model.provider, 'offline-test');
   assert.match(output.markdown, /Code Review/);
   assert.deepEqual(await checked('git', ['status', '--porcelain=v1'], { cwd: root }), statusBefore);
   assert.equal(await readFile(path.join(root, 'sample.js'), 'utf8'), 'const value = 1;');
-  console.log('Allowed-once offline adapter completed review via current Agent route without modifying Git content.');
+  console.log('Host-invoked offline adapter completed review without additional approval via current Agent route without modifying Git content.');
 } finally {
   assert.ok(path.basename(root).startsWith('dsh-review-host-'));
   await rm(root, { recursive: true, force: true });
