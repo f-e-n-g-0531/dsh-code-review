@@ -157,12 +157,14 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         for (const batch of batches) {
         enclosingRequest.signal.throwIfAborted();
         let batchPayload = batch.payload;
-        if (options.enableRiskPlanning === true && !batch.synthesis && !batch.interaction) {
+        if (options.enableRiskPlanning === true && !batch.synthesis) {
           state.riskPlans ??= [];
-          const entry = { status: 'pending', windowIds: batch.windowIds, risks: [] };
+          const entry = { status: 'pending', windowIds: batch.windowIds, ...(batch.interaction ? {groupId:batch.interaction.id,sourceMode:'file-interaction'} : {}), risks: [] };
           state.riskPlans.push(entry);
           const response = await executor({ ...enclosingRequest, input: batch.payload, instructions: RISK_PLAN_INSTRUCTIONS });
-          const risks = validateRiskPlan(response, [{ fileId: file.id, edits: changes.edits ?? [] }], scope?.catalog() ?? []);
+          const riskFiles = batch.interaction ? JSON.parse(batch.payload).files : [{ fileId: file.id, edits: changes.edits ?? [] }];
+          const risks = validateRiskPlan(response, riskFiles, scope?.catalog() ?? []);
+          if (batch.interaction && risks.some(r=>new Set(r.editRefs.map(ref=>ref.fileId)).size<2)) throw new Error('Interaction risk requires edits across at least two files');
           entry.status = 'completed'; entry.risks = risks;
           batchPayload = JSON.stringify({ ...JSON.parse(batch.payload), riskPlan: risks, riskPlanNotice: '未可信假设而非发现或证据；须验证及寻找反证，不增加读取权限。' });
           if (!initialInputBudget({ instructions: REVIEW_INSTRUCTIONS, input: batchPayload }, scope, maxInputBytes).fits) throw new Error('Risk-enriched review input exceeds budget');

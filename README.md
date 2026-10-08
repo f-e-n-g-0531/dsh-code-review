@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-当前代码版本为 0.24.1
+当前代码版本为 0.25.0
 
 历史自动上下文也导航旧侧import/include，仅未修改且两侧普通blob；上下文oldText/oldRevision和目标revision明确，检索context-old单独身份，仍共用20文件总量及4MiB快照。旧侧独有/删除上下文暂不捕获，调用者覆盖仍不保证。
 
