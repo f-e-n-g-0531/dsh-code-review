@@ -13,8 +13,9 @@ export async function verificationLoop(model, request, candidates, scope, option
   if (!Array.isArray(candidates) || candidates.length > 50) throw new Error('Invalid candidates');
   if (!candidates.length) return [];
   const ids = candidates.map((_, i) => 'c' + (i + 1));
-  const rules = request.input ? (JSON.parse(request.input).rules ?? []) : [];
-  const input = JSON.stringify({ defectGuidance: [...new Set(candidates.map(f => scope.catalog().find(s => s.fileId === f.fileId)?.path).filter(Boolean))].map(defectGuidance), rules, candidates: candidates.map((finding, i) => ({ candidateId: ids[i], finding })) });
+  const envelope = request.input ? JSON.parse(request.input) : {};
+  const rules = envelope.rules ?? [];
+  const input = JSON.stringify({ defectGuidance: [...new Set(candidates.map(f => scope.catalog().find(s => s.fileId === f.fileId)?.path).filter(Boolean))].map(path => envelope.file?.path === path && envelope.defectGuidance ? envelope.defectGuidance : defectGuidance(path)), rules, candidates: candidates.map((finding, i) => ({ candidateId: ids[i], finding })) });
   const receipts = createEvidenceReceipts(scope.read);
   const retrievalScope = { ...scope, read: receipts.read };
   const response = await retrievalLoop(model, { ...request, input, instructions: VERIFICATION_INSTRUCTIONS }, retrievalScope, options);
