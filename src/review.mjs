@@ -1,3 +1,4 @@
+import { correctAnchor } from './anchor-correction.mjs';
 import { BUSINESS_GROUP_INSTRUCTIONS, prepareBusinessGroups, validateBusinessGroups } from './business-groups.mjs';
 import { RISK_PLAN_INSTRUCTIONS, validateRiskPlan } from './risk-plan.mjs';
 import { prepareInteractionInput } from './interaction-input.mjs';
@@ -167,7 +168,19 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         }
         const request = { ...enclosingRequest, input: batchPayload };
         const auditStart = state.retrievalAudit?.length ?? 0;
-        const response = await executor(request);
+        let response = await executor(request);
+        if (options.enableAnchorCorrection === true && !batch.interaction) {
+          if (Buffer.byteLength(typeof response === 'string' ? response : JSON.stringify(response)) > 128 * 1024) throw new Error('Review response too large');
+          const decoded = typeof response === 'string' ? JSON.parse(response) : structuredClone(response);
+          if (Array.isArray(decoded?.findings) && decoded.findings.length <= 50) {
+            decoded.findings = decoded.findings.map(raw => {
+              const correction = correctAnchor(raw, file, changes, { signal: request.signal });
+              if (!['unchanged','not-applicable'].includes(correction.status)) (state.anchorCorrections ??= []).push(correction);
+              return correction.status === 'corrected' ? correction.candidate : raw;
+            });
+            response = decoded;
+          }
+        }
         const generated = batch.interaction ? validateInteractionFindings(response, input, batch.interaction, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog()) : validateResponse(response, file, changes);
         if (batch.synthesis) validateSynthesisReads(generated.findings, changes, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog(), file.id, input.id);
         if (!batch.interaction && state.sourceMode === 'change-windows') validateWindowFindings(generated.findings, batch.synthesis ? prepared.synthesis.windows : JSON.parse(batch.payload).windows, batch.synthesis === true);
