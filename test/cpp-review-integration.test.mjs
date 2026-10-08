@@ -16,7 +16,8 @@ test('C++ named header implementation group carries call coordinates and exact c
   assert.equal(r.signal,lastSignal);
   if(p.candidates){if(!p.retrieved.length)return {requests:[{kind:'read',id:'s3',start:1,count:3},{kind:'read',id:'s4',start:1,count:3}]};return {verdicts:[{candidateId:'c1',verdict:'supported',reason:'abstract contract evidence',evidence:p.retrieved.map(x=>({receiptId:x.result.receiptId})),regression:{classification:'introduced',reason:'teardown before join',oldEvidence:[0],newEvidence:[1]}}]};}
   if(!p.retrieved.length)return {requests:[{kind:'read',id:'s2',start:1,count:1},{kind:'read',id:'s4',start:1,count:3}]};
-  return {findings:[{fileId:'b',severity:'high',title:'early release',evidence:'both changes',trigger:'worker still active',impact:'use after free',suggestion:'join before release',anchor:{kind:'line',side:'new',start:2,end:2,snippet:'ReleaseState();'},attribution:{editIds:['e1'],properties:[],beforeBehavior:'join then release',afterBehavior:'release then join',reason:'abstract contract'},interaction:{editRefs:[{fileId:'a',editId:'e1'},{fileId:'b',editId:'e1'}]}}],limitations:[]};
- },options);
+  return {findings:[{fileId:'b',severity:'high',title:'early release',evidence:'both changes',trigger:'worker still active',impact:'use after free',suggestion:'join before release',anchor:{kind:'line',side:'new',start:1,end:1,snippet:'ReleaseState();'},attribution:{editIds:['e1'],properties:[],beforeBehavior:'join then release',afterBehavior:'release then join',reason:'abstract contract'},interaction:{editRefs:[{fileId:'a',editId:'e1'},{fileId:'b',editId:'e1'}]}}],limitations:[]};
+ },{...options,enableAnchorCorrection:true});
+ assert.equal(report.files[1].anchorCorrections[0].originalCandidate.anchor.start,1);assert.equal(report.findings[0].anchor.start,2);
  assert.equal(report.status,'completed',JSON.stringify(report));assert.equal(report.modelCalls,6);assert.equal(report.interactions[0].status,'completed');assert.equal(report.findings[0].verification.evidence.length,2);
 });

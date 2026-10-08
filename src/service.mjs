@@ -14,7 +14,7 @@ function owner(exec) {
   if (!agent || typeof cwd !== 'string' || !cwd || !agent.options?.provider || !agent.options?.model) throw new Error('Active Agent with cwd and model is required');
   return { agent, cwd, route: { provider: agent.options.provider, model: agent.options.model, ...(agent.options.reasoningEffort ? { reasoningEffort: agent.options.reasoningEffort } : {}) } };
 }
-export function createReviewService(llm, { capture = captureSnapshot, now = Date.now, ttlMs = 300000, maxPreviews = 8, allowModelSending = false, enableRiskPlanning = false, enableBusinessGrouping = false, authorize = async () => false } = {}) {
+export function createReviewService(llm, { capture = captureSnapshot, now = Date.now, ttlMs = 300000, maxPreviews = 8, allowModelSending = false, enableRiskPlanning = false, enableBusinessGrouping = false, enableAnchorCorrection = false, authorize = async () => false } = {}) {
   for (const value of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid preview limit');
   const lifetime = new AbortController();
   const bind = exec => ({ ...exec, signal: exec.signal ? AbortSignal.any([exec.signal, lifetime.signal]) : lifetime.signal });
@@ -65,7 +65,7 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
         if (await authorize({ snapshot, route: preview.route, exec }) !== true) throw new Error('Model sending approval denied or unavailable');
         exec.signal?.throwIfAborted();
         if (owner(exec).cwd !== current.cwd || JSON.stringify(owner(exec).route) !== JSON.stringify(preview.route)) throw new Error('Agent changed during approval');
-        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route), { signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableVerification: true, enableRiskPlanning, enableBusinessGrouping });
+        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route), { signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableVerification: true, enableRiskPlanning, enableBusinessGrouping, enableAnchorCorrection });
         report.model = preview.route;
         const latest = await resolveWorkspaceRepository(current.cwd, preview.options.repositoryPath).then(target => target === preview.target ? capture(target, { ...preview.options, signal: exec.signal }) : null).catch(() => null);
         report.outdated = !latest || latest.id !== snapshot.id || owner(exec).cwd !== current.cwd;

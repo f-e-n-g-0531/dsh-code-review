@@ -5,7 +5,7 @@ export const inject = ['tools', 'llm'];
 export function apply(ctx, config = {}) {
   // This entry runs only when the host invokes the registered tool.
   // Host tool policy owns permission; do not request a second approval here.
-  const service = createReviewService(ctx.llm, { allowModelSending: true, enableRiskPlanning: true, enableBusinessGrouping: true, authorize: async () => true });
+  const service = createReviewService(ctx.llm, { allowModelSending: true, enableRiskPlanning: true, enableBusinessGrouping: true, enableAnchorCorrection: true, authorize: async () => true });
   const output = {
     schema: { type: 'object', additionalProperties: false, properties: { json: { type: 'string' }, markdown: { type: 'string' } }, required: ['json', 'markdown'] },
     render: (_args, value) => [{ type: 'text', text: value.markdown || value.json }],

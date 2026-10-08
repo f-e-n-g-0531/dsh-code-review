@@ -169,12 +169,14 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         const request = { ...enclosingRequest, input: batchPayload };
         const auditStart = state.retrievalAudit?.length ?? 0;
         let response = await executor(request);
-        if (options.enableAnchorCorrection === true && !batch.interaction) {
+        if (options.enableAnchorCorrection === true) {
           if (Buffer.byteLength(typeof response === 'string' ? response : JSON.stringify(response)) > 128 * 1024) throw new Error('Review response too large');
           const decoded = typeof response === 'string' ? JSON.parse(response) : structuredClone(response);
           if (Array.isArray(decoded?.findings) && decoded.findings.length <= 50) {
             decoded.findings = decoded.findings.map(raw => {
-              const correction = correctAnchor(raw, file, changes, { signal: request.signal });
+              const target = batch.interaction ? input.files.find(f => f.id === raw?.fileId && batch.interaction.fileIds.includes(f.id) && f.eligibility === 'reviewable') : file;
+              if (!target) return raw;
+              const correction = correctAnchor(raw, target, target === file ? changes : changeMap(target.left.text,target.right.text), { signal: request.signal });
               if (!['unchanged','not-applicable'].includes(correction.status)) (state.anchorCorrections ??= []).push(correction);
               return correction.status === 'corrected' ? correction.candidate : raw;
             });
@@ -248,6 +250,7 @@ const safe = text => Array.from(String(text ?? '')).map(c => {
 }).join('');
 export function markdownReport(report) {
   const output = ['# Code Review 报告', '', '状态：' + report.status, '快照：' + report.snapshotId, '', '## 覆盖情况'];
+  for (const file of report.files) for (const correction of file.anchorCorrections ?? []) output.push('- 定位纠正：' + safe(correction.originalCandidate.fileId) + ' · ' + safe(correction.status) + ' · ' + safe(correction.reason) + '；原完整候选保留JSON，仅定位不证明因果');
   if (report.businessGrouping) output.push('- 业务分组：' + safe(report.businessGrouping.status) + (report.businessGrouping.reason ? ' — ' + safe(report.businessGrouping.reason) : '') + '；仅调度假设，不证明依赖或覆盖');
   for (const file of report.files) for (const plan of file.riskPlans ?? []) output.push('- 风险计划：' + safe(file.path) + ' · ' + safe(plan.status) + ' · ' + plan.risks.length + '项待证假设；不表示缺陷成立或覆盖完成');
   for (const file of report.files) output.push('- ' + safe(file.path) + '：' + file.status + (file.reason ? ' — ' + safe(file.reason) : ''));
