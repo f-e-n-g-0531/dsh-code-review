@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.16.1
+
+- 宿主effectivePolicy为never时明确解释自动拒绝与完整文件权限不等于外发批准；保留宿主请求与唯一allowed-once授权，不修改策略。
+- 补never诊断回归，全量231项；每批改动完成均更新版本并按标签CI/Actions发布核验，不只提交代码。
+
 ## 0.16.0
 
 - 批准范围C++头/实现命名与quoted include关系接入现有分组综合，显式context原include位置及方向/当前版本注释。
