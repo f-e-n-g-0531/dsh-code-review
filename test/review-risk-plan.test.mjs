@@ -1,0 +1,7 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {reviewSnapshot} from '../src/review.mjs';
+import {RISK_PLAN_INSTRUCTIONS} from '../src/risk-plan.mjs';
+const s=()=>({id:'s',vcs:'git',context:[],files:[{id:'f',path:'a.cpp',eligibility:'reviewable',properties:[],left:{text:'join();'},right:{text:'release();'}}]});
+test('risk planning precedes review inside shared signal and call budget and remains hypotheses',async()=>{let signal,calls=0;const r=await reviewSnapshot(s(),async req=>{calls++;if(req.instructions===RISK_PLAN_INSTRUCTIONS){signal=req.signal;return {risks:[{id:'r',fileIds:['f'],editRefs:[{fileId:'f',editId:'e1'}],question:'Are readers complete?',trigger:'active reader',impact:'dangling',checks:['Check synchronization'],sourceIds:[]}]};}assert.equal(req.signal,signal);assert.equal(JSON.parse(req.input).riskPlan[0].status,'hypothesis');return {findings:[],limitations:[]};},{enableRiskPlanning:true});assert.equal(calls,2);assert.equal(r.files[0].riskPlans[0].status,'completed');assert.equal(r.findings.length,0);});
+test('exhausted budget retains plan but does not send main review or pretend coverage',async()=>{const r=await reviewSnapshot(s(),async()=>({risks:[]}),{enableRiskPlanning:true,maxCalls:1});assert.equal(r.modelCalls,1);assert.equal(r.status,'failed');assert.notEqual(r.files[0].status,'completed');assert.equal(r.files[0].riskPlans[0].status,'completed');});

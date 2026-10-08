@@ -1,3 +1,4 @@
+import { RISK_PLAN_INSTRUCTIONS, validateRiskPlan } from './risk-plan.mjs';
 import { prepareInteractionInput } from './interaction-input.mjs';
 import { validateInteractionFindings } from './interaction-findings.mjs';
 import { initialInputBudget } from './input-budget.mjs';
@@ -125,7 +126,18 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         if (interactionPlan?.prepared.status === 'ready') batches.push({ payload: interactionPlan.prepared.payload, windowIds: [], interaction: interactionPlan.group });
         for (const batch of batches) {
         enclosingRequest.signal.throwIfAborted();
-        const request = { ...enclosingRequest, input: batch.payload };
+        let batchPayload = batch.payload;
+        if (options.enableRiskPlanning === true && !batch.synthesis && !batch.interaction) {
+          state.riskPlans ??= [];
+          const entry = { status: 'pending', windowIds: batch.windowIds, risks: [] };
+          state.riskPlans.push(entry);
+          const response = await executor({ ...enclosingRequest, input: batch.payload, instructions: RISK_PLAN_INSTRUCTIONS });
+          const risks = validateRiskPlan(response, [{ fileId: file.id, edits: changes.edits ?? [] }], scope?.catalog() ?? []);
+          entry.status = 'completed'; entry.risks = risks;
+          batchPayload = JSON.stringify({ ...JSON.parse(batch.payload), riskPlan: risks, riskPlanNotice: '未可信假设而非发现或证据；须验证及寻找反证，不增加读取权限。' });
+          if (!initialInputBudget({ instructions: REVIEW_INSTRUCTIONS, input: batchPayload }, scope, maxInputBytes).fits) throw new Error('Risk-enriched review input exceeds budget');
+        }
+        const request = { ...enclosingRequest, input: batchPayload };
         const auditStart = state.retrievalAudit?.length ?? 0;
         const response = await executor(request);
         const generated = batch.interaction ? validateInteractionFindings(response, input, batch.interaction, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog()) : validateResponse(response, file, changes);
