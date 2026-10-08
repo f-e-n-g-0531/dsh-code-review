@@ -9,6 +9,11 @@ test('host denial diagnostics propagate through preview execute with zero model 
   const preview=await service.preview({},exec);await assert.rejects(service.execute({previewId:preview.previewId,confirmed:true},exec),new RegExp(outcome));assert.equal(sends,0);service.dispose();
  }
 });
+test('never policy diagnosis never grants or changes policy and still requests host once',async()=>{
+ let asks=0;const session={};const approval={effectivePolicy:s=>{assert.equal(s,session);return 'never';},request:async()=>{asks++;return 'rejected';}};
+ await assert.rejects(requestModelApproval(approval,{agent:{session}}),/policy=never.*full filesystem access does not grant model sending/);assert.equal(asks,1);
+ assert.equal(await requestModelApproval({request:async()=> 'allowed-once',effectivePolicy:()=>{throw Error('not a gate');}},{}),true);
+});
 test('only literal host allowed-once grants and request identity signal remain intact',async()=>{
  const request={agent:{},signal:new AbortController().signal,toolName:'code_review_execute'};let seen;
  assert.equal(await requestModelApproval({request:async r=>{seen=r;return 'allowed-once';}},request),true);assert.equal(seen,request);
