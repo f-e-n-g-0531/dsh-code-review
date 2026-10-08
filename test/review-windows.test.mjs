@@ -76,6 +76,27 @@ test('synthesis budget exhaustion and cancellation keep completed local coverage
  }, { enableRetrieval: true, maxInputBytes: 8000 });
  assert.equal(found.findings.length, 1); assert.equal(found.files[0].synthesisStatus, 'completed');
 });
+test('synthesis retrieves both windows and verifies exact before-after receipts in shared budget', async () => {
+ const s = snapshot(), lines = Array.from({ length: 100 }, (_, i) => 'line' + i + 'x'.repeat(200));
+ s.files[0].left.text = lines.join(String.fromCharCode(10));
+ const changed = [...lines]; changed[10] = 'changed10'; changed[80] = 'changed80'; s.files[0].right.text = changed.join(String.fromCharCode(10));
+ let firstSignal;
+ const report = await reviewSnapshot(s, async r => {
+  firstSignal ??= r.signal; assert.equal(r.signal, firstSignal); const p = JSON.parse(r.input);
+  if (p.candidates) {
+   if (!p.retrieved.length) return { requests: [{ kind: 'read', id: 's1', start: 11, count: 1 }, { kind: 'read', id: 's2', start: 11, count: 1 }] };
+   return { verdicts: [{ candidateId: 'c1', verdict: 'supported', reason: 'old/new compared', evidence: p.retrieved.map(record => ({ receiptId: record.result.receiptId })), regression: { classification: 'introduced', reason: 'both changes break shared invariant', oldEvidence: [0], newEvidence: [1] } }] };
+  }
+  if (p.sourceMode !== 'window-synthesis') return { findings: [], limitations: [] };
+  if (!p.retrieved.length) return { requests: [{ kind: 'read', id: 's2', start: 11, count: 1 }, { kind: 'read', id: 's2', start: 81, count: 1 }] };
+  assert.equal(p.retrieved[1].result.text, 'changed80' + String.fromCharCode(10));
+  return { findings: [{ fileId: 'f', severity: 'high', title: 'interaction', evidence: 'both changes', trigger: 'combined path', impact: 'failure', suggestion: 'align', anchor: { kind: 'line', side: 'new', start: 11, end: 11, snippet: 'changed10' }, attribution: { editIds: ['e1', 'e2'], properties: [], beforeBehavior: 'aligned', afterBehavior: 'broken', reason: 'combined edits' } }], limitations: [] };
+ }, { enableRetrieval: true, enableVerification: true, maxInputBytes: 8000 });
+ assert.equal(report.status, 'completed'); assert.equal(report.modelCalls, 6);
+ assert.equal(report.files[0].synthesisStatus, 'completed');
+ assert.equal(report.findings[0].verification.regression.classification, 'introduced');
+ assert.equal(report.findings[0].verification.evidence.length, 2);
+});
 test('window cancellation and timeout await adapter cleanup and leave coverage pending', async () => {
   for (const mode of ['cancel', 'timeout']) {
     const controller = new AbortController(); let cleaned = false, calls = 0;
