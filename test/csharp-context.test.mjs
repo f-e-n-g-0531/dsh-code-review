@@ -21,6 +21,9 @@ test('unsupported competitors remain ambiguity blockers and approved hints reach
  assert.equal(report.status,'completed');assert.equal(report.modelCalls,plan.minimumCalls);
  assert.deepEqual(infer({...input,files:[primary,{path:'Service.cs',eligibility:'excluded'}]},primary),[]);
 });
+test('unbalanced outside-type and nested-method declarations cannot become binding hints',()=>{
+ for(const text of [target.slice(0,-1),target+nl+'}', ['namespace App;','public static class Service','{','}', 'public static void Stop()','{','}'].join(nl), ['namespace App;','public static class Service','{','public static void Outer()','{','public static void Stop()','{','}','}','}'].join(nl)]) assert.deepEqual(infer({...input,context:[{path:'Service.cs',text}]},primary),[]);
+});
 test('overloads duplicates alias shadowing and unsupported language syntax yield no claim',()=>{
  for(const text of [target+nl+'public static void Stop(int n) {}',target.replace('static class','partial class'),target.replace('namespace App;','namespace Other;'),target+nl+'// comment'])assert.deepEqual(infer({...input,context:[{path:'Service.cs',text}]},primary),[]);
  assert.deepEqual(infer({...input,context:[...input.context,{path:'Other.cs',text:target}]},primary),[]);

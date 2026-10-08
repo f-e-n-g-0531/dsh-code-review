@@ -29,6 +29,13 @@ export function inferCsharpContext(input, primary) {
     if (classes.length !== 1 || (context.text.match(/\bclass\b|\bstruct\b|\brecord\b/g) ?? []).length !== 1) continue;
     const occurrences = targetLines.filter(line => new RegExp('\\b' + method + '\\s*\\(').test(line));
     const methods = targetLines.map((line,j) => ({ line, number:j+1 })).filter(item => new RegExp('^\\s*public\\s+static\\s+(?:void|int|bool|string)\\s+' + method + '\\s*\\(\\s*\\)\\s*(?:\\{|$)').test(item.line));
+    let depth = 0, typeDepth, methodDepth, malformed = false;
+    for (let j = 0; j < targetLines.length; j++) {
+     if (j + 1 === classes[0].number) typeDepth = depth;
+     if (j + 1 === methods[0]?.number) methodDepth = depth;
+     for (const character of targetLines[j]) { if (character === '{') depth++; if (character === '}') depth--; if (depth < 0) malformed = true; }
+    }
+    if (malformed || depth !== 0 || typeDepth !== 0 || methodDepth !== 1 || methods[0]?.number <= classes[0].number) continue;
     if (occurrences.length === 1 && methods.length === 1) declarations.push({ contextPath:context.path, typeLine:classes[0].number, declarationLine:methods[0].number });
    }
    if (declarations.length === 1) result.push({ primaryPath:primary.path, side, contextVersion:'approved-current-not-historical', callLine:i+1, namespace:ns, type, method, ...declarations[0], confidence:'conservative-syntax-only' });
