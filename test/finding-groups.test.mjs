@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { markdownReport } from '../src/review.mjs';
+import { markdownReport, reviewSnapshot } from '../src/review.mjs';
 import { groupDuplicateFindings } from '../src/finding-groups.mjs';
 const finding = path => ({ path, title: 'same defect', severity: 'medium', trigger: 'same trigger', impact: 'same impact', attribution: { status: 'references-validated', beforeBehavior: 'before', afterBehavior: 'after', reason: 'same cause' }, verification: { status: 'completed', verdict: 'supported', reason: 'same verification', evidence: [{ snapshotId: 'snap', sourceId: 's1', hash: 'hash', start: 1, count: 1, text: 'code', status: 'references-validated' }] } });
 test('exact shared supported evidence groups across paths without dropping originals', () => {
@@ -28,6 +28,20 @@ test('Markdown condenses only exact repeated explanation but keeps both original
   assert.equal(findings.length, 2);
   findings[1].verification.verdict = 'refuted';
   assert.ok(!markdownReport(report).includes('重复报告候选'));
+});
+test('full review groups shared validated receipts without new calls or losing raw findings', async () => {
+  const snapshot = { id: 'snap', vcs: 'git', context: [], files: ['a.js', 'b.js'].map(id => ({ id, path: id, eligibility: 'reviewable', properties: [], left: { text: 'before' }, right: { text: 'after' } })) };
+  const report = await reviewSnapshot(snapshot, async r => {
+    const p = JSON.parse(r.input);
+    if (p.file) return { findings: [{ fileId: p.file.id, severity: 'medium', title: 'shared cause', evidence: 'shared evidence', trigger: 'same', impact: 'same', suggestion: 'same', anchor: { kind: 'line', side: 'new', start: 1, end: 1, snippet: 'after' }, attribution: { editIds: ['e1'], properties: [], beforeBehavior: 'before', afterBehavior: 'after', reason: 'cause' } }], limitations: [] };
+    if (!p.retrieved.length) return { requests: [{ kind: 'read', id: 's2', start: 1, count: 1 }] };
+    return { verdicts: [{ candidateId: 'c1', verdict: 'supported', reason: 'shared support', evidence: [{ receiptId: p.retrieved[0].result.receiptId }] }] };
+  }, { enableRetrieval: true, enableVerification: true });
+  assert.equal(report.modelCalls, 6);
+  assert.equal(report.findings.length, 2);
+  assert.deepEqual(report.findingGroups[0].findingIndices, [0, 1]);
+  assert.equal(report.findings[1].verification.evidence[0].text, 'after');
+  assert.match(markdownReport(report), /重复报告候选/);
 });
 test('partial evidence overlap never produces transitive root-cause merge', () => {
   const a = finding('a'), b = finding('b');
