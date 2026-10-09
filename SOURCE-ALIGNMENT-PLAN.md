@@ -2,6 +2,10 @@
 
 对标alibaba/open-code-review固定提交2d67596c961f80436deb2afa643efa2b1725d34c，仅借鉴已核实审查设计，自行实现，非全仓等价承诺。总体对齐持续活动（当前48轮检查点不是完成理由），七项不是全量清单；继续核查核心源码发现差距纳入后续，未对齐不标完成。每批完成测试差异复核提交推送正式新版本；固定标签四矩阵CI→Actions npm→相同tgz Release核验。实际模型试跑后置，不自动安装重启，不管理平台/自动修复/独立模型费用。
 
+## 轮55：需求集成验收
+
+真实Git working/history需求id变化和稳定性、service预览零发送执行预算一致，最终report只hash/bytes不重印正文。290测试，冻结0.31.1。caller/旧context核心余项仍未完成。
+
 ## 轮54：显式业务需求快照绑定
 
 补可选businessRequirement16KiB UTF8，预览显示正文hash/bytes，capture绑定id，primary/interaction/verification/windows保留constraint notice原预算；不充当证据权限。289测试，冻结0.31.0，核心模板/多轮与caller/旧context未完成。
