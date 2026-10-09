@@ -1,0 +1,37 @@
+name: Recover v0.32.0 original GitHub Release
+on:
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+concurrency:
+  group: release-refs/tags/v0.32.0
+  cancel-in-progress: false
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: aa99d1d0127eff3fc03a46f9503aeb63d026445f
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Restore and verify original artifact without republishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = aa99d1d0127eff3fc03a46f9503aeb63d026445f
+          test "$(git rev-parse v0.32.0)" = aa99d1d0127eff3fc03a46f9503aeb63d026445f
+          gh run download 37897709965 --name release-v0.32.0-37897709965 --dir release
+          (cd release && sha256sum -c SHA256SUMS.txt)
+          echo '9b977da62affab4f4994265b7ed939564a1e14562f40f26dca8eb7f4f7610551  release/feng0531-dsh-code-review-0.32.0.tgz' | sha256sum -c -
+          node scripts/verify-published.mjs
+      - name: Complete Release only after actual registry verification
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: gh release create v0.32.0 release/*.tgz release/SHA256SUMS.txt --verify-tag --title v0.32.0 --generate-notes

@@ -13,4 +13,4 @@
 - 必须待原运行结束再决定恢复。恢复仅允许同原Actions工件，不能重新打包替代，不凭publish success绕过registry字节门禁。只有实际npm/Release bytes与原tarball完全一致及两hash相符才完成本批。
 - 本地302tests、隔离入口、离线真实ToolRuntime smoke通过；非真实模型质量验证。B1首批功能冻结，历史/SVN/语义caller与其余能力任务未闭环。
 
-下一步读取既有run/jobs结论及registry实际工件；不可把本记录当发布收据完成版。
+轮87原run completed/failure，日志确认Verify registry artifact重试耗尽：Cannot verify npm version: HTTP 404（07:19:20Z）；Release skipped。新增recover-v0320工作流固定原commit/tag及artifact/hash，只有registry原字节验证成功才创建Release；无pack无npm publish。暂不dispatch恢复，先观察registry可用，不把本记录当发布收据完成版。
