@@ -1,3 +1,4 @@
+import {reviewSnapshot} from '../src/review.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createDshModel } from '../src/dsh-model.mjs';
@@ -33,6 +34,10 @@ test('bridge unwraps one complete JSON fence but rejects prose multiple objects 
  for(const text of ['Here is JSON: {}','{} {}','```json\n{\n```','SECRET source not JSON']){
   const model=createDshModel({async *stream(){yield {type:'text-delta',text};yield {type:'finish',reason:{kind:'stop'}};}},route);await assert.rejects(model(request),e=>e.code==='MODEL_INVALID_JSON'&&!e.message.includes('SECRET'));
  }
+});
+test('fence compatibility retains strict review schema and reports failed coverage',async()=>{
+ const s={id:'s',vcs:'git',context:[],files:[{id:'f',path:'a.cpp',eligibility:'reviewable',properties:[],left:{text:'before();'},right:{text:'after();'}}]};
+ for(const value of [{bugs:[]},{findings:[]},{findings:'not-array',limitations:[]}]){let calls=0;const model=createDshModel({async *stream(){calls++;yield {type:'text-delta',text:'```json\n'+JSON.stringify(value)+'\n```'};yield {type:'finish',reason:{kind:'stop'}};}},route);const report=await reviewSnapshot(s,model,{enableRetrieval:true});assert.equal(calls,1);assert.equal(report.status,'failed');assert.equal(report.files[0].status,'failed');assert.equal(report.findings.length,0);}
 });
 test('DSH bridge bounds reasoning as well as visible output', async () => {
   const model = createDshModel({ async *stream() { yield { type: 'reasoning-delta', text: '12345' }; } }, route, { maxOutputBytes: 4 });
