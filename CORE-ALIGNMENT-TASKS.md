@@ -8,12 +8,12 @@
 - 风险假设规划、业务分组及失败回退、hunk有界输入、明确pending/partial覆盖、显式规则与业务需求快照绑定。
 - Git历史commit/range固定对象端点；不checkout/fetch，不混入工作树。
 - 批准catalog内find/search/read及sourceIds筛选，定义同名歧义保留；文本导航不证明符号绑定。
-- v0.32.0有界working Git引用方捕获：指定目录、普通tracked文件、负匹配hash复核、共享预算；历史/SVN及语义caller未实现。
+- v0.32.0有界working Git引用方捕获：指定目录、普通tracked文件、负匹配hash复核、共享预算；v0.36.0补齐有界Git历史引用方对象捕获；SVN及语义caller仍未实现。
 - v0.33.0显式oldContextPaths：baseline普通blob/OID/hash，唯一context-old身份、消费者按侧使用；不证明target不存在，不恢复excluded变化。
 
 ## 未完成
 
-1. B1：历史caller底层固定OID限定目录索引/精确竞争路径metadata已实现验收（非普通blob不授正文、256记录/64KiB、512探针/1MiB；绑定missing名及commit），已接入历史两侧blob扫描及preview/execute，真实Git同catalog/版本、非匹配hash及满槽阻塞验收通过；两侧共享30秒/128正文/1MiB，旧Only复用不自动批准new。v0.36.0冻结5830853；集中预算/根提交/删除/竞争及真实宿主门禁通过，移动range引用导致非匹配caller变化在发送前拒绝已验收。标签CI37929559884四矩阵通过；唯一发布37929860863执行中。共享正文字节耗尽及未读二进制非匹配fail-closed已验收；待原工件公开核验，不宣称历史caller已正式交付。SVN及必要语义caller场景仍未完成。
+1. B1：历史caller底层固定OID限定目录索引/精确竞争路径metadata已实现验收（非普通blob不授正文、256记录/64KiB、512探针/1MiB；绑定missing名及commit），已接入历史两侧blob扫描及preview/execute，真实Git同catalog/版本、非匹配hash及满槽阻塞验收通过；两侧共享30秒/128正文/1MiB，旧Only复用不自动批准new。v0.36.0冻结5830853；集中预算/根提交/删除/竞争及真实宿主门禁通过，移动range引用导致非匹配caller变化在发送前拒绝已验收。标签CI37929559884四矩阵通过；唯一发布37929860863成功。共享正文字节耗尽及未读二进制非匹配fail-closed已验收；原工件公开字节双hash核验通过，历史字面caller导航正式交付，不等价语义调用覆盖。SVN及必要语义caller场景仍未完成。
 2. B2：v0.35.0自动旧侧删除依赖复用批准changed-old已正式交付；真实Git服务预览/重捕获/execute/read、满槽复用与排除不恢复已验收。二进制删除依赖blocked不获检索权限、两侧扩展名独立解析及原身份read已验收。其他旧侧独有来源/链接及预算场景仍需闭环；显式首批已交付。
 3. B3：必要未捕获定义、别名链及实例上下文；现有search/read边界已验收。
 4. A2：剩余预算拆分场景；小变更免风险规划已正式交付；小变更阈值本地分组已正式交付；分组失败、共享调用上限、跨组遗漏已验收。固定参考少于4文件时总churn<200本地bundle，否则per-file，不等于风险计划跳过阈值。
@@ -24,6 +24,8 @@
 C3新增可复现场景：重复零参调用的大C++文件在12KiB模型预算下，窗口仍因导航元数据超限input-blocked；不能扩大预算或丢原证据，v0.33.7候选仅统一重复confidence/notice，全部已生成line/expression/side保留，复現输入7217字节；原文两侧read及更低预算blocked已验收，已正式公开工件核验。C2受控畸形输出处理、C3长输入仅具体场景证明确有必要才补；严格失败、原文证据保留为安全替代，不新增无限重试/宽松接受。
 
 ## 验收结论
+
+- v0.36.0冻结5830853：标签CI37929559884及唯一发布37929860863成功，原artifact11615712667；npm/Release95603字节逐字节一致，SHA256 bdbceb8836707cb624bdddd2a37e4766090347da7e1585814ae93a92a316fcdf，SHA512 sha512-e7EyutEJDyzP082U1acAsWPbhI1dREEVwahS+zllFbSiq+BfvHsEp6qKvnsbTkFYVuITCH+ziK7J020C8ScqpA==，校验清单匹配。
 
 - v0.35.0冻结06deba9：标签CI37917761142通过；唯一发布37918056608成功。原artifact11610243325已保存92968字节，SHA256 f46126682f917b88a848512ab6d6e00caaa75e177d9065e983de8a9c8ccb3ade，SHA512 sha512-h/TKIHsGRO/xb8vnUYx4GUxJGCxqWZFxMlaCWO9pYvXndo5p/Lylnn1ir8o+qYor+fGgjsNyFsDNfxEOCfCD7g==；npm/Release实际字节逐字节一致，双hash及校验清单匹配，正式交付。
 
