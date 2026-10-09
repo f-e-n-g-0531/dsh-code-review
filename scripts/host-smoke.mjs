@@ -68,7 +68,7 @@ try {
   const statusBefore = await checked('git', ['status', '--porcelain=v1'], { cwd: root });
   const output = await tools.get('code_review_execute').execute({ previewId: approvedPreview.previewId, confirmed: true }, exec);
   const report = JSON.parse(output.json);
-  assert.equal(modelCalls, 2); assert.equal(approvedPreview.plan.minimumCalls, 2); assert.equal(report.files[0].riskPlans[0].status, 'completed'); assert.equal(approvalCalls, 0);
+  assert.equal(modelCalls, 1); assert.equal(approvedPreview.plan.minimumCalls, 1); assert.equal(report.files[0].riskPlans[0].status, 'skipped'); assert.equal(approvalCalls, 0);
   assert.equal(report.coverage.completed, 1);
   assert.equal(report.outdated, false);
   assert.equal(report.model.provider, 'offline-test');

@@ -2,7 +2,7 @@ import { correctAnchor } from './anchor-correction.mjs';
 import { validateBusinessRequirement } from './business-requirement.mjs';
 import { riskReadCoverage } from './risk-read-coverage.mjs';
 import { BUSINESS_GROUP_INSTRUCTIONS, localBusinessGroups, prepareBusinessGroups, validateBusinessGroups } from './business-groups.mjs';
-import { RISK_PLAN_INSTRUCTIONS, validateRiskPlan } from './risk-plan.mjs';
+import { RISK_PLAN_INSTRUCTIONS, riskPlanningDecision, validateRiskPlan } from './risk-plan.mjs';
 import { prepareInteractionInput } from './interaction-input.mjs';
 import { validateInteractionFindings } from './interaction-findings.mjs';
 import { initialInputBudget } from './input-budget.mjs';
@@ -172,9 +172,13 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         enclosingRequest.signal.throwIfAborted();
         let batchPayload = batch.payload;
         if (options.enableRiskPlanning === true && !batch.synthesis) {
+          const decision = options.skipSmallRiskPlans === true ? riskPlanningDecision(batch.interaction ? input.files.filter(f=>batch.interaction.fileIds.includes(f.id)) : [file]) : {required:true,reason:'unconditional'};
           state.riskPlans ??= [];
           const entry = { status: 'pending', windowIds: batch.windowIds, ...(batch.interaction ? {groupId:batch.interaction.id,sourceMode:'file-interaction'} : {}), risks: [] };
           state.riskPlans.push(entry);
+          entry.decision = decision;
+          if (!decision.required) entry.status = 'skipped';
+          else {
           try {
           const response = await executor({ ...enclosingRequest, input: batch.payload, instructions: RISK_PLAN_INSTRUCTIONS });
           const riskFiles = batch.interaction ? JSON.parse(batch.payload).files : [{ fileId: file.id, edits: changes.edits ?? [] }];
@@ -188,6 +192,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             entry.status='fallback';entry.reason=error?.message??String(error);entry.risks=[];batchPayload=batch.payload;
             report.limitations.push({fileId:file.id,text:'风险计划未完成，回退原输入主审查：'+entry.reason});
           }
+        }
         }
         const request = { ...enclosingRequest, input: batchPayload };
         const auditStart = state.retrievalAudit?.length ?? 0;
