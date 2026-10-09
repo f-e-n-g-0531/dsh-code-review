@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.38.0
+
+- protobuf/thrift/capnp/GraphQL/Prisma五类专用缺陷指导替换同泛化protocol提示，区分wire/JSON/生成API/迁移兼容方向，保留实际消费者/版本及反证前提；GraphQL不混wire/tag概念。
+- 仅精确扩展名选取（大小写兼容），不匹配备份/伪后缀；原common与notice保持，指导不授读取或证据权限。主审/窗口/交互/复核指导继承与原输入预算验收，378全量测试通过，无新增调用；待固定标签原工件发布。
+
 ## 0.37.0
 
 - callerScopePaths接入SVN离线限定目录normal引用方扫描；正文及负匹配hash/node/index/probe复核，共享原30秒、128正文/1MiB、复核2MiB、20上下文/4MiB快照，字面导航不证明语义调用覆盖。
