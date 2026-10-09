@@ -1,3 +1,4 @@
+import {captureSvnCallers} from './svn-caller-capture.mjs';
 import { captureCallers } from './caller-capture.mjs';
 import { validateCallerScopes } from './caller-index.mjs';
 import { bindBusinessRequirement, validateBusinessRequirement } from './business-requirement.mjs';
@@ -38,7 +39,6 @@ export async function captureSnapshot(cwd, options = {}) {
   for (const name of options.oldContextPaths ?? []) relativePath(name);
   const type = await detectVcs(cwd);
   if (options.oldContextPaths !== undefined && (type !== 'git' || !['commit','baseRevision','targetRevision'].some(k => options[k] !== undefined))) throw new Error('Old context requires Git historical review');
-  if (options.callerScopePaths !== undefined && type !== 'git') throw new Error('Caller discovery currently requires Git review');
   if (['commit','baseRevision','targetRevision'].some(k => options[k] !== undefined)) {
     if (type !== 'git') throw new Error('Git revision review is unsupported on SVN');
     return bindBusinessRequirement(await captureGitHistory(cwd, options),options.businessRequirement);
@@ -72,7 +72,7 @@ export async function captureSnapshot(cwd, options = {}) {
   }
   let callerDiscovery, verifyCallers;
   if (options.callerScopePaths !== undefined) {
-    const callers = await captureCallers(snapshot.root, snapshot.files, options.callerScopePaths, options);
+    const callers = await (type==='git'?captureCallers:captureSvnCallers)(snapshot.root, snapshot.files, options.callerScopePaths, options);
     verifyCallers = callers.verify;
     callerDiscovery = { ...callers.discovery, capturedPaths: [] };
     for (const item of callers.context) {
