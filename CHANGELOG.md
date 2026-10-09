@@ -3,7 +3,7 @@
 ## 0.34.1
 
 - preview工具显式reviewRounds整数1..3，默认1，预览minimumCalls显示工作量并绑定服务保存值；execute不接受覆盖，调用者改参数或返回preview不改变批准发送量。
-- 非法/null轮次在capture及发送之前拒绝；沿用原owner/route/TTL/快照校验与共享预算，不增加审批。360离线通过，待固定标签及同工件门禁。
+- 非法/null轮次在capture及发送之前拒绝；沿用原owner/route/TTL/快照校验与共享预算，不增加审批。360冻结离线及四矩阵通过，唯一发布37916636188原工件92590字节与npm/Release逐字节及双hash一致。
 
 ## 0.34.0
 
