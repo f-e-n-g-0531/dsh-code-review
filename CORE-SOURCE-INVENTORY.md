@@ -314,9 +314,19 @@ A1六核心目录与规则正文读取收口；相关审核链依赖需限定git
 |[model/diff.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/model/diff.go)|已读，paths/status/diff/oldnewcontent/churn|固定file ID两侧hash/changes精确区间；历史rename add/delete明确不同|
 |[model/preview.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/model/preview.go)|已读，review selection/estimate/identity|preview plan真实bytes/minCalls、owner/cwd/route/TTL/snapshot hash重捕获|
 |[model/review.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/model/review.go)|已读，loose comment category/suggestioncode/thinking|strict候选anchor/attribution/verification evidence，不自动fix不引入思维日志|
-|[session/manifest.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/session/manifest.go)|前13000读取中，failure types/frozen identity/coverage schema；后段尚未读|现files/windows/interactions/limitations/followup；需核查state transitions再分类|
+|[session/manifest.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/session/manifest.go)|已分段读取覆盖schema、注册/封存/终态转换/Finalize及redaction；审核契约已分类|现files/windows/interactions/limitations/followup；需核查state transitions再分类|
 
 session comments/compare/delete/history/list/persist/raw_writer/resume/resume_identity/testing与model scan作为平台/存储/scan范围排除，不照搬。manifest后段是A1最后限定依赖读取项，完成后按功能验收实施，不能认为overall完成。
+
+## 轮70覆盖manifest契约分类与A1读取收口
+
+manifest后段与此前省略段以4500–13000/17000–22000/22000–24500/24500–30500/30500–结尾补读。RegisterSelected封存分母、终态冲突拒绝、未决定sweep为失败、Finalize校验分区及返回独立副本；真实run_failure优先，受控budget截断与run failure区分，completion与comment数无关。
+
+当前review.mjs逐文件状态/窗口pending/交互pending/limitations/取消及allfailed聚合已有对应，不与参考JSON字段强求相同；删除变更仍可审查，不复制参考删除排除。差距纳入A3：失败原因主要text，缺typed failure原因及固定selected覆盖分区显式验收，业务动态group不能扩大主文件分母，空选择与全excluded需明确语义测试。报告限制导致partial是刻意更保守，并非参考coverage-only的逐字段等价。
+
+manifest redaction为防御下限，不保证absolute paths/cookies/rawbody安全；插件错误原因透传须专门核查，不能凭credential-path gate声称日志无秘密。纳A3安全失败摘要验收，不做内容全仓秘密扫描。resume/reused/waived/persist平台不在范围，无伪造相同manifest声明。
+
+六核心目录、规则与限定依赖现均有读取/范围分类；A1源码清单阶段收口仅解锁功能依赖，不关闭总体目标。B1/B2/A2/A3/D1和E1仍待实现与验收；下一功能批优先B1有界caller捕获策略，避免继续文档轮无限扩范围。
 
 ## B2权限待定
 

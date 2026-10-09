@@ -112,9 +112,13 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 [逐文件清单](CORE-SOURCE-INVENTORY.md)新增gitcmd/pathutil/model六文件已读分类，session manifest前13000核查中；其余存储/resume/fullscan排除而不无限扩范围。匿名API403用既有Git凭据内存认证目录读取解决，不是blocker。下一步manifest后段后A1读取可收口并推进功能。仅文档运行包不变。
 
+## 轮70：覆盖manifest分类收口
+
+[逐文件清单](CORE-SOURCE-INVENTORY.md)补manifest分段，封存分母/终态冲突/未完成sweep/typed失败分类与当前review聚合对照；A3新增失败原因类型、selected固定分区、空选择/all-excluded及错误安全摘要验收。A1读取范围分类阶段收口，仅解锁B1等功能，不关闭总体目标。下一批优先有界caller捕获，不继续扩大平台源码范围。
+
 ## 有依赖顺序的执行任务
 
-- A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。
+- A1 **源码读取与范围分类阶段收口（轮70，非总体完成）**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。
 - B0 **本批实现**：批准catalog路径find导航；无正文/快照外权限，版本身份/hash/显式truncated，复用calls/output，整批预校验，loop审计。验收：2新增测试+全量280通过。
 - B1 **待办（依赖A1）**：预览阶段有界caller定位捕获。限制路径/扫描字节/时间/文件/历史OID，候选与未覆盖可见，execute只原快照。验收：未改调用方接口回归、歧义、excluded、dirty/race、大仓小改、耗尽无假阴性。
 - B2 **待办（依赖A1，独立于B1）**：旧侧独有context捕获/身份/证据/关系。验收：基线依赖目标不存在不伪造target正文；删除主文件保持独立changed身份；全部预算与hash稳定。
@@ -129,4 +133,4 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 实现→目标测试/全量→差异复核→pack/隔离entry→提交推送tag→Ubuntu/Windows×22/24固定tag CI→一次dispatch Actions npm→同原tgz正式Release→字节/SHA512/SHA256核验。发布后停扩该批。
 
-只有A1全量核心核查与范围内任务有实现/验收或充分的非目标依据，才关闭总体目标；轮限仅检查点。下一步继续A1而不是认为B0解决caller发现。
+只有A1全量核心核查与范围内任务有实现/验收或充分的非目标依据，才关闭总体目标；轮限仅检查点。A1读取分类收口后进入B1策略与实现，而不是认为B0解决caller发现；A3同时保留typed失败与安全摘要验收。
