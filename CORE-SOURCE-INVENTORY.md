@@ -15,27 +15,27 @@
 |[delegate/rulegroup.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/delegate/rulegroup.go)|已读；闭环须看任务表|A1|
 |[llmloop/compression.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/llmloop/compression.go)|已读；闭环须看任务表|A1|
 |[llmloop/loop.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/llmloop/loop.go)|已读；闭环须看任务表|A1|
-|[llmloop/pool.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/llmloop/pool.go)|未读，不声称等价|A1|
+|[llmloop/pool.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/llmloop/pool.go)|已读；闭环须看任务表|A1|
 |[llmloop/tool_args_json.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/llmloop/tool_args_json.go)|已读；闭环须看任务表|A1|
 |[llmloop/tool_failure_streak.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/llmloop/tool_failure_streak.go)|已读；闭环须看任务表|A1|
-|[tool/code_comment.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/code_comment.go)|未读，不声称等价|A1|
+|[tool/code_comment.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/code_comment.go)|已读；闭环须看任务表|A1|
 |[tool/code_search.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/code_search.go)|已读；闭环须看任务表|A1|
 |[tool/comment_args_repair.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/comment_args_repair.go)|已读；闭环须看任务表|A1|
-|[tool/comment_collector.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/comment_collector.go)|未读，不声称等价|A1|
-|[tool/definitions.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/definitions.go)|未读，不声称等价|A1|
+|[tool/comment_collector.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/comment_collector.go)|已读；闭环须看任务表|A1|
+|[tool/definitions.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/definitions.go)|已读；闭环须看任务表|A1|
 |[tool/file_find.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/file_find.go)|已读；闭环须看任务表|A1|
-|[tool/file_read.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/file_read.go)|未读，不声称等价|A1|
+|[tool/file_read.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/file_read.go)|已读；闭环须看任务表|A1|
 |[tool/file_read_diff.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/file_read_diff.go)|已读；闭环须看任务表|A1|
-|[tool/filereader.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/filereader.go)|未读，不声称等价|A1|
-|[tool/response_message.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/response_message.go)|未读，不声称等价|A1|
-|[tool/stub.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/stub.go)|未读，不声称等价|A1|
+|[tool/filereader.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/filereader.go)|已读；闭环须看任务表|A1|
+|[tool/response_message.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/response_message.go)|已读；闭环须看任务表|A1|
+|[tool/stub.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/stub.go)|已读；闭环须看任务表|A1|
 |[diff/git.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/git.go)|未读，不声称等价|A1|
 |[diff/gitignore.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/gitignore.go)|未读，不声称等价|A1|
 |[diff/hunk.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/hunk.go)|未读，不声称等价|A1|
 |[diff/parser.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/parser.go)|未读，不声称等价|A1|
-|[diff/quotedpath.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/quotedpath.go)|未读，不声称等价|A1|
-|[diff/relocation.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/relocation.go)|未读，不声称等价|A1|
-|[diff/resolver.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/resolver.go)|未读，不声称等价|A1|
+|[diff/quotedpath.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/quotedpath.go)|已读；闭环须看任务表|A1|
+|[diff/relocation.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/relocation.go)|已读；闭环须看任务表|A1|
+|[diff/resolver.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/resolver.go)|已读；闭环须看任务表|A1|
 |[diff/workspace_file.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/workspace_file.go)|未读，不声称等价|A1|
 |[config/allowlist/allowed_ext.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/allowed_ext.go)|未读，不声称等价|A1|
 |[config/allowlist/default_exclude_patterns.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/default_exclude_patterns.json)|未读，不声称等价|A1|
@@ -126,6 +126,22 @@
 - identity.go：selection后冻结输入及规则hash、range merge-base；现preview/execute重捕获身份，exact端点为刻意替代，resume持久平台不照搬。
 - util.go：confirmed裁剪、空plan块移除、fence剥离/XML/token；现strict JSON及原始证据预算替代，多pass仍待A3。
 - format.go：规则source/pattern/适用文件Markdown；现规则显式统一，路径分派D1未完，不重印不可信规则。
+
+## 轮57工具/定位逐文件判定
+
+- tool/file_read.go：500行上限、显式truncated/范围/总行；我们200行快照来源ID+hash、64KiB/result累计256KiB，严格整数/整批预校验为安全替代。
+- tool/filereader.go：workspace实时文件/symlink范围，历史ref git show、30s/stream全行计数；我们执行前捕获稳定OID/正文，执行只snapshot，拒绝所有link且字节限额。范围外必要caller仍B1，实时读取不照搬。
+- tool/definitions.go：tool注册冻结、动态MCP保留名；我们固定read/search/find能力不注入动态工具，宿主注册preview/execute保持正常策略。
+- tool/response_message.go：Completed/Failed/Data终止协议；我们最终JSON严格schema、failed/cancelled/partial显式状态，不伪success。
+- tool/stub.go：缺provider返回not-available；我们未知kind及来源在访问前拒绝，不添加stub伪能力。
+- tool/code_comment.go：宽松解析会跳过非对象/缺字段，默认路径、类别/severity降级；我们整批严格候选身份severity定位/归因，不能静默丢候选。style/documentation等类别不在具体缺陷范围；serialized repair仍C2明确不复制。
+- tool/comment_collector.go：per-agent互斥存储、按path切片替换/删除；我们per-report候选原记录保留及精确duplicate分组，不引入模型模糊删除。
+- llmloop/pool.go：默认8并发异步comment后处理、按key等待，panic/error仅日志且零comments；我们同步同signal/预算复核，incomplete显式，拒绝把失败当零缺陷，不复制后台平台。
+- diff/resolver.go：新hunk后旧hunk/新全文，trim/去diff前缀/略空行首匹配，跨file唯一命中重投；我们原snippet完整行exact唯一只同file/side纠行、保留原候选，刻意更严格，不迁移语义/来源。
+- diff/relocation.go：LLM生成新existing_code再resolve，失败还原；我们不允许模型替换原定位证据，故明确范围外；定位纠正不证明因果。
+- diff/quotedpath.go：C风格路径byte解码，拒绝无效octal；我们Git NUL元数据/literal path不解析patch header，危险路径由relativePath拒绝，已有路径回归。
+
+此轮tool/llmloop清单已读项齐，不等于A1全部闭环：diff另外5文件、config及模板/规则正文、跨目录依赖仍待。
 
 ## B2权限待定
 

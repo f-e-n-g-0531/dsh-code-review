@@ -60,6 +60,10 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 新增[逐文件清单](CORE-SOURCE-INVENTORY.md)，六核心目录及config子树本轮API枚举记录，每文件明确已读/未读，直接读estimate/identity/util/format并分类。跨目录依赖仍待补，不以读取冒充能力闭环。B2先明确删除changed与旧context显式授权，auto不得恢复selected排除。仅文档核查，不变运行包。
 
+## 轮57：工具与定位11文件核查
+
+[逐文件清单](CORE-SOURCE-INVENTORY.md)更新剩余7工具文件、pool.go、resolver/relocation/quotedpath三文件的真实行为/当前对应/刻意安全替代。工具宽松候选跳过、异步后处理失败零评论和LLM替换snippet不照搬；来源ID严格快照、同预算复核/失败显式、exact原snippet定位保持。仅文档核查，运行版仍0.31.1；A1配置/剩余diff/跨目录未完成。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。
