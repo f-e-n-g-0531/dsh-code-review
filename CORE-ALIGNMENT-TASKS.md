@@ -25,7 +25,8 @@ C2受控畸形输出处理、C3长输入仅具体场景证明确有必要才补�
 
 ## 验收结论
 
-- 当前离线314/314通过；不等价真实模型质量。
+- 当前离线320/320及真实宿主离线smoke通过；不等价真实模型质量。
+- 执行可靠性优先：0.33.2唯一完整JSON围栏兼容，固定CI37907541130通过、唯一发布37907836315排队；0.33.3窗口上下文按批准catalog检索候选已验收。实际碰撞项目原报告/响应未知，不宣称三处格式失败或超时根因复现。
 - v0.33.1同一调用行alias重赋值/逃逸误提示已修复并冻结提交cdb95f0529b0fbbee5c5eaecfaf50cc50213562f；发布门禁已通过：标签CI37906386448、唯一发布37906798597成功，原artifact11604593956；npm/Release88082字节匹配原工件，SHA256 754e067662a25779d99f225a957ed1c4519c13e15dd083d8ca575260263f2cbd，SHA512 sha512-u8mPIdeHKrpL6zg1ljM35FMP0nJ5SeS87HjfCw6GSchoggKnmTbQvB7Mnd/LfrdY6Lg/DK/MKBNYwk/VkCul6w==。
 - v0.33.0：提交6fe4261fb7e2bd1b645b8637ba9f82840a760c83，标签四矩阵37904841884成功；唯一发布37905053267成功，原artifact11603897802。npm/正式Release与原工件逐字节一致87754字节；SHA256 fc0d99bebd62e431fdd212d83f51af5ea6e8b00ae6510210ea480b816c72064f；SHA512 sha512-OE81b9ZfHK+Smj/mTKeSiEN3xoZl1ldREKpC5F7dRBSk+grHla/ylt+rbEpwlU/4GEzfaZyNp1prov8OvAiC5g==。
 - v0.32.0：冻结aa99d1d0127eff3fc03a46f9503aeb63d026445f；标签四矩阵37897428028成功；npm发布37897709965成功但registry等待耗尽，原artifact11600619879；同工件恢复37898945312成功、无重复npm发布。npm/Release85750字节逐字节匹配；SHA256 9b977da62affab4f4994265b7ed939564a1e14562f40f26dca8eb7f4f7610551；SHA512 sha512-iq6llEjoIFxkm+3koKwawci2+cmnC/QnoxkRT7CSuz1GQM6anS7J6PGDnEmyeXOXTj+rJ/sVza0q/tjodiWBoA==。
