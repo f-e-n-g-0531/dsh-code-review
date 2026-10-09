@@ -1,5 +1,11 @@
 # 变更记录
 
+## 0.33.0
+
+- 新增Git历史显式oldContextPaths，baseline对象只读捕获及版本/OID/hash身份；不伪造目标正文，不绕过所选变更边界。
+- reader与导入/C#关系消费者按侧分派；schema/service预览显示旧侧元数据，生成/综合/复核提示纳入共享输入预算。
+- 链接/submodule/凭据、重复及重叠路径、root无baseline、字节/槽/快照预算拒绝；真实Git零发送预览、工作树隔离、证据receipt验收。311离线测试通过；候选发布门禁待验证。
+
 ## 0.32.0
 
 - 新增显式callerScopePaths工作区Git限定字面引用方捕获；预览显示扫描身份和候选，非匹配正文不发送。

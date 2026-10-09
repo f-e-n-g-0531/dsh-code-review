@@ -7,7 +7,7 @@ export function inferContextRelations(input, file) {
   if (input.history) {
     const relations=[];
     for (const side of ['old','new']) {
-      const contexts=(input.context ?? []).filter(c=>side==='new'||typeof c.oldText==='string').map(c=>({...c,text:side==='old'?c.oldText:c.text}));
+      const contexts=(input.context ?? []).filter(c=>side==='new'?typeof c.text==='string':typeof c.oldText==='string').map(c=>({...c,text:side==='old'?c.oldText:c.text}));
       const text=side==='old'?file.left.text:file.right.text;
       // Infer each version independently: never bind an old import to target definitions.
       const one={...file,left:{...file.left,text:''},right:{...file.right,text}};

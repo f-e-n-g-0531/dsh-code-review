@@ -6,7 +6,7 @@ export function inferCsharpContext(input, primary) {
  const approvedContexts = (input.context ?? []).filter(c => c.path.endsWith('.cs') && !input.files.some(f => f.path === c.path));
  const result = [];
  for (const side of ['old', 'new']) {
-  const contexts = input.history ? approvedContexts.map(c=>({...c,text:side==='old'?c.oldText:c.text})) : approvedContexts;
+  const contexts = input.history ? approvedContexts.filter(c=>side==='new'?!c.oldOnly:true).map(c=>({...c,text:side==='old'?c.oldText:c.text})) : approvedContexts;
   const source = (side === 'old' ? primary.left : primary.right)?.text;
   if (!safe(source) || /\busing\b|\bdynamic\b/.test(source)) continue;
   const ns = namespaceOf(source); if (!ns) continue;

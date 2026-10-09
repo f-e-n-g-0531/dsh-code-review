@@ -1,3 +1,4 @@
+import { contextSources } from './context-identity.mjs';
 import { assertNonSecretPath } from './secret-path.mjs';
 import { createSnapshotReader } from './snapshot-reader.mjs';
 
@@ -21,18 +22,16 @@ export function createRetrievalScope(snapshot, options) {
   }
   const seenContext = new Set();
   for (const item of snapshot.context) {
-    if (!item || typeof item.path !== 'string' || !item.path || seenContext.has(item.path) || typeof item.text !== 'string') throw new Error('Invalid retrieval context');
+    if (!item || typeof item.path !== 'string' || !item.path || seenContext.has(item.path)) throw new Error('Invalid retrieval context');
     seenContext.add(item.path);
     const changed = paths.get(item.path);
+    const sources = contextSources(item, snapshot.history);
     if (changed) {
+      if (item.oldOnly) throw new Error('Context conflicts with selected changes');
       if (changed.eligibility !== 'reviewable' || changed.rightExists === false || changed.right.text !== item.text) throw new Error('Context conflicts with selected changes');
       continue;
     }
-    add(item.path, 'context', item.text);
-    if (item.oldText !== undefined) {
-      if (!snapshot.history || item.oldRevision !== snapshot.history.base || item.revision !== snapshot.history.target || typeof item.oldText !== 'string') throw new Error('Invalid historical context provenance');
-      add(item.path, 'context-old', item.oldText);
-    }
+    for (const source of sources) add(item.path, source.side, source.text);
   }
   const reader = createSnapshotReader(snapshot.id, entries, options);
   return Object.freeze({ ...reader, catalog: () => structuredClone(catalog) });

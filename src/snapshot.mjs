@@ -34,7 +34,10 @@ export async function captureSnapshot(cwd, options = {}) {
   for (const name of contextPaths) relativePath(name);
   if (options.autoContext !== undefined && typeof options.autoContext !== 'boolean') throw new Error('Invalid autoContext option');
   if (options.callerScopePaths !== undefined) validateCallerScopes(options.callerScopePaths);
+  if (options.oldContextPaths !== undefined && (!Array.isArray(options.oldContextPaths) || options.oldContextPaths.length > 20 || new Set(options.oldContextPaths).size !== options.oldContextPaths.length)) throw new Error('Invalid old context paths');
+  for (const name of options.oldContextPaths ?? []) relativePath(name);
   const type = await detectVcs(cwd);
+  if (options.oldContextPaths !== undefined && (type !== 'git' || !['commit','baseRevision','targetRevision'].some(k => options[k] !== undefined))) throw new Error('Old context requires Git historical review');
   if (options.callerScopePaths !== undefined && (type !== 'git' || ['commit','baseRevision','targetRevision'].some(k => options[k] !== undefined))) throw new Error('Caller discovery currently requires Git working review');
   if (['commit','baseRevision','targetRevision'].some(k => options[k] !== undefined)) {
     if (type !== 'git') throw new Error('Git revision review is unsupported on SVN');
