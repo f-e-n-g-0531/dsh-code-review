@@ -1,5 +1,11 @@
 # 变更记录
 
+## 0.30.1
+
+- 风险请求来源sourceReadCoverage记录本批生成阶段requested/read/unread；未读来源不能以无发现冒充完整核查。
+- search/find与旧批次不算片段读取，报告partial限制，无新调用/权限，285测试通过。
+- 完成主loop核心退出/定位/预算调度复核；agent/templates剩余核查仍待。
+
 ## 0.30.0
 
 - Git自动直接上下文改512字面候选index探针，不枚举全tracked；普通tracked有效性及同probe竞态重核保持。

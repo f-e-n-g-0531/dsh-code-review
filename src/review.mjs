@@ -1,4 +1,5 @@
 import { correctAnchor } from './anchor-correction.mjs';
+import { riskReadCoverage } from './risk-read-coverage.mjs';
 import { BUSINESS_GROUP_INSTRUCTIONS, prepareBusinessGroups, validateBusinessGroups } from './business-groups.mjs';
 import { RISK_PLAN_INSTRUCTIONS, validateRiskPlan } from './risk-plan.mjs';
 import { prepareInteractionInput } from './interaction-input.mjs';
@@ -185,6 +186,11 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             });
             response = decoded;
           }
+        }
+        if (options.enableRiskPlanning === true && !batch.synthesis) {
+          const entry=state.riskPlans.at(-1);
+          entry.sourceReadCoverage=riskReadCoverage(entry.risks,(state.retrievalAudit??[]).slice(auditStart),scope?.catalog()??[],input.id);
+          if(entry.sourceReadCoverage.some(c=>c.unreadSourceIds.length)) report.limitations.push({fileId:file.id,text:'风险计划请求的部分来源未在本次生成阶段读取；不能视为已核查风险条件或排除问题'});
         }
         const generated = batch.interaction ? validateInteractionFindings(response, input, batch.interaction, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog()) : validateResponse(response, file, changes);
         if (batch.synthesis) validateSynthesisReads(generated.findings, changes, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog(), file.id, input.id);
