@@ -4,7 +4,7 @@
 
 - 新增Git历史显式oldContextPaths，baseline对象只读捕获及版本/OID/hash身份；不伪造目标正文，不绕过所选变更边界。
 - reader与导入/C#关系消费者按侧分派；schema/service预览显示旧侧元数据，生成/综合/复核提示纳入共享输入预算。
-- 链接/submodule/凭据、重复及重叠路径、root无baseline、字节/槽/快照预算拒绝；真实Git零发送预览、工作树隔离、证据receipt验收。311离线测试通过；候选发布门禁待验证。
+- 链接/submodule/凭据、重复及重叠路径、root无baseline、字节/槽/快照预算拒绝；真实Git零发送预览、工作树隔离、证据receipt验收。311离线测试通过；标签CI37904841884及发布37905053267成功，npm/正式Release原字节87754及SHA512/SHA256核验匹配。
 
 ## 0.32.0
 

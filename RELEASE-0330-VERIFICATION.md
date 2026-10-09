@@ -1,6 +1,6 @@
 # v0.33.0 发布门禁记录
 
-状态：轮102自身四矩阵success，release仍in_progress，registry metadata404，正式Release尚无；非正式发布完成声明。
+状态：轮103正式发布门禁闭环。原发布运行37905053267 completed/success，npm/registry校验/正式Release全部成功，无需恢复或重复发布。实际npm与Release均87754字节，与原Actions工件逐字节相同，SHA512/SHA256及Release校验清单匹配。本显式旧侧首批停止扩展，不等价总体完成。
 
 原Actions artifact11603897802，release-v0.33.0-37905053267，下载解包D:/TEMP/dsh-release-0330-D0bcyJ/original。tarball87754字节，SHA256 fc0d99bebd62e431fdd212d83f51af5ea6e8b00ae6510210ea480b816c72064f；SHA512 integrity sha512-OE81b9ZfHK+Smj/mTKeSiEN3xoZl1ldREKpC5F7dRBSk+grHla/ylt+rbEpwlU/4GEzfaZyNp1prov8OvAiC5g==。待实际npm/Release字节核验，不使用本地重打包替代。
 
