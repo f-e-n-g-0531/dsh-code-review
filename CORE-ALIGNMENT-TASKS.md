@@ -104,6 +104,10 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 [逐文件清单](CORE-SOURCE-INVENTORY.md)解除default/C/C++/Java/JS/F#/Kotlin省略状态，列所有权转移/局部shared引用/coroutine取消/默认值契约等反证。剩6篇长文补齐后核查限定依赖；F#专用指引可作为D1首小批，generic不能冒充已实现。仅文档不变运行包。
 
+## 轮68：语言长文读取收口
+
+[逐文件清单](CORE-SOURCE-INVENTORY.md)解除Go/Python/Rust/ObjC/MATLAB/ArkTS最后省略状态，54规则阅读完成不等于D1验收。限定剩余审核链gitcmd/pathutil/model/session coverage行为，provider平台/telemetry不无限扩范围。随后功能缺口按任务实施。仅文档不变运行包。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。
