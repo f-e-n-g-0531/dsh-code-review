@@ -26,6 +26,12 @@ test('compact C++ navigation fits tight window budget retaining all line express
  const p=buildCoveragePlan(s,{instructions:REVIEW_INSTRUCTIONS,scope:createRetrievalScope(s),maxInputBytes:12000});assert.equal(p.items[0].status,'ready');assert.equal(p.items[0].sourceMode,'change-windows');
  const r=await reviewSnapshot(s,req=>{const input=JSON.parse(req.input);assert.equal(input.cppCallSites.length,40);assert.ok(input.cppCallSites.every(site=>!Object.hasOwn(site,'notice')));assert.match(input.cppCallNotice,/syntax-only-unresolved/);assert.ok(input.catalog.some(source=>source.side==='new'));return {findings:[],limitations:[]};},{enableRetrieval:true,maxInputBytes:12000});assert.equal(r.modelCalls,1);assert.equal(r.files[0].status,'completed');assert.equal(r.files[0].initialInputBytes,p.items[0].initialInputBytes);assert.equal(r.coverage.completed,1);
 });
+test('compact navigation never substitutes evidence and both approved sides remain readable under shared retrieval budget',async()=>{
+ const old='same();\n'.repeat(6000),s={id:'s',vcs:'git',context:[],files:[{id:'f',path:'solver.cpp',eligibility:'reviewable',properties:[],left:{text:old},right:{text:old+'changed();\n'.repeat(50)}}]};let calls=0;
+ const r=await reviewSnapshot(s,req=>{calls++;const p=JSON.parse(req.input);if(!p.retrieved.length)return {requests:['old','new'].map(side=>({kind:'read',id:p.catalog.find(source=>source.side===side).id,start:1,count:1}))};assert.deepEqual(p.retrieved.map(x=>x.result.text),['same();\n','same();\n']);assert.equal(p.cppCallSites.filter(x=>x.side==='old').length,20);assert.equal(p.cppCallSites.filter(x=>x.side==='new').length,20);return {findings:[],limitations:[]};},{enableRetrieval:true,maxInputBytes:12000});
+ assert.equal(calls,2);assert.equal(r.coverage.completed,1);assert.equal(r.files[0].retrievalAudit.filter(x=>x.kind==='read'&&x.stage==='retrieved-locally').length,2);assert.equal(s.files[0].right.text,old+'changed();\n'.repeat(50));
+ const blocked=await reviewSnapshot(s,()=>assert.fail('no send outside input budget'),{enableRetrieval:true,maxInputBytes:3000});assert.equal(blocked.modelCalls,0);assert.equal(blocked.coverage.completed,0);assert.equal(blocked.files[0].status,'blocked');
+});
 test('without approved scope context is never discarded to force input acceptance',()=>{
  const plan=buildCoveragePlan(snapshot(),{instructions:REVIEW_INSTRUCTIONS,maxInputBytes:12000});assert.equal(plan.items[0].status,'input-blocked');
 });
