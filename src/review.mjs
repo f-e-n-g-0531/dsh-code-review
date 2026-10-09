@@ -1,3 +1,4 @@
+import { reviewRounds } from './review-rounds.mjs';
 import { correctAnchor } from './anchor-correction.mjs';
 import { validateBusinessRequirement } from './business-requirement.mjs';
 import { riskReadCoverage } from './risk-read-coverage.mjs';
@@ -75,6 +76,7 @@ async function invoke(model, request, timeoutMs, parentSignal) {
 }
 
 export async function reviewSnapshot(snapshot, model, options = {}) {
+  const rounds = reviewRounds(options.reviewRounds);
   const { signal, maxInputBytes = 96 * 1024, maxCalls = 100, timeoutMs = 120_000 } = options;
   if (typeof model !== 'function') throw new Error('A model executor is required');
   for (const n of [maxInputBytes, maxCalls, timeoutMs]) if (!Number.isSafeInteger(n) || n < 1) throw new Error('Invalid review limit');
@@ -168,10 +170,12 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         if (prepared.synthesis?.budget.fits) batches.push({ payload: prepared.synthesis.payload, windowIds: [], synthesis: true });
         const matchingInteractionPlans = interactionPlans.filter(p => input.files.filter(f => p.group.fileIds.includes(f.id)).at(-1)?.id === file.id);
         for (const interactionPlan of matchingInteractionPlans.filter(p => p.prepared.status === 'ready')) batches.push({ payload: interactionPlan.prepared.payload, windowIds: [], interaction: interactionPlan.group });
-        for (const batch of batches) {
+        const scheduled = Array.from({length:rounds},(_,i)=>batches.map(b=>({...b,round:i+1}))).flat();
+        if(rounds>1) state.reviewPasses=scheduled.map(b=>({round:b.round,windowIds:b.windowIds,...(b.interaction?{groupId:b.interaction.id}:{}),...(b.synthesis?{synthesis:true}:{}),status:'pending'}));
+        for (const [batchIndex,batch] of scheduled.entries()) {
         enclosingRequest.signal.throwIfAborted();
         let batchPayload = batch.payload;
-        if (options.enableRiskPlanning === true && !batch.synthesis) {
+        if (options.enableRiskPlanning === true && !batch.synthesis && batch.round === 1) {
           const decision = options.skipSmallRiskPlans === true ? riskPlanningDecision(batch.interaction ? input.files.filter(f=>batch.interaction.fileIds.includes(f.id)) : [file]) : {required:true,reason:'unconditional'};
           state.riskPlans ??= [];
           const entry = { status: 'pending', windowIds: batch.windowIds, ...(batch.interaction ? {groupId:batch.interaction.id,sourceMode:'file-interaction'} : {}), risks: [] };
@@ -194,6 +198,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           }
         }
         }
+        if(rounds>1) state.reviewPasses[batchIndex].status='running';
         const request = { ...enclosingRequest, input: batchPayload };
         const auditStart = state.retrievalAudit?.length ?? 0;
         let response = await executor(request);
@@ -211,7 +216,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             response = decoded;
           }
         }
-        if (options.enableRiskPlanning === true && !batch.synthesis) {
+        if (options.enableRiskPlanning === true && !batch.synthesis && batch.round === 1) {
           const entry=state.riskPlans.at(-1);
           entry.sourceReadCoverage=riskReadCoverage(entry.risks,(state.retrievalAudit??[]).slice(auditStart),scope?.catalog()??[],input.id);
           if(entry.sourceReadCoverage.some(c=>c.unreadSourceIds.length)) report.limitations.push({fileId:file.id,text:'风险计划请求的部分来源未在本次生成阶段读取；不能视为已核查风险条件或排除问题'});
@@ -220,6 +225,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         if (batch.synthesis) validateSynthesisReads(generated.findings, changes, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog(), file.id, input.id);
         if (!batch.interaction && state.sourceMode === 'change-windows') validateWindowFindings(generated.findings, batch.synthesis ? prepared.synthesis.windows : JSON.parse(batch.payload).windows, batch.synthesis === true);
         request.signal.throwIfAborted();
+        if(rounds>1)generated.findings.forEach(f=>{f.reviewRound=batch.round;});
         report.findings.push(...generated.findings);
         if (generated.findings.some(f => f.attribution.status === 'missing')) report.limitations.push({ fileId: file.id, text: '部分发现缺少变更归因，仅校验了定位，尚不能确认属于本次回归' });
         report.limitations.push(...generated.limitations.map(text => ({ fileId: file.id, text })));
@@ -243,10 +249,11 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         }
         if (batch.synthesis) state.synthesisStatus = 'completed';
         if (batch.interaction) report.interactions.find(p => p.groupId === batch.interaction.id).status = 'completed';
-        if (state.windowCoverage) {
+        if (state.windowCoverage && batch.round === 1) {
           state.windowCoverage.completed.push(...batch.windowIds);
           state.windowCoverage.pending = state.windowCoverage.pending.filter(id => !batch.windowIds.includes(id));
         }
+        if(rounds>1)state.reviewPasses[batchIndex].status='completed';
         }
       }, { instructions: REVIEW_INSTRUCTIONS, input: payload }, timeoutMs, signal);
       if (signal?.aborted) throw signal.reason;
@@ -256,6 +263,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     } catch (error) {
       state.status = signal?.aborted ? 'cancelled' : 'failed';
       state.reason = error?.message ?? String(error);
+      for(const pass of state.reviewPasses??[])if(pass.status==='running')pass.status=signal?.aborted?'cancelled':'failed';
       state.failureCode = signal?.aborted ? 'CANCELLED' : ['MODEL_INVALID_JSON','MODEL_TIMEOUT'].includes(error?.code) ? error.code : 'REVIEW_EXECUTION_FAILED';
     }
   }

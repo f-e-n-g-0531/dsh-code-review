@@ -17,7 +17,7 @@ function owner(exec) {
   if (!agent || typeof cwd !== 'string' || !cwd || !agent.options?.provider || !agent.options?.model) throw new Error('Active Agent with cwd and model is required');
   return { agent, cwd, route: { provider: agent.options.provider, model: agent.options.model, ...(agent.options.reasoningEffort ? { reasoningEffort: agent.options.reasoningEffort } : {}) } };
 }
-export function createReviewService(llm, { capture = captureSnapshot, now = Date.now, ttlMs = 300000, maxPreviews = 8, allowModelSending = false, enableRiskPlanning = false, skipSmallRiskPlans = true, enableBusinessGrouping = false, enableAnchorCorrection = false, authorize = async () => false } = {}) {
+export function createReviewService(llm, { capture = captureSnapshot, now = Date.now, ttlMs = 300000, maxPreviews = 8, allowModelSending = false, enableRiskPlanning = false, skipSmallRiskPlans = true, reviewRounds = 1, enableBusinessGrouping = false, enableAnchorCorrection = false, authorize = async () => false } = {}) {
   for (const value of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid preview limit');
   const lifetime = new AbortController();
   const bind = exec => ({ ...exec, signal: exec.signal ? AbortSignal.any([exec.signal, lifetime.signal]) : lifetime.signal });
@@ -42,7 +42,7 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
         const snapshot = await capture(target, { ...options, signal: exec.signal });
         exec.signal?.throwIfAborted();
         if (owner(exec).cwd !== current.cwd) throw new Error('Agent directory changed; preview again');
-        const plan = buildCoveragePlan(snapshot, { enableRiskPlanning, skipSmallRiskPlans, enableBusinessGrouping, instructions: REVIEW_INSTRUCTIONS, scope: createRetrievalScope(snapshot, { signal: exec.signal }), grouping: buildReviewGroups(snapshot.files, inferFileRelations(snapshot.files)), maxInputBytes: 96 * 1024, signal: exec.signal });
+        const plan = buildCoveragePlan(snapshot, { enableRiskPlanning, skipSmallRiskPlans, reviewRounds, enableBusinessGrouping, instructions: REVIEW_INSTRUCTIONS, scope: createRetrievalScope(snapshot, { signal: exec.signal }), grouping: buildReviewGroups(snapshot.files, inferFileRelations(snapshot.files)), maxInputBytes: 96 * 1024, signal: exec.signal });
         prune();
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
@@ -70,7 +70,7 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
         if (await authorize({ snapshot, route: preview.route, exec }) !== true) throw new Error('Model sending approval denied or unavailable');
         exec.signal?.throwIfAborted();
         if (owner(exec).cwd !== current.cwd || JSON.stringify(owner(exec).route) !== JSON.stringify(preview.route)) throw new Error('Agent changed during approval');
-        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route), { signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableVerification: true, enableRiskPlanning, skipSmallRiskPlans, enableBusinessGrouping, enableAnchorCorrection });
+        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route), { signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableVerification: true, enableRiskPlanning, skipSmallRiskPlans, reviewRounds, enableBusinessGrouping, enableAnchorCorrection });
         report.model = preview.route;
         const latest = await resolveWorkspaceRepository(current.cwd, preview.options.repositoryPath).then(target => target === preview.target ? capture(target, { ...preview.options, signal: exec.signal }) : null).catch(() => null);
         report.outdated = !latest || latest.id !== snapshot.id || owner(exec).cwd !== current.cwd;
