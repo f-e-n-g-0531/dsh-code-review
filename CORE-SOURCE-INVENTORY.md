@@ -202,11 +202,11 @@ D1后续优先补F#专用及Go版本反证，其他规则剩余42篇仍未读；
 
 |规则|当前对应与需补验收|不照搬或反证要求|
 |---|---|---|
-|graphql|通用protocol提示不应导入numeric tag；需独立non-null input/default/operation兼容提示|无编号概念；不能因无auth directive就认定resolver无权限，新增enum也要实际consumer边界|
-|prisma|当前migration/referential提示泛化；需provider/relationMode/generatedclient/migration上下文|不能按name要求index/tenant；已迁移与caller更新反证|
-|protobuf|tag/reserved/oneof/presence/JSON名具体兼容方向|新鲜field additive不泛报；enum数字和消费者而非声明位置|
-|thrift|字段id/type header、method name/oneway/required/default差异|没有reserved关键字；include/namespace也需实际绑定而非一律忽略|
-|capnp|ordinal固定width/default XOR、显式type id、union兼容|同ordinal rename本身通常不破wire；不按声明次序判编号，需独立提示|
+|graphql|v0.38.0冻结候选已专用non-null/default/operation/null bubbling指导；主审/窗口/交互/复核预算验收通过，待发布|无编号概念；不能因无auth directive就认定resolver无权限，新增enum也要实际consumer边界|
+|prisma|v0.38.0冻结候选已有provider/relationMode/migration/generated-client专用指导及消费者验收，待发布；不自动取上下文|不能按name要求index/tenant；已迁移与caller更新反证|
+|protobuf|v0.38.0冻结候选已有tag/reservation/oneof/presence/JSON名指导及消费者验收，待发布|新鲜field additive不泛报；enum数字和消费者而非声明位置|
+|thrift|v0.38.0冻结候选已有id/type/method/oneway/required/default指导及消费者验收，待发布|没有reserved关键字；include/namespace也需实际绑定而非一律忽略|
+|capnp|v0.38.0冻结候选已有ordinal/fixed width/default XOR/type id/union指导及消费者验收，待发布|同ordinal rename本身通常不破wire；不按声明次序判编号；专用指导仍不证明模型正确判断|
 |json/yaml|参考仅key拼写，现基于consumer/schema/units/default明显更广|纯拼写不照搬、值仍需审核不能按参考忽略|
 |properties|duplicate覆盖/转义/secret检查已有configuration大类|格式与空白需真实parser契约|
 |package_json|当前entry/runtime/hooks兼容大类|wildcard/重复dev依赖不独立即bug；缺scripts tool需workspace/全局runner反证|
