@@ -68,6 +68,10 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 [逐文件清单](CORE-SOURCE-INVENTORY.md)记录hunk/parser/gitignore/workspace_file/git全部实际行为，对range merge-base/merge first-parent、自动untracked、失败跳过与插件exact端点/显式选择/blocked安全替代明确区分。Diff目录已读不代表总体完成；config模板规则及跨目录依赖仍未核查。仅文档核查不变运行版。
 
+## 轮59：审查模板完整核查
+
+[逐文件清单](CORE-SOURCE-INVENTORY.md)更新template/effort/task配置及12prompt，共15文件。确认默认2独立pass非retrieval轮/模型effort；plan50/group100与grouping4/200跳过策略A2、multi-pass A3明确待办。过滤默认approve和protected veto不等于反证确认，当前候选保留并标verdict是安全替代。配置其余规则/schema/full-scan分类仍待。仅文档，不变运行包。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。

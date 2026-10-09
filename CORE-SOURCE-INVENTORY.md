@@ -45,26 +45,26 @@
 |[config/rules/sniffer.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/sniffer.go)|已读；闭环须看任务表|A1|
 |[config/rules/system_rules.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/system_rules.go)|未读，不声称等价|A1|
 |[config/rules/system_rules.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/system_rules.json)|已读；闭环须看任务表|A1|
-|[config/template/effort.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/effort.go)|未读，不声称等价|A1|
+|[config/template/effort.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/effort.go)|已读；闭环须看任务表|A1|
 |[config/template/scan_template.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/scan_template.json)|未读，不声称等价|A1|
-|[config/template/task_template.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/task_template.json)|未读，不声称等价|A1|
-|[config/template/template.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/template.go)|未读，不声称等价|A1|
+|[config/template/task_template.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/task_template.json)|已读；闭环须看任务表|A1|
+|[config/template/template.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/template.go)|已读；闭环须看任务表|A1|
 |[config/testconnection/task.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/testconnection/task.json)|未读，不声称等价|A1|
 |[config/testconnection/testconnection.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/testconnection/testconnection.go)|未读，不声称等价|A1|
 |[config/toolsconfig/tools.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/toolsconfig/tools.json)|未读，不声称等价|A1|
 |[config/toolsconfig/toolsconfig.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/toolsconfig/toolsconfig.go)|未读，不声称等价|A1|
-|[config/template/prompts/grouping_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/grouping_task_system.md)|未读，不声称等价|A1|
-|[config/template/prompts/grouping_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/grouping_task_user.md)|未读，不声称等价|A1|
-|[config/template/prompts/main_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/main_task_system.md)|未读，不声称等价|A1|
-|[config/template/prompts/main_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/main_task_user.md)|未读，不声称等价|A1|
-|[config/template/prompts/memory_compression_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/memory_compression_task_system.md)|未读，不声称等价|A1|
-|[config/template/prompts/memory_compression_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/memory_compression_task_user.md)|未读，不声称等价|A1|
-|[config/template/prompts/plan_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/plan_task_system.md)|未读，不声称等价|A1|
-|[config/template/prompts/plan_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/plan_task_user.md)|未读，不声称等价|A1|
-|[config/template/prompts/re_location_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/re_location_task_system.md)|未读，不声称等价|A1|
-|[config/template/prompts/re_location_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/re_location_task_user.md)|未读，不声称等价|A1|
-|[config/template/prompts/review_filter_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/review_filter_task_system.md)|未读，不声称等价|A1|
-|[config/template/prompts/review_filter_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/review_filter_task_user.md)|未读，不声称等价|A1|
+|[config/template/prompts/grouping_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/grouping_task_system.md)|已读；闭环须看任务表|A1|
+|[config/template/prompts/grouping_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/grouping_task_user.md)|已读；闭环须看任务表|A1|
+|[config/template/prompts/main_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/main_task_system.md)|已读；闭环须看任务表|A1|
+|[config/template/prompts/main_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/main_task_user.md)|已读；闭环须看任务表|A1|
+|[config/template/prompts/memory_compression_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/memory_compression_task_system.md)|已读；闭环须看任务表|A1|
+|[config/template/prompts/memory_compression_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/memory_compression_task_user.md)|已读；闭环须看任务表|A1|
+|[config/template/prompts/plan_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/plan_task_system.md)|已读；闭环须看任务表|A1|
+|[config/template/prompts/plan_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/plan_task_user.md)|已读；闭环须看任务表|A1|
+|[config/template/prompts/re_location_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/re_location_task_system.md)|已读；闭环须看任务表|A1|
+|[config/template/prompts/re_location_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/re_location_task_user.md)|已读；闭环须看任务表|A1|
+|[config/template/prompts/review_filter_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/review_filter_task_system.md)|已读；闭环须看任务表|A1|
+|[config/template/prompts/review_filter_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/review_filter_task_user.md)|已读；闭环须看任务表|A1|
 |[config/rules/rule_docs/arkts.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/arkts.md)|未读，不声称等价|D1|
 |[config/rules/rule_docs/astro.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/astro.md)|未读，不声称等价|D1|
 |[config/rules/rule_docs/bicep.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/bicep.md)|未读，不声称等价|D1|
@@ -152,6 +152,19 @@
 - diff/git.go：workspace HEAD失败/空回退staged；untracked自动列读、读取失败跳过、8KiB NUL sniff/超64MiB binary；range merge-base，commit first-parent含merge，rename统一patch；我们untracked只显式选、失败blocked、全bodydecode/bytes门禁、unborn真实空baseline、range exact endpoints、merge要求range、历史rename add/delete。已有真实Git历史/root/merge/大树/rename/status回归；provider行为有安全替代而非完全等价。远程identity用于manifest持久resume平台不照搬。
 
 Diff目录8生产文件已读；config模板/规则正文和相关跨目录依赖A1仍未完成，不能停止于此。
+
+## 轮59审查模板15文件
+
+- template.go/task_template.json：默认独立2review rounds，100tool请求，200000prompt tokens/16384completion；plan单file50行或group100、grouping少于4且总churn<200本地bundle，否则perfile；我们bytes/calls/120s固定budget非token等价。小变更skip A2与独立multi-pass A3明确未实现，不以retrieval3轮充当review轮。
+- effort.go：low/medium/high映射review1/2/3次，是审查工作量不是模型reasoning effort；插件继承DSH模型effort不等价，独立pass需预算/预览/coverage协议后实现，不引入模型平台。
+- plan system/user：待证风险+工具意图不执行、requirement/rules；我们严格risk schema/sourceIds、缺caller限制、原预算fallback，风格和忽略deletion不照搬。
+- main system/user：每组每file独立pass、上下文工具只背景、评论仅review_files，plan/requirements/confirmed注入；我们primary独立+interaction、snapshot目录边界/归因/需求已实现，多pass移除plan仍缺。
+- filter system/user：只diff明证反驳可移除，memory/concurrency/compatibility等protected veto，unverifiable approve，风格低价值保留；我们不删除候选、证据反证verdict不确定保留，比approve状态更诚实，不复制protected永不反驳或style范围。
+- grouping system/user：全部文件整数身份覆盖，最多10，生产fallback补遗漏；我们ID严格所有覆盖、最多4，安全替代，跳过策略A2。
+- compression system/user：摘要无具体代码，confirmed/conclusions/completed/pending/focus；我们3轮原文证据有界，拒绝用摘要当证据，长思考C3待评估。
+- relocation system/user：模型改existing snippet选择单相关段；我们不可变原anchor精确唯一校正，同file/side，不照搬证据替换。
+
+scan_template.json尚未读需界定full scan范围；其他config规则/allowlist/工具schema及依赖仍待。
 
 ## B2权限待定
 
