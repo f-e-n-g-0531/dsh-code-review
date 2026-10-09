@@ -88,6 +88,10 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 [逐文件清单](CORE-SOURCE-INVENTORY.md)细化10篇完整正文核查：自动escape反证、Pug attribute信任区别、Rego undefined与caller deny、Jsonnet lazy/merge/隐字段及Nix overlay/build输入。当前通用提示为部分，专用场景待D1，不照搬未见host即unsafe、缺optional安全项即bug或Jsonnet extVar绝对string。余17未读+首批12核查中，仅文档运行版不变。
 
+## 轮64：剩余语言翻译11篇
+
+[逐文件清单](CORE-SOURCE-INVENTORY.md)记录PHP/R/mapper/PO/POT实际专用验收及ArkTS版本反证，首组六长正文省略不声明闭环。剩6篇未读；须按小段补首批及本批长文，再补跨目录依赖。仅文档运行包不变。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。
