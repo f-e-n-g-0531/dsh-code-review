@@ -17,6 +17,11 @@ test('combined moderate changes trigger only interaction planning at group thres
  assert.equal(p.minimumCalls,expected);assert.equal(r.modelCalls,expected);assert.ok(r.files.every(f=>f.riskPlans[0].status==='skipped'));assert.equal(r.files[2].riskPlans[1].status,sizes[0]===34?'completed':'skipped');assert.equal(p.interactions[0].riskPlanning.required,sizes[0]===34);assert.equal(r.interactions[0].status,'completed');
  }
 });
+test('tiny visible windows cannot skip full-file planning when approved change churn exceeds threshold',async()=>{
+ const f={...file(50),id:'f',path:'f.txt',eligibility:'reviewable',properties:[]};f.left.text='same();\n'.repeat(6000);f.right.text=f.left.text+'changed();\n'.repeat(50);const s={id:'s',vcs:'git',context:[],files:[f]},options={enableRiskPlanning:true,skipSmallRiskPlans:true,enableRetrieval:true,maxInputBytes:12000};
+ const p=buildCoveragePlan(s,{...options,instructions:REVIEW_INSTRUCTIONS,scope:createRetrievalScope(s)});const r=await reviewSnapshot(s,req=>req.instructions.includes('仅制定审查计划')?{risks:[]}:{findings:[],limitations:[]},options);
+ assert.equal(p.items[0].sourceMode,'change-windows');assert.equal(p.items[0].riskPlanning.required,true);assert.equal(r.files[0].riskPlans[0].decision.totalChanged,50);assert.equal(r.files[0].riskPlans[0].status,'completed');assert.equal(p.minimumCalls,r.modelCalls);
+});
 const file=n=>({left:{text:''},right:{text:'changed\n'.repeat(n)}});
 test('planning threshold gates exact full-file churn at inclusive 50 and group 100 boundaries',()=>{
  assert.equal(riskPlanningDecision([file(49)]).required,false);assert.equal(riskPlanningDecision([file(50)]).reason,'file-threshold');assert.equal(riskPlanningDecision([file(33),file(33),file(33)]).required,false);assert.equal(riskPlanningDecision([file(34),file(33),file(33)]).reason,'group-threshold');
