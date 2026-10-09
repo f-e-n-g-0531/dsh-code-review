@@ -32,10 +32,22 @@ export function createSnapshotReader(snapshotId, entries, { maxBytes = 4 * 1024 
     if (!entry || typeof entry.id !== 'string' || !entry.id || entry.id.length > 200 || sources.has(entry.id) || typeof entry.text !== 'string') throw new Error('Invalid reader entry');
     bytes += Buffer.byteLength(entry.text);
     if (bytes > maxBytes) throw new Error('Reader content budget exceeded');
-    sources.set(entry.id, { text: entry.text, hash: createHash('sha256').update(entry.text).digest('hex') });
+    sources.set(entry.id, { path: entry.path, side: entry.side, text: entry.text, hash: createHash('sha256').update(entry.text).digest('hex') });
   }
   return Object.freeze({
     usage: () => ({ calls, outputBytes }),
+    find({ query, limit = 20 }) {
+      begin();
+      if (typeof query !== 'string' || !query || query.length > 256 || /[\r\n]/.test(query) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid find request');
+      const matches = [];
+      for (const [id, source] of sources) {
+        signal?.throwIfAborted();
+        if (typeof source.path !== 'string' || !source.path.includes(query)) continue;
+        if (matches.length === limit) return finish({ snapshotId, matches, truncated: true });
+        matches.push({ sourceId: id, path: source.path, side: source.side, hash: source.hash });
+      }
+      return finish({ snapshotId, matches, truncated: false });
+    },
     search({ query, limit = 20, sourceIds }) {
       begin();
       if (typeof query !== 'string' || !query || query.length > 256 || /[\r\n]/.test(query) || !Number.isSafeInteger(limit) || limit < 1 || limit > 100) throw new Error('Invalid search request');

@@ -7,7 +7,7 @@ export function createRetrievalScope(snapshot, options) {
   const add = (path, side, text, fileId) => {
     if (typeof text !== 'string') throw new Error('Missing retrieval text');
     const id = 's' + (entries.length + 1);
-    entries.push({ id, text });
+    entries.push({ id, text, path, side });
     catalog.push({ id, path, side, ...(fileId ? { fileId } : {}) });
   };
   for (const file of snapshot.files) {

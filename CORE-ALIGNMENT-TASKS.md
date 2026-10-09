@@ -1,0 +1,40 @@
+# 核心审查能力对照与执行任务
+
+固定参考：alibaba/open-code-review@2d67596c961f80436deb2afa643efa2b1725d34c。2026-10-09重新梳理；不是全量核查完成声明。基线v0.28.0，七项已有实现但非全部对齐。总轮96为检查点非期限。
+
+## 目标与边界
+
+范围是读取变更、必要上下文、具体缺陷、反证和准确定位。保留宿主正常工具策略无重复审批；所有能力在批准快照/版本/哈希与共享预算内。不要管理平台、自动修复、独立模型费用或无界全仓扫描。模型效果试验后置，离线能力验收先行。
+
+## 已读参考源码与行为对照
+
+|参考源码（固定链接）|实际行为|当前对应/判定|任务|
+|---|---|---|---|
+|[grouping.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/agent/grouping.go)|元数据分组、小变更本地决策、失败单文件回退、漏项补单文件、大小/输入预算拆分|business-groups/review已有严格身份覆盖与失败回退；4文件上限刻意保守；小变更免调用策略待核查|A2|
+|[rulegroup.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/delegate/rulegroup.go)|按规则文本及source/pattern共同分组，避免混淆来源|显式项目规则统一发送，未支持路径规则来源分派；不盲目自动读取项目规则|D1|
+|[file_find.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/file_find.go)|basename优先/full path回退；有界输出但列tracked/untracked或历史整树、可walk|新增find仅批准catalog大小写敏感字面路径，按来源侧返回；不复制全树/walk。捕获外定位仍缺|B0/B1|
+|[file_read_diff.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/file_read_diff.go)|已解析diff map只读副本，按路径取变更|change-map/windows/catalog读源/interaction精确编辑已有，不需另开路径读取权限|A3复核|
+|[tool_failure_streak.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/llmloop/tool_failure_streak.go)|连续工具失败升级，第三次跳过并返回非错误提示|我们严格失败/partial及3轮限额；不照搬失败伪接受，需要核查是否值得受控修参|C2|
+|[compression.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/llmloop/compression.go)|会话分区压缩，冻结前文/保留最新轮，后台任务按会话隔离|我们有界3轮原文与输入预算，不压缩证据正文；长推理能力非等价，先核查必要性|C3|
+|[code_search.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/code_search.go)|仓库/历史来源搜索工具|snapshot literal search+sourceIds筛选已实现；范围外caller发现缺|B1|
+
+以上已读行为并非均要复制。更宽权限、不同组上限、自动压缩和失败伪接受应按安全边界明确替代，不强行照搬。
+
+## 有依赖顺序的执行任务
+
+- A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。
+- B0 **本批实现**：批准catalog路径find导航；无正文/快照外权限，版本身份/hash/显式truncated，复用calls/output，整批预校验，loop审计。验收：2新增测试+全量280通过。
+- B1 **待办（依赖A1）**：预览阶段有界caller定位捕获。限制路径/扫描字节/时间/文件/历史OID，候选与未覆盖可见，execute只原快照。验收：未改调用方接口回归、歧义、excluded、dirty/race、大仓小改、耗尽无假阴性。
+- B2 **待办（依赖A1，独立于B1）**：旧侧独有context捕获/身份/证据/关系。验收：基线依赖目标不存在不伪造target正文；删除主文件保持独立changed身份；全部预算与hash稳定。
+- B3 **待办（依赖B1策略）**：常见跨目录定义/别名/实例调用必要上下文，先窄语言场景，歧义保守。验收：确定导航与语义绑定分开，不猜未解析行为。
+- A2 **待办（依赖A1）**：分组小变更免调用/预算拆分/失败回退与跨组关联遗漏对照，已有能力不重造。验收：原文件覆盖保持、调用下界正确、拆组限制显式。
+- A3 **待办（依赖A1）**：风险需求→检索→生成→反证→退出条件逐项对照。验收：保护条件/不可达/旧问题/缺caller/预算终止不能误判无问题。
+- C2/C3 **待评估（依赖A3）**：必要时受控修参/长输入策略；不伪接受失败，不丢失精确证据，不增加无限重试。
+- D1 **待办（依赖A1）**：语言类型与路径规则指导全映射，来源透明，显式规则优先，风格/管理功能不在范围。
+- E1 **待办（依赖上述关闭）**：场景能力矩阵验收；实际模型质量另列后置，不用离线280测试冒充效果证明。
+
+## 每批门禁与完成条件
+
+实现→目标测试/全量→差异复核→pack/隔离entry→提交推送tag→Ubuntu/Windows×22/24固定tag CI→一次dispatch Actions npm→同原tgz正式Release→字节/SHA512/SHA256核验。发布后停扩该批。
+
+只有A1全量核心核查与范围内任务有实现/验收或充分的非目标依据，才关闭总体目标；轮限仅检查点。下一步继续A1而不是认为B0解决caller发现。

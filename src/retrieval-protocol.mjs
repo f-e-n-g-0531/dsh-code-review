@@ -12,6 +12,8 @@ export function parseRetrievalResponse(response) {
     } else if (request?.kind === 'search') {
       if (!exact(request, ['kind', 'query', 'limit', 'sourceIds']) || typeof request.query !== 'string' || !request.query || request.query.length > 256 || /[\r\n]/.test(request.query) || !Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 100) throw new Error('Invalid search request');
       if (request.sourceIds !== undefined && (!Array.isArray(request.sourceIds) || request.sourceIds.length < 1 || request.sourceIds.length > 20 || new Set(request.sourceIds).size !== request.sourceIds.length || request.sourceIds.some(id => typeof id !== 'string' || !id || id.length > 200))) throw new Error('Invalid search source filter');
+    } else if (request?.kind === 'find') {
+      if (!exact(request, ['kind','query','limit']) || typeof request.query !== 'string' || !request.query || request.query.length > 256 || /[\r\n]/.test(request.query) || !Number.isSafeInteger(request.limit) || request.limit < 1 || request.limit > 100) throw new Error('Invalid find request');
     } else throw new Error('Unsupported retrieval operation');
   }
   return value.requests;
@@ -24,7 +26,7 @@ export function executeRetrievalBatch(response, scope, signal, onResult = () => 
   if (requests.some(r => r.kind === 'read' ? !allowed.has(r.id) : r.sourceIds?.some(id=>!allowed.has(id)))) throw new Error('Source not authorized');
   return requests.map(request => {
     signal?.throwIfAborted();
-    const item = { request, result: request.kind === 'read' ? scope.read(request) : scope.search(request) };
+    const item = { request, result: request.kind === 'read' ? scope.read(request) : request.kind === 'find' ? scope.find(request) : scope.search(request) };
     onResult(item);
     return item;
   });
