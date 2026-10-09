@@ -1,11 +1,11 @@
 import path from 'node:path';
 import {relativePath} from './content.mjs';
 // Navigation only over caller-supplied tracked regular paths; no reads or authority.
-export function contextCandidates(files, trackedPaths, {maxCandidates=20,onProbe}={}) {
+export function contextCandidates(files, trackedPaths, {maxCandidates=20,onProbe,includeChanged=false}={}) {
  if(!Array.isArray(files)||files.length>200||!Array.isArray(trackedPaths)||trackedPaths.length>10000||!Number.isSafeInteger(maxCandidates)||maxCandidates<1||maxCandidates>20)throw new Error('Invalid context candidate limit');
  const tracked=new Set();for(const p of trackedPaths){relativePath(p);if(tracked.has(p))throw new Error('Duplicate tracked path');tracked.add(p);}
  const changed=new Set(files.flatMap(f=>[f.path,...(f.oldPath?[f.oldPath]:[])]));
- const found=new Map();const add=(p,from,reason)=>{if(!tracked.has(p)||changed.has(p))return;if(!found.has(p))found.set(p,{path:p,fromPaths:[],reasons:[],confidence:'navigation-only'});const v=found.get(p);if(!v.fromPaths.includes(from))v.fromPaths.push(from);if(!v.reasons.includes(reason))v.reasons.push(reason);};
+ const found=new Map();const add=(p,from,reason)=>{if(!tracked.has(p)||(!includeChanged&&changed.has(p)))return;if(!found.has(p))found.set(p,{path:p,fromPaths:[],reasons:[],confidence:'navigation-only'});const v=found.get(p);if(!v.fromPaths.includes(from))v.fromPaths.push(from);if(!v.reasons.includes(reason))v.reasons.push(reason);};
  for(const f of files){
   relativePath(f.path);if(f.eligibility!=='reviewable'||f.rightExists===false)continue;
   const text=f.right?.text;if(typeof text!=='string'||Buffer.byteLength(text)>256*1024)continue;
