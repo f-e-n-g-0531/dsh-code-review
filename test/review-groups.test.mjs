@@ -1,6 +1,12 @@
+import {reviewSnapshot,markdownReport} from '../src/review.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildReviewGroups } from '../src/review-groups.mjs';
+test('five-file dependency chain preserves primary denominator and discloses unsynthesized split',async()=>{
+ const selected=['a','b','c','d','e'].map((id,i)=>({id,path:id+'.js',eligibility:'reviewable',properties:[],left:{text:''},right:{text:(i<4?"import './"+['b','c','d','e'][i]+".js';\n":'')+'changed();'}}));
+ const r=await reviewSnapshot({id:'s',vcs:'git',context:[],files:selected},()=>({findings:[],limitations:[]}),{enableGrouping:true,enableRetrieval:true});
+ assert.equal(r.coverage.completed,5);assert.equal(r.status,'partial');assert.ok(r.grouping.links.some(l=>l.split));assert.ok(r.limitations.some(l=>l.text.includes('跨组关系未综合覆盖')));assert.match(markdownReport(r),/跨组关系未综合覆盖/);assert.equal(r.interactions.length,1);assert.equal(r.modelCalls,6);
+});
 const files = ['a', 'b', 'c', 'd'].map(id => ({ id, eligibility: 'reviewable' }));
 const edges = [{ from: 'a', to: 'b', reason: 'implementation-test' }, { from: 'b', to: 'c', reason: 'import' }];
 test('groups are deterministic bounded and cover each eligible file once', () => {
