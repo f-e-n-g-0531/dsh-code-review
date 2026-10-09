@@ -1,6 +1,6 @@
 # v0.32.0 发布核验记录
 
-状态：轮89实际npm字节与原工件双hash已通过；Release恢复运行中，尚非完整发布闭环。
+状态：轮90发布闭环通过。恢复37898945312 completed/success；正式Release（非draft/prerelease）实际tarball85750字节与原Actions工件完全一致，SHA512/SHA256及Release清单匹配；npm实际字节轮89同样通过。本批停止扩展，不等价总体源码对齐完成。
 
 - 固定提交：aa99d1d0127eff3fc03a46f9503aeb63d026445f；标签v0.32.0。
 - 标签CI：37897428028，Ubuntu/Windows×Node22/24四矩阵success。
