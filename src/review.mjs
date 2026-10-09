@@ -61,7 +61,7 @@ async function invoke(model, request, timeoutMs, parentSignal) {
   const abort = () => controller.abort(parentSignal.reason);
   parentSignal?.addEventListener('abort', abort, { once: true });
   if (parentSignal?.aborted) abort();
-  const timer = setTimeout(() => controller.abort(new Error('Model timeout')), timeoutMs);
+  const timer = setTimeout(() => controller.abort(Object.assign(new Error('Model timeout'), { code: 'MODEL_TIMEOUT' })), timeoutMs);
   try {
     controller.signal.throwIfAborted();
     // Executors must honor cancellation; never release ownership before cleanup settles.
@@ -247,10 +247,14 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     } catch (error) {
       state.status = signal?.aborted ? 'cancelled' : 'failed';
       state.reason = error?.message ?? String(error);
+      state.failureCode = signal?.aborted ? 'CANCELLED' : ['MODEL_INVALID_JSON','MODEL_TIMEOUT'].includes(error?.code) ? error.code : 'REVIEW_EXECUTION_FAILED';
     }
   }
   for (const interaction of report.interactions) if (interaction.status !== 'completed') report.limitations.push({ text: '跨文件综合未完成：' + interaction.groupId + ' (' + interaction.status + ')' });
   if (report.grouping?.links.some(l => l.split)) report.limitations.push({ text: '跨组关系未综合覆盖；关联分组不代表全部跨文件交互覆盖' });
+  const reviewableCount = input.files.filter(f => f.eligibility === 'reviewable').length;
+  report.selection = { total: input.files.length, reviewable: reviewableCount, excluded: input.files.filter(f => f.eligibility === 'excluded').length, blocked: input.files.filter(f => f.eligibility === 'blocked').length };
+  if (!reviewableCount) report.limitations.push({ text: input.files.length ? '没有可审查文件；排除或阻塞不表示代码审核通过。' : '未选择变更文件，没有执行代码审核。' });
   const unfinished = report.files.some(f => !['completed', 'excluded'].includes(f.status));
   report.status = signal?.aborted ? 'cancelled' : unfinished || report.limitations.length ? 'partial' : 'completed';
   if (report.files.some(f => f.status === 'failed') && !report.files.some(f => f.status === 'completed')) report.status = signal?.aborted ? 'cancelled' : 'failed';

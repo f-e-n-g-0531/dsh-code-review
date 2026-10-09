@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.33.4
+
+- 文件失败保留明确MODEL_INVALID_JSON/MODEL_TIMEOUT错误码；取消为CANCELLED，其余未知错误为REVIEW_EXECUTION_FAILED，不猜测根因、不重试。
+- 报告selection保留total/reviewable/excluded/blocked分母；零选择、全排除或全阻塞返回partial及未执行限制，不冒充完整通过。327离线测试通过，候选待远端发布门禁。
+
 ## 0.33.3
 
 - 超预算主审切为精确窗口时，上下文正文留在原批准快照按需read；初始输入仅带版本侧catalog，避免上下文重复导致所有窗口持续超限。不扩大读取范围，不裁剪证据；报告明确未声明全部上下文核查。
