@@ -3,7 +3,7 @@
 ## 0.37.0
 
 - callerScopePaths接入SVN离线限定目录normal引用方扫描；正文及负匹配hash/node/index/probe复核，共享原30秒、128正文/1MiB、复核2MiB、20上下文/4MiB快照，字面导航不证明语义调用覆盖。
-- 祖先与节点真实路径/URL链/wcroot/UUID及属性校验，拒绝switched/external/special/keywords；竞争含本地未跟踪路径但无正文权限。真实SVN预览零发送、过期拒绝、满槽、二进制及超限验收，375项离线通过；待固定四矩阵与原工件发布，不宣称正式交付。
+- 祖先与节点真实路径/URL链/wcroot/UUID及属性校验，拒绝switched/external/special/keywords；竞争含本地未跟踪路径但无正文权限。真实SVN预览零发送、过期拒绝、满槽、二进制及超限验收，375项离线通过；固定标签CI37933398779四矩阵通过；唯一npm发布37933848198成功但tarball传播404使核验超时，同原artifact11617224527恢复37935128694成功；99052字节npm/Release逐字节及双hash/清单匹配正式交付，无重新pack或npm publish。
 
 ## 0.36.0
 

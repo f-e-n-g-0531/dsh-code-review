@@ -8,12 +8,12 @@
 - 风险假设规划、业务分组及失败回退、hunk有界输入、明确pending/partial覆盖、显式规则与业务需求快照绑定。
 - Git历史commit/range固定对象端点；不checkout/fetch，不混入工作树。
 - 批准catalog内find/search/read及sourceIds筛选，定义同名歧义保留；文本导航不证明符号绑定。
-- v0.32.0有界working Git引用方捕获：指定目录、普通tracked文件、负匹配hash复核、共享预算；v0.36.0补齐有界Git历史引用方对象捕获；SVN候选已冻结待发布，语义caller仍未实现。
+- v0.32.0有界working Git引用方捕获：指定目录、普通tracked文件、负匹配hash复核、共享预算；v0.36.0补齐有界Git历史引用方对象捕获；v0.37.0补齐SVN离线字面引用方；语义caller仍未实现。
 - v0.33.0显式oldContextPaths：baseline普通blob/OID/hash，唯一context-old身份、消费者按侧使用；不证明target不存在，不恢复excluded变化。
 
 ## 未完成
 
-1. B1：Git working/history有界字面引用方已正式交付，不等价语义调用覆盖。SVN v0.37.0冻结5f2395f：限定目录normal普通节点，祖先/节点URL链、wcroot/UUID与属性安全校验；共享30秒/128正文1MiB/复核2MiB、20上下文/4MiB快照，256索引64KiB、512竞争探针1MiB。真实预览零发送、负匹配变化发送前拒绝、歧义/满槽、switched/嵌套根、二进制/超限/取消均验收，XML canonical绑定身份；375测试及pack78文件99052字节/独立安装通过；实际安装冻结包独立真实SVN fixture预览零发送、执行1发送/1完成、负匹配变化发送前拒绝通过。固定标签CI37933398779四矩阵成功；唯一npm发布37933848198成功，四矩阵通过但registry tarball404重试耗尽导致run failure/Release skipped；原artifact11617224527已保存，99052字节，SHA256 0976a84db149bfee263f4dfd34fc75a1ca1abeec6719b4cad698d09f5f363998，SHA512 sha512-yExFyOf7YexBHNd73eDfpr4yNw60zWxtTzFrj0sm+QLjAGiBQ2GecrxTKwXvjexs2EKuClmK74qocjrsxLAzCQ==。npm元数据200/integrity匹配，tarball传播完成返回200，已与原artifact逐字节匹配；仅一次触发固定SHA/原run artifact+SHA256的核验/Release恢复workflow，不npm publish或pack。待Release公开字节及恢复终态核验，不宣称正式交付。必要语义caller仍未完成。
+1. B1：Git working/history与SVN v0.37.0有界字面引用方已正式交付。SVN限定目录normal普通节点，祖先/节点URL链、wcroot/UUID与属性校验，拒绝switched/external/special/keywords；正文/负hash/node/index/probe复核共享30秒/128正文1MiB/复核2MiB、20上下文/4MiB快照。375测试、实际独立安装真实SVN预览执行、索引/探针限额及原工件门禁通过。仅导航，不等价函数调用、语义绑定或完整覆盖；必要语义caller仍未完成。
 2. B2：v0.35.0自动旧侧删除依赖复用批准changed-old已正式交付；真实Git服务预览/重捕获/execute/read、满槽复用与排除不恢复已验收。二进制删除依赖blocked不获检索权限、两侧扩展名独立解析及原身份read已验收。其他旧侧独有来源/链接及预算场景仍需闭环；显式首批已交付。
 3. B3：必要未捕获定义、别名链及实例上下文；现有search/read边界已验收。
 4. A2：剩余预算拆分场景；小变更免风险规划已正式交付；小变更阈值本地分组已正式交付；分组失败、共享调用上限、跨组遗漏已验收。固定参考少于4文件时总churn<200本地bundle，否则per-file，不等于风险计划跳过阈值。
@@ -24,6 +24,8 @@
 C3新增可复现场景：重复零参调用的大C++文件在12KiB模型预算下，窗口仍因导航元数据超限input-blocked；不能扩大预算或丢原证据，v0.33.7候选仅统一重复confidence/notice，全部已生成line/expression/side保留，复現输入7217字节；原文两侧read及更低预算blocked已验收，已正式公开工件核验。C2受控畸形输出处理、C3长输入仅具体场景证明确有必要才补；严格失败、原文证据保留为安全替代，不新增无限重试/宽松接受。
 
 ## 验收结论
+
+- v0.37.0冻结5f2395f；标签CI37933398779四矩阵通过，唯一npm发布37933848198成功但tarball传播404核验超时；原artifact11617224527仅恢复37935128694成功，不重pack/publish。npm/Release99052字节逐字节一致，SHA256 0976a84db149bfee263f4dfd34fc75a1ca1abeec6719b4cad698d09f5f363998，SHA512 sha512-yExFyOf7YexBHNd73eDfpr4yNw60zWxtTzFrj0sm+QLjAGiBQ2GecrxTKwXvjexs2EKuClmK74qocjrsxLAzCQ==，清单匹配。
 
 - v0.36.0冻结5830853：标签CI37929559884及唯一发布37929860863成功，原artifact11615712667；npm/Release95603字节逐字节一致，SHA256 bdbceb8836707cb624bdddd2a37e4766090347da7e1585814ae93a92a316fcdf，SHA512 sha512-e7EyutEJDyzP082U1acAsWPbhI1dREEVwahS+zllFbSiq+BfvHsEp6qKvnsbTkFYVuITCH+ziK7J020C8ScqpA==，校验清单匹配。
 
