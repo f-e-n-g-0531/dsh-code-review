@@ -28,6 +28,12 @@
 
 S1本批0.29.1实现冻结；A1其余agent/preview/loop/comment定位生产源码仍待。
 
+## 轮50：预览源码复核与工作树基线元数据
+
+已读[preview.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/agent/preview.go)：preview共享selectFiles，provider目录排除仍计tracked变化总量，无LLM/session创建。当前coverage-plan与prepare共享输入已有；provider目录过滤/预览统计与agent主流程待A1进一步核查。
+
+发现当前captureGit尚ls-tree -r全HEAD（历史已修），改最多200变化内可读基线路径分别literal非递归ls-tree，改名oldPath，排除/凭据不查询正文。大树11000无关文件>1MiB metadata工作区4Shader捕获/原new到working/稳定id/status不改回归通过，282测试。冻结0.29.2；不是解决autoContext全tracked索引，后者B1另行设计。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。

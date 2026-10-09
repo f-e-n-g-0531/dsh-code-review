@@ -22,14 +22,7 @@ export async function captureGit(cwd, options = {}) {
     if (ref.code !== 1) throw new Error('Cannot resolve Git HEAD');
   }
   const base = new Map();
-  if (head) {
-    const tree = text(await git(root, ['ls-tree', '-rz', '--full-tree', head], options));
-    for (const record of tree.split('\0').filter(Boolean)) {
-      const tab = record.indexOf('\t');
-      const [mode, type, oid] = record.slice(0, tab).split(' ');
-      base.set(record.slice(tab + 1), { mode, type, oid });
-    }
-  }
+  // Resolve only reviewable changed baselines below; never enumerate the HEAD tree.
   const records = text(before).split('\0');
   const changes = [];
   for (let i = 0; i < records.length; i++) {
@@ -42,6 +35,18 @@ export async function captureGit(cwd, options = {}) {
   if (changes.length > maxFiles) throw new Error('Change count limit exceeded; narrow repository scope');
   const known = new Set(changes.map(c => c.path));
   if (selectedPaths?.some(p => !known.has(p))) throw new Error('Selected path is not a current change');
+  if (head) {
+    const requested = [...new Set(changes.filter(c => !isSecretPath(c.path) && !isSecretPath(c.oldPath) && (!selectedPaths || selectedPaths.includes(c.path)) && (c.rawStatus !== '??' || selectedPaths?.includes(c.path))).map(c => relativePath(c.oldPath ?? c.path)))];
+    for (const name of requested) {
+      signal?.throwIfAborted();
+      const records = text(await git(root, ['--literal-pathspecs','ls-tree','-z','--full-tree',head,'--',name], options)).split('\0').filter(Boolean);
+      for (const record of records) {
+        const m = /^(\d{6}) (blob|tree|commit) ([a-f0-9]{40}|[a-f0-9]{64})\t([\s\S]+)$/.exec(record);
+        if (!m || m[4] !== name || base.has(name)) throw new Error('Invalid changed baseline lookup');
+        base.set(name,{mode:m[1],type:m[2],oid:m[3]});
+      }
+    }
+  }
   const files = [];
   for (const change of changes) {
     signal?.throwIfAborted();
