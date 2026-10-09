@@ -56,6 +56,10 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 业务需求真实Git working/HEAD历史捕获稳定id、文本变化id变化、真实service preview零发送/execute原预算初始输入一致。最终报告仅需求hash/bytes/untrusted状态，Markdown不重印正文，preview notice明确会发送需求。290测试通过，冻结0.31.1。此轮为业务需求验收闭环，不等同完整核心对齐。
 
+## 轮56：核心逐文件清单
+
+新增[逐文件清单](CORE-SOURCE-INVENTORY.md)，六核心目录及config子树本轮API枚举记录，每文件明确已读/未读，直接读estimate/identity/util/format并分类。跨目录依赖仍待补，不以读取冒充能力闭环。B2先明确删除changed与旧context显式授权，auto不得恢复selected排除。仅文档核查，不变运行包。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。
