@@ -8,7 +8,7 @@
 
 Git历史预览新增oldContextPaths：最多20个显式仓库相对文件，与contextPaths/自动上下文共享20槽、256KiB每blob及4MiB快照。仅从baseline普通Git blob捕获，不checkout/fetch/读取工作树；根提交无baseline拒绝，working/SVN明确拒绝。旧侧条目携带oldRevision/oldBlobOid/oldHash，仅进入context-old；oldOnly表示仅批准旧侧，不证明target路径不存在。所选变更复用原changed-old，不重复上下文；excluded/blocked变更、链接/submodule、凭据路径不能重新进入。预览显示身份元数据、不显示正文，确认执行才按宿主正常权限发送。主审/综合/复核按侧提示，计入原输入预算，旧证据不能冒充新侧回归证明。
 
-预览可选callerScopePaths，最多4个非根、非重叠相对目录，仅Git工作区。预览读取目录内tracked JS/TS/C-family候选正文（含非匹配），仅匹配引用方作为上下文发送模型；128扫描文件/1MiB正文/256索引记录/64KiB索引/512竞争路径探针，发现与重核共享30秒，复核累计2MiB，仍共享20上下文及4MiB快照。绑定所有扫描hash、索引及竞争探针；execute重新捕获。历史/SVN明确不支持，不静默忽略。字面引用仅导航，不证明函数调用或完整覆盖，报告保留partial限制。
+预览可选callerScopePaths，最多4个非根、非重叠相对目录，支持Git工作区及固定commit/range两侧对象；SVN仍不支持。历史两侧共用30秒、128正文/1MiB、256记录/64KiB、512竞争探针/1MiB，blob版本/OID/hash及非匹配身份绑定；不读取工作树。预览读取目录内tracked JS/TS/C-family候选正文（含非匹配），仅匹配引用方作为上下文发送模型；128扫描文件/1MiB正文/256索引记录/64KiB索引/512竞争路径探针，发现与重核共享30秒，复核累计2MiB，仍共享20上下文及4MiB快照。绑定所有扫描hash、索引及竞争探针；execute重新捕获。SVN明确不支持，不静默忽略；历史root无旧侧，删除仅旧侧导航，oldOnly上下文复用不新增new授权。字面引用仅导航，不证明函数调用或完整覆盖，报告保留partial限制。
 
 最终报告记录业务需求hash/bytes用于溯源，不重复需求正文；真实Git当前/历史捕获及服务预览执行预算集成已验收。
 

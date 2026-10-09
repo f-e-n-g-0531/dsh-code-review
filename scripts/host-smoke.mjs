@@ -80,6 +80,12 @@ try {
   const twice=JSON.parse((await tools.get('code_review_execute').execute({previewId:roundsPreview.previewId,confirmed:true},exec)).json);
   assert.equal(modelCalls,3);assert.equal(twice.files[0].reviewPasses.length,2);assert.ok(twice.files[0].reviewPasses.every(p=>p.status==='completed'));assert.equal(approvalCalls,0);
   assert.deepEqual(await checked('git',['status','--porcelain=v1'],{cwd:root}),statusBefore);
+  await checked('git',['config','user.name','test'],{cwd:root});await checked('git',['config','user.email','test@example.com'],{cwd:root});
+  await checked('git',['commit','-qm','base'],{cwd:root});
+  await writeFile(path.join(root,'sample.js'),'const value = 2;');await checked('git',['commit','-qam','target'],{cwd:root});
+  const historical=JSON.parse((await previewTool.execute({commit:'HEAD',callerScopePaths:['clients']},exec)).json);assert.ok(historical.callerDiscovery);assert.equal(historical.callerDiscovery.indexes.length,2);
+  const beforeHistory=await checked('git',['status','--porcelain=v1'],{cwd:root});
+  const historyReport=JSON.parse((await tools.get('code_review_execute').execute({previewId:historical.previewId,confirmed:true},exec)).json);assert.equal(historyReport.coverage.completed,1);assert.equal(historyReport.outdated,false);assert.equal(modelCalls,4);assert.equal(approvalCalls,0);assert.deepEqual(await checked('git',['status','--porcelain=v1'],{cwd:root}),beforeHistory);
   console.log('Host-invoked offline adapter completed single and explicit double review without additional approval via current Agent route without modifying Git content.');
 } finally {
   assert.ok(path.basename(root).startsWith('dsh-review-host-'));

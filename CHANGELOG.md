@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.36.0
+
+- callerScopePaths支持Git固定commit/range两侧对象内有界字面引用发现；读取匹配/非匹配blob并绑定OID/hash/version与索引/竞争探针，execute重捕获；不checkout/fetch/读取工作树，SVN仍不支持。
+- 两侧共用30秒、128正文/1MiB、256记录/64KiB及512探针/1MiB；共享20上下文/4MiB快照，oldOnly复用不自动批准new侧；根提交、删除、竞争歧义、共享扫描耗尽及预览执行已验收。导航不证明调用/语义绑定或完整覆盖，真实模型质量未验收。
+
 ## 0.35.0
 
 - 自动历史旧侧直接依赖导航命中已批准删除时复用原changed-old身份，excluded/blocked不能重新作为context进入，不多占上下文槽；共享原512探针、20候选/上下文、blob/快照字节限额，无checkout/fetch/工作树读取。
