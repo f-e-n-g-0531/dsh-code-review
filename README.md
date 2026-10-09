@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-当前正式版本为 0.33.3（固定标签四矩阵及npm/Release原工件字节双hash门禁通过）。JSON围栏兼容与有界窗口上下文已交付；实际项目审查效果仍需原报告和新预览执行验证。
+当前正式版本为 0.33.4（固定标签四矩阵及npm/Release原工件字节双hash门禁通过）。JSON围栏兼容与有界窗口上下文已交付；实际项目审查效果仍需原报告和新预览执行验证。
 
 Git历史预览新增oldContextPaths：最多20个显式仓库相对文件，与contextPaths/自动上下文共享20槽、256KiB每blob及4MiB快照。仅从baseline普通Git blob捕获，不checkout/fetch/读取工作树；根提交无baseline拒绝，working/SVN明确拒绝。旧侧条目携带oldRevision/oldBlobOid/oldHash，仅进入context-old；oldOnly表示仅批准旧侧，不证明target路径不存在。所选变更复用原changed-old，不重复上下文；excluded/blocked变更、链接/submodule、凭据路径不能重新进入。预览显示身份元数据、不显示正文，确认执行才按宿主正常权限发送。主审/综合/复核按侧提示，计入原输入预算，旧证据不能冒充新侧回归证明。
 

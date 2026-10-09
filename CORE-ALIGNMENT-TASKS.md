@@ -25,7 +25,7 @@ C2受控畸形输出处理、C3长输入仅具体场景证明确有必要才补�
 
 ## 验收结论
 
-- v0.33.4诊断补丁冻结7e604df：标签CI37909626325四矩阵通过；唯一发布37910021333执行中，原artifact11605284464已保存，公开包实际字节仍待核验。
+- v0.33.4诊断补丁冻结7e604df：标签CI37909626325四矩阵通过；唯一发布37910021333原artifact11605284464已保存；npm/Release89493字节逐字节一致，SHA256 7a14a2c0689506897a1a58557bcbfd688806741ab278b51daa14d1690ad22364，SHA512 sha512-qmlWLV/sSkzcI9JJtRKFS4spGh+M//TLh5cWwxcic0tHrWj0r+Wz2sk2jTr7iGy0Az2q0E4DTwNOaoY6NzViBA==，校验清单匹配，正式交付。
 
 - 当前离线328/328及真实宿主离线smoke通过；不等价真实模型质量。分组失败选择分母/单文件跳过/预算耗尽、跨组遗漏、混合执行失败、取消和报告安全转义已验收。
 - 执行可靠性优先：0.33.2唯一完整JSON围栏兼容，固定CI37907541130通过、唯一发布37907836315已成功，原artifact11605097563，npm/Release88609字节与原工件一致，SHA256 13e40a77c97bb57014d2dd165f0f946ccb921a8d34b8b18530adadae37695887，SHA512 sha512-mI+dhtizlM+2HVyo+WRg3t8HyWUd6M6/ifV6nvuxj7bFaJ0jfeUTGPngan4zJRHf4jVzQK7aXnIMki//ZzaDgg==；0.33.3窗口上下文按批准catalog检索已正式交付：标签CI37908368137通过、唯一发布37908776363；原artifact11605287853，npm/Release88999字节一致，SHA256 aad891b8cab6804ce2992a45da9b78cec7bc70163e943a830c0e303610c9fe2b，SHA512 sha512-Xxv79rG4OsNKMrERkk7GOjZ/ElDGJjqdvECvqDCTNnQRk+1pINtUsYnUZidlhLaaRPCaswWNSUl9p8zP/GF/GA==。实际碰撞项目原报告/响应未知，不宣称三处格式失败或超时根因复现。

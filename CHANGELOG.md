@@ -3,7 +3,7 @@
 ## 0.33.4
 
 - 文件失败保留明确MODEL_INVALID_JSON/MODEL_TIMEOUT错误码；取消为CANCELLED，其余未知错误为REVIEW_EXECUTION_FAILED，不猜测根因、不重试。
-- 报告selection保留total/reviewable/excluded/blocked分母；零选择、全排除或全阻塞返回partial及未执行限制，不冒充完整通过。327离线测试通过，候选待远端发布门禁。
+- 报告selection保留total/reviewable/excluded/blocked分母；零选择、全排除或全阻塞返回partial及未执行限制，不冒充完整通过。327冻结离线测试及标签四矩阵通过，唯一发布37910021333原工件89493字节与npm/Release逐字节及双hash一致。
 
 ## 0.33.3
 
