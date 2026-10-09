@@ -69,27 +69,27 @@
 |[config/rules/rule_docs/astro.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/astro.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/bicep.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/bicep.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/build_gradle.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/build_gradle.md)|已读正文；能力验收待D1|D1|
-|[config/rules/rule_docs/c.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/c.md)|正文核查中；长文省略需补，不声称闭环|D1|
+|[config/rules/rule_docs/c.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/c.md)|已读完整正文；能力验收待D1|D1|
 |[config/rules/rule_docs/capnp.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/capnp.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/cargo_toml.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/cargo_toml.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/composer_json.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/composer_json.md)|已读正文；能力验收待D1|D1|
-|[config/rules/rule_docs/cpp.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/cpp.md)|正文核查中；长文省略需补，不声称闭环|D1|
-|[config/rules/rule_docs/default.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/default.md)|正文核查中；长文省略需补，不声称闭环|D1|
+|[config/rules/rule_docs/cpp.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/cpp.md)|已读完整正文；能力验收待D1|D1|
+|[config/rules/rule_docs/default.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/default.md)|已读完整正文；能力验收待D1|D1|
 |[config/rules/rule_docs/elm.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/elm.md)|已读完整正文；能力验收待D1|D1|
 |[config/rules/rule_docs/freemarker.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/freemarker.md)|已读正文；能力验收待D1|D1|
-|[config/rules/rule_docs/fsharp.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/fsharp.md)|正文核查中；长文省略需补，不声称闭环|D1|
+|[config/rules/rule_docs/fsharp.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/fsharp.md)|已读完整正文；能力验收待D1|D1|
 |[config/rules/rule_docs/github_config.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/github_config.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/github_workflows.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/github_workflows.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/go.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/go.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/graphql.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/graphql.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/handlebars_mustache.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/handlebars_mustache.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/haskell.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/haskell.md)|已读完整正文；能力验收待D1|D1|
-|[config/rules/rule_docs/java.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/java.md)|正文核查中；长文省略需补，不声称闭环|D1|
+|[config/rules/rule_docs/java.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/java.md)|已读完整正文；能力验收待D1|D1|
 |[config/rules/rule_docs/jinja.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/jinja.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/json.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/json.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/jsonnet.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/jsonnet.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/julia.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/julia.md)|已读完整正文；能力验收待D1|D1|
-|[config/rules/rule_docs/kotlin.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/kotlin.md)|正文核查中；长文省略需补，不声称闭环|D1|
+|[config/rules/rule_docs/kotlin.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/kotlin.md)|已读完整正文；能力验收待D1|D1|
 |[config/rules/rule_docs/mapper_dao_xml.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/mapper_dao_xml.md)|正文已取；长文补核查及验收待D1|D1|
 |[config/rules/rule_docs/matlab.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/matlab.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/nim.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/nim.md)|已读完整正文；能力验收待D1|D1|
@@ -113,7 +113,7 @@
 |[config/rules/rule_docs/swift.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/swift.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/terraform.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/terraform.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/thrift.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/thrift.md)|已读正文；能力验收待D1|D1|
-|[config/rules/rule_docs/ts_js_tsx_jsx.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/ts_js_tsx_jsx.md)|正文核查中；长文省略需补，不声称闭环|D1|
+|[config/rules/rule_docs/ts_js_tsx_jsx.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/ts_js_tsx_jsx.md)|已读完整正文；能力验收待D1|D1|
 |[config/rules/rule_docs/verilog.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/verilog.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/vhdl.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/vhdl.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/vyper.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/vyper.md)|已读正文；能力验收待D1|D1|
@@ -274,6 +274,20 @@ D1后续优先补F#专用及Go版本反证，其他规则剩余42篇仍未读；
 - OCaml：Array.make对象共享、mutable equality/alias、Option/Result partial、functor排序law、C stub GC rooting/blocking/版本Marshal、ReasonML JS null contract。noalloc只适用于不分配C调用，不能把缺noalloc泛称GC不安全；warn-error风格不单独bug。
 
 剩13篇前批核查状态需补正文；A1相关依赖范围也未完成，不能先把功能任务标闭环。
+
+## 轮67七篇完整补核查
+
+完整小批输出default/C/C++/Java及JS/F#/Kotlin，前批省略状态解除；D1实现验收仍待。
+
+- default：既有change因果/trigger/impact/反证更严格，maintainability/test覆盖偏好不是独立具体缺陷。
+- C：malloc所有权可转移给caller，不能要求函数退出必free；free后置NULL不防别名UAF；strncpy/strncat需容量及终止实际证明，函数名替换不是安全证据。
+- C++：RAII/allocator/dangling已有大类，原规则绝大部分STL/auto/const偏好不照搬；原有line-diff/anchor不因风格规则改变。
+- Java：race需实际共享和线程入口，局部引用仍可能指向shared object，read-only publication也须happens-before；不能复制局部变量绝对安全或read-only绝对安全。NPE/performance已有检查仍需callee上下文。
+- JS/TS：React hook顺序/依赖cleanup/render效果需专用具体验收，Promise.all可能超并发额度或改变顺序，var/any/==/inline样式禁令不照搬。
+- F#：use作用域逃逸/seq多次副作用/OptionResult/取消传播/签名interop具体差距已确认，现generic非等价；这可作为D1首个小功能批。
+- Kotlin：默认nullable值零可能掩盖required失败，GlobalScope不自动leak、catch Exception不能吞CancellationException，Sequence不单独性能改善；专用coroutine大类已有，按实际scope所有权反证。
+
+剩6篇状态待补（Go/Python/Rust/ObjC/MATLAB/ArkTS），再限定跨目录依赖并按能力依赖推进。
 
 ## B2权限待定
 
