@@ -8,6 +8,12 @@ const files=(n,lines=1)=>Array.from({length:n},(_,i)=>({id:'f'+i,path:'f'+i+'.cp
 test('local partition uses strict four-file and 200-line boundaries and excludes forbidden members',()=>{
  assert.equal(localBusinessGroups(files(1)),null);assert.equal(localBusinessGroups(files(4)),null);assert.equal(localBusinessGroups(files(2,49)).strategy,'local-bundle');assert.equal(localBusinessGroups(files(2,50)).strategy,'local-per-file');assert.equal(localBusinessGroups([...files(3),{id:'x',eligibility:'excluded'}]).groups[0].fileIds.length,3);
 });
+test('unknown exact churn stays per-file and unchanged members cannot invent an interaction review',async()=>{
+ const limited=localBusinessGroups(files(2,500));assert.equal(limited.churn,null);assert.equal(limited.strategy,'local-per-file');
+ const selected=files(2);selected[1].right.text=selected[1].left.text;const s={id:'s',vcs:'git',context:[],files:selected};
+ const p=buildCoveragePlan(s,{instructions:REVIEW_INSTRUCTIONS,scope:createRetrievalScope(s),maxInputBytes:96000,enableBusinessGrouping:true});const r=await reviewSnapshot(s,()=>({findings:[],limitations:[]}),{enableRetrieval:true,enableBusinessGrouping:true});
+ assert.equal(p.interactions[0].status,'not-applicable');assert.equal(p.interactions[0].minimumCalls,0);assert.equal(r.interactions.length,0);assert.equal(r.modelCalls,2);assert.equal(r.businessGrouping.churn,2);
+});
 test('local bundle overflow is disclosed without expanding inputs or inventing combined coverage',async()=>{
  const s={id:'s',vcs:'git',context:[{path:'helper.cpp',text:'context();\n'.repeat(7000)}],files:files(2)};
  const p=buildCoveragePlan(s,{instructions:REVIEW_INSTRUCTIONS,scope:createRetrievalScope(s),maxInputBytes:12000,enableBusinessGrouping:true});
