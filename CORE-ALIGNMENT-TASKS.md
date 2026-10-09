@@ -25,6 +25,8 @@ C3新增可复现场景：重复零参调用的大C++文件在12KiB模型预算�
 
 ## 验收结论
 
+- v0.35.0冻结06deba9：标签CI37917761142通过；唯一发布37918056608四矩阵通过、registry核验等待。原artifact11610243325已保存92968字节，SHA256 f46126682f917b88a848512ab6d6e00caaa75e177d9065e983de8a9c8ccb3ade，SHA512 sha512-h/TKIHsGRO/xb8vnUYx4GUxJGCxqWZFxMlaCWO9pYvXndo5p/Lylnn1ir8o+qYor+fGgjsNyFsDNfxEOCfCD7g==；公开字节尚未核验，不宣称正式。
+
 - v0.34.1冻结df24f41：标签CI37916385091通过，唯一发布37916636188成功，原artifact11609634644；npm/Release92590字节逐字节一致，SHA256 89a291fbc76806331eefb5d3e9caa7f4c892ae50c7b16e3f4b36d995578ac864，SHA512 sha512-5LH6oR3yHA0HPWMdZGzxwiBgl0ZWIFBWMEiNyF5sY4kIXLksseyRu3sxgjcgsyWV2ku/1OniJB21sCVQ4B5riQ==，校验清单匹配。
 
 - v0.34.0冻结38caf51：标签CI37915325263通过；唯一发布37915572586成功；原artifact11609188405已保存92276字节，SHA256 0309651af9ebae5fb0693210b051dc1bc63619a0441757884949a656bc6bc88d，SHA512 sha512-ukzXyFg/FtMF3xxJWniqlRBObjvXeUDYQh8DSA/nONYUcK5iIoUh28Rz1MmslqR1cz6/ZvG5+ITY2wsy3eh3dg==。npm/Release实际字节逐字节一致，双hash及校验清单匹配，正式交付。额外验收：不同pass不继承检索片段/receipt，caller修改不影响批准正文；旧receipt在新复核拒绝并保留incomplete候选。
