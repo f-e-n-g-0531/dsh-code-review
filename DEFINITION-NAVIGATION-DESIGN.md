@@ -17,6 +17,12 @@ import-call-sites已识别named import alias的独立调用行，directImportBin
 - 注释/字符串/模板/不支持语法不得误命中，解析限制与结果truncated可见。
 - 不能用search/find导航结果直接作缺陷证据，仍须read原行并证据校验。
 
+## 轮104既有能力验收
+
+新增definition-navigation离线2测试：find枚举同名路径/版本→限定current sourceIds search→read精确声明CRLF；同名2声明保持歧义，literal search包含注释需read判定，不误称parser。旧侧独有source不混入新侧，import本地alias不会伪造远端export名；truncated/共享calls与output预算拒绝、批量未知source预校验零读取。全量313/313。无运行修改、不发空功能版本。
+
+剩余具体缺口是未捕获的必要依赖与alias/实例绑定上下文，而非缺一个symbol工具。现有路径导航与文本定位这一部分验收可复用；下一步窄语言显式关系场景测试，不宣称B3全闭环。
+
 ## 接入顺序与验收
 
 先纯导航parser测试，再snapshot reader预算（共享50 operations/256KiB输出）、协议整批校验与catalog side身份，最后模型提示与端到端。覆盖同名、alias、遮蔽、注释、旧侧、耗尽与取消。实例调用确切绑定另列后续，不以此窄首批称B3全覆盖。
