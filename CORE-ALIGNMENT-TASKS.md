@@ -64,6 +64,10 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 [逐文件清单](CORE-SOURCE-INVENTORY.md)更新剩余7工具文件、pool.go、resolver/relocation/quotedpath三文件的真实行为/当前对应/刻意安全替代。工具宽松候选跳过、异步后处理失败零评论和LLM替换snippet不照搬；来源ID严格快照、同预算复核/失败显式、exact原snippet定位保持。仅文档核查，运行版仍0.31.1；A1配置/剩余diff/跨目录未完成。
 
+## 轮58：剩余Diff五文件闭合读取
+
+[逐文件清单](CORE-SOURCE-INVENTORY.md)记录hunk/parser/gitignore/workspace_file/git全部实际行为，对range merge-base/merge first-parent、自动untracked、失败跳过与插件exact端点/显式选择/blocked安全替代明确区分。Diff目录已读不代表总体完成；config模板规则及跨目录依赖仍未核查。仅文档核查不变运行版。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。

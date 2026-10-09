@@ -29,14 +29,14 @@
 |[tool/filereader.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/filereader.go)|已读；闭环须看任务表|A1|
 |[tool/response_message.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/response_message.go)|已读；闭环须看任务表|A1|
 |[tool/stub.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/stub.go)|已读；闭环须看任务表|A1|
-|[diff/git.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/git.go)|未读，不声称等价|A1|
-|[diff/gitignore.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/gitignore.go)|未读，不声称等价|A1|
-|[diff/hunk.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/hunk.go)|未读，不声称等价|A1|
-|[diff/parser.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/parser.go)|未读，不声称等价|A1|
+|[diff/git.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/git.go)|已读；闭环须看任务表|A1|
+|[diff/gitignore.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/gitignore.go)|已读；闭环须看任务表|A1|
+|[diff/hunk.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/hunk.go)|已读；闭环须看任务表|A1|
+|[diff/parser.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/parser.go)|已读；闭环须看任务表|A1|
 |[diff/quotedpath.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/quotedpath.go)|已读；闭环须看任务表|A1|
 |[diff/relocation.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/relocation.go)|已读；闭环须看任务表|A1|
 |[diff/resolver.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/resolver.go)|已读；闭环须看任务表|A1|
-|[diff/workspace_file.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/workspace_file.go)|未读，不声称等价|A1|
+|[diff/workspace_file.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/workspace_file.go)|已读；闭环须看任务表|A1|
 |[config/allowlist/allowed_ext.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/allowed_ext.go)|未读，不声称等价|A1|
 |[config/allowlist/default_exclude_patterns.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/default_exclude_patterns.json)|未读，不声称等价|A1|
 |[config/allowlist/default_secret_patterns.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/default_secret_patterns.json)|已读；闭环须看任务表|A1|
@@ -142,6 +142,16 @@
 - diff/quotedpath.go：C风格路径byte解码，拒绝无效octal；我们Git NUL元数据/literal path不解析patch header，危险路径由relativePath拒绝，已有路径回归。
 
 此轮tool/llmloop清单已读项齐，不等于A1全部闭环：diff另外5文件、config及模板/规则正文、跨目录依赖仍待。
+
+## 轮58剩余Diff分类
+
+- diff/hunk.go：unified @@默认count1、去no-newline元数据、按prefix提取；我们两侧正文line-diff/change-map原始行区间，限额limited明确，不解析任意patch。
+- diff/parser.go：quoted header/CRLF/new/deleted/rename/binary/churn，finalize读取失败仅warning正文空；我们NUL metadata与受限blob/local捕获，失败blocked不会空正文伪成功。
+- diff/workspace_file.go：父路径symlink范围、文件symlink读link目标字符串、untracked64MiB；我们256KiB普通文件、拒绝link、UTF8/BOM UTF16严格decode，安全替代不扩限额。
+- diff/gitignore.go：导出provider目录排除及简化gitignore匹配；当前Git status标准untracked ignore、tracked不按工作树gitignore再丢，显式选项与凭据门禁透明，刻意不隐藏tracked修改。规则路径选择D1后续核查。
+- diff/git.go：workspace HEAD失败/空回退staged；untracked自动列读、读取失败跳过、8KiB NUL sniff/超64MiB binary；range merge-base，commit first-parent含merge，rename统一patch；我们untracked只显式选、失败blocked、全bodydecode/bytes门禁、unborn真实空baseline、range exact endpoints、merge要求range、历史rename add/delete。已有真实Git历史/root/merge/大树/rename/status回归；provider行为有安全替代而非完全等价。远程identity用于manifest持久resume平台不照搬。
+
+Diff目录8生产文件已读；config模板/规则正文和相关跨目录依赖A1仍未完成，不能停止于此。
 
 ## B2权限待定
 
