@@ -1,3 +1,4 @@
+import { bindBusinessRequirement, validateBusinessRequirement } from './business-requirement.mjs';
 import { gitContextIndex, svnContextIndex } from './tracked-context.mjs';
 import { contextCandidates } from './context-candidates.mjs';
 import { lstat, realpath } from 'node:fs/promises';
@@ -24,6 +25,7 @@ export async function detectVcs(cwd) {
   }
 }
 export async function captureSnapshot(cwd, options = {}) {
+  validateBusinessRequirement(options.businessRequirement);
   const { rulePaths = [], contextPaths = [], maxContextFiles = 20, maxSnapshotBytes = 4 * 1024 * 1024 } = options;
   for (const value of [maxContextFiles, maxSnapshotBytes]) if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid snapshot limit');
   if (!Array.isArray(contextPaths) || contextPaths.length > maxContextFiles) throw new Error('Context file limit exceeded');
@@ -32,7 +34,7 @@ export async function captureSnapshot(cwd, options = {}) {
   const type = await detectVcs(cwd);
   if (['commit','baseRevision','targetRevision'].some(k => options[k] !== undefined)) {
     if (type !== 'git') throw new Error('Git revision review is unsupported on SVN');
-    return captureGitHistory(cwd, options);
+    return bindBusinessRequirement(await captureGitHistory(cwd, options),options.businessRequirement);
   }
   const capture = type === 'git' ? captureGit : captureSvn;
   const snapshot = await capture(cwd, options);
@@ -71,5 +73,5 @@ export async function captureSnapshot(cwd, options = {}) {
   delete result.id;
   const serialized = JSON.stringify(result);
   if (Buffer.byteLength(serialized) > maxSnapshotBytes) throw new Error('Snapshot size limit exceeded');
-  return { ...result, id: hash(serialized) };
+  return bindBusinessRequirement({ ...result, id: hash(serialized) },options.businessRequirement);
 }

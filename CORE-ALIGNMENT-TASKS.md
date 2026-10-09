@@ -48,6 +48,10 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 分段读[agent.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/agent/agent.go)的入口/Run/dispatch、executeSubtask/Group、plan/main/filter/多轮confirmed及manifest：业务需求注入、按threshold计划、plan失败继续main、每轮filter和等待comment池、多轮移除plan避免覆盖天花板。对应我们风险/验证/coverage部分已有；business需求输入、独立review rounds与filter任务结构待核查templates/工具。resume持久平台及并发后台不照搬。确认plan异常会终止当前文件，改原输入回退保留fallback原因/partial；预算和取消仍硬阻断，不重试无效plan。287测试包含invalid主/交互计划、预算取消。冻结0.30.2。A1 agent.go不是全部功能已对齐，模板/定位源码仍待。
 
+## 轮54：业务需求输入
+
+依据已读agent.go buildMainTaskMessages/business_requirement注入，补工具preview可选businessRequirement最多16KiB UTF8，禁止空/控制字符，正文+hash/bytes预览，真实capture绑定snapshot id，execute原options重捕获。primary/windows/synthesis/interaction risk/main与verification均保留不可信constraint notice并计原预算，不授予权限/充当证据。289测试含identity/UTF8/payload/verify，冻结0.31.0。不自动抓取会话意图，不增加模型配置。模板/多轮与caller旧context仍待。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。

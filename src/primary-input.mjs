@@ -1,3 +1,4 @@
+import { REQUIREMENT_NOTICE } from './business-requirement.mjs';
 import { defectGuidance } from './defect-guidance.mjs';
 import { cppCallSites } from './cpp-call-sites.mjs';
 import { inferCsharpContext } from './csharp-context.mjs';
@@ -12,7 +13,7 @@ import { initialInputBudget } from './input-budget.mjs';
 // Pure preparation over already captured data. No model calls or new reads.
 export function preparePrimaryInput(input, file, { instructions, scope, grouping, maxInputBytes }) {
   const changes = changeMap(file.left.text, file.right.text);
-  const base = { defectGuidance: defectGuidance(file.path, file.rightExists === false ? file.left.text : file.right.text), snapshotId: input.id, file, changes, context: input.context ?? [], rules: input.rules ?? [] };
+  const base = { ...(input.businessRequirement!==undefined?{businessRequirement:input.businessRequirement,requirementNotice:REQUIREMENT_NOTICE}:{}), defectGuidance: defectGuidance(file.path, file.rightExists === false ? file.left.text : file.right.text), snapshotId: input.id, file, changes, context: input.context ?? [], rules: input.rules ?? [] };
   const contextRelations = inferContextRelations(input, file);
   if (contextRelations.length) {
     base.contextRelations = contextRelations;
