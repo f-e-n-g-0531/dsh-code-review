@@ -9,6 +9,14 @@ test('threshold skip uses identical preview and execution counts without skippin
  const p=buildCoveragePlan(s,{...options,instructions:REVIEW_INSTRUCTIONS,scope:createRetrievalScope(s),maxInputBytes:96000});const r=await reviewSnapshot(s,req=>req.instructions.includes('仅制定审查计划')?{risks:[]}:{findings:[],limitations:[]},options);
  assert.equal(p.minimumCalls,3);assert.equal(r.modelCalls,3);assert.equal(r.files[0].riskPlans[0].status,'skipped');assert.equal(r.files[1].riskPlans[0].status,'completed');assert.equal(r.coverage.completed,2);
 });
+test('combined moderate changes trigger only interaction planning at group threshold with preview parity',async()=>{
+ for(const sizes of [[33,33,33],[34,33,33]]){
+ const files=sizes.map((n,i)=>({...file(n),id:'f'+i,path:'f'+i+'.cpp',eligibility:'reviewable',properties:[]})),s={id:'s',vcs:'git',context:[],files},options={enableRiskPlanning:true,skipSmallRiskPlans:true,enableRetrieval:true,enableBusinessGrouping:true};
+ const p=buildCoveragePlan(s,{...options,instructions:REVIEW_INSTRUCTIONS,scope:createRetrievalScope(s),maxInputBytes:96000});
+ const r=await reviewSnapshot(s,req=>req.instructions.includes('仅制定审查计划')?{risks:[]}:{findings:[],limitations:[]},options),expected=sizes[0]===34?5:4;
+ assert.equal(p.minimumCalls,expected);assert.equal(r.modelCalls,expected);assert.ok(r.files.every(f=>f.riskPlans[0].status==='skipped'));assert.equal(r.files[2].riskPlans[1].status,sizes[0]===34?'completed':'skipped');assert.equal(p.interactions[0].riskPlanning.required,sizes[0]===34);assert.equal(r.interactions[0].status,'completed');
+ }
+});
 const file=n=>({left:{text:''},right:{text:'changed\n'.repeat(n)}});
 test('planning threshold gates exact full-file churn at inclusive 50 and group 100 boundaries',()=>{
  assert.equal(riskPlanningDecision([file(49)]).required,false);assert.equal(riskPlanningDecision([file(50)]).reason,'file-threshold');assert.equal(riskPlanningDecision([file(33),file(33),file(33)]).required,false);assert.equal(riskPlanningDecision([file(34),file(33),file(33)]).reason,'group-threshold');
