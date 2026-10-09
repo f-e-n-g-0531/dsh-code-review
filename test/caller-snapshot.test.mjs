@@ -28,5 +28,5 @@ test('working snapshot binds caller negative hashes and shares explicit context 
  assert.deepEqual(limited.context.map(c=>c.path),['app/b.ts']);
  assert.equal(limited.callerDiscovery.candidates[0].status,'blocked');
  assert.match(limited.callerDiscovery.candidates[0].captureReason,/limit/);
- await assert.rejects(captureSnapshot(root,{...options,commit:'HEAD'}),/requires Git working/);
+ const historical=await captureSnapshot(root,{...options,commit:'HEAD'});assert.ok(historical.callerDiscovery);assert.equal(historical.callerDiscovery.history.target,historical.history.target);
 });
