@@ -75,7 +75,7 @@
 |[config/rules/rule_docs/composer_json.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/composer_json.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/cpp.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/cpp.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/default.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/default.md)|正文核查中；长文省略需补，不声称闭环|D1|
-|[config/rules/rule_docs/elm.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/elm.md)|正文已取；长文补核查及验收待D1|D1|
+|[config/rules/rule_docs/elm.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/elm.md)|已读完整正文；能力验收待D1|D1|
 |[config/rules/rule_docs/freemarker.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/freemarker.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/fsharp.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/fsharp.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/github_config.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/github_config.md)|已读正文；能力验收待D1|D1|
@@ -83,19 +83,19 @@
 |[config/rules/rule_docs/go.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/go.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/graphql.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/graphql.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/handlebars_mustache.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/handlebars_mustache.md)|已读正文；能力验收待D1|D1|
-|[config/rules/rule_docs/haskell.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/haskell.md)|正文已取；长文补核查及验收待D1|D1|
+|[config/rules/rule_docs/haskell.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/haskell.md)|已读完整正文；能力验收待D1|D1|
 |[config/rules/rule_docs/java.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/java.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/jinja.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/jinja.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/json.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/json.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/jsonnet.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/jsonnet.md)|已读正文；能力验收待D1|D1|
-|[config/rules/rule_docs/julia.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/julia.md)|正文已取；长文补核查及验收待D1|D1|
+|[config/rules/rule_docs/julia.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/julia.md)|已读完整正文；能力验收待D1|D1|
 |[config/rules/rule_docs/kotlin.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/kotlin.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/mapper_dao_xml.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/mapper_dao_xml.md)|正文已取；长文补核查及验收待D1|D1|
 |[config/rules/rule_docs/matlab.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/matlab.md)|正文核查中；长文省略需补，不声称闭环|D1|
-|[config/rules/rule_docs/nim.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/nim.md)|正文已取；长文补核查及验收待D1|D1|
+|[config/rules/rule_docs/nim.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/nim.md)|已读完整正文；能力验收待D1|D1|
 |[config/rules/rule_docs/nix.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/nix.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/objc.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/objc.md)|正文核查中；长文省略需补，不声称闭环|D1|
-|[config/rules/rule_docs/ocaml.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/ocaml.md)|正文已取；长文补核查及验收待D1|D1|
+|[config/rules/rule_docs/ocaml.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/ocaml.md)|已读完整正文；能力验收待D1|D1|
 |[config/rules/rule_docs/package_json.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/package_json.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/php.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/php.md)|正文已取；长文补核查及验收待D1|D1|
 |[config/rules/rule_docs/po.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/po.md)|正文已取；长文补核查及验收待D1|D1|
@@ -262,6 +262,18 @@ D1后续优先补F#专用及Go版本反证，其他规则剩余42篇仍未读；
 - Zig：generic不足；allocator匹配/errdefer/借用逃逸、errorunion/optional、C布局ownership、buildmode/版本需专用；Debug安全检查仍可能真实panic，但不能泛称ReleaseFast之外无bug。编译与格式重复不报告。
 
 下一阶段先补此前18篇长文的小段读取、限定gitcmd/pathutil/model/session实际审核依赖而非平台全量；后按B1/B2/A2/A3/D1验收实现，不把read状态当completion。
+
+## 轮66五篇长文补核查
+
+小批次完整输出Elm/Haskell与Julia/Nim/OCaml，原省略部分已补；这些现为generic，D1专用能力未实现。
+
+- Elm：Cmd/Sub遗失、decoder/JS ports真实shape、null/omission及stale响应；view读Model正常，不能复制“直接读field绕过update”或普通结构==需Debug比较说法。port lifecycle须JS订阅实际证据，compiler exhaustiveness不冒充runtime发现。
+- Haskell：partial函数类型NonEmpty反证、lazy thunk/stream保留与严格求值改变termination、async exception的bracket/MVar清理、STM重试副作用、FFI lifetime。typeclass laws需要具体调用后果，orphan或API ADT偏好本身不是bug。
+- Julia：axes/offset arrays、nothing/missing、dispatch歧义、shared捕获、ccall GC生命与显式shell边界。类型不稳定需hotpath规模证据；@assert不未经版本构建证据声称必禁用；method ambiguity不声称随机挑选。
+- Nim：ARC vs ORC循环收集、openArray借用寿命、template重复求值副作用、variant discriminant、FFI convention及async blocking。managed ref不自动泄漏，check开关/版本必须实际捕获。
+- OCaml：Array.make对象共享、mutable equality/alias、Option/Result partial、functor排序law、C stub GC rooting/blocking/版本Marshal、ReasonML JS null contract。noalloc只适用于不分配C调用，不能把缺noalloc泛称GC不安全；warn-error风格不单独bug。
+
+剩13篇前批核查状态需补正文；A1相关依赖范围也未完成，不能先把功能任务标闭环。
 
 ## B2权限待定
 

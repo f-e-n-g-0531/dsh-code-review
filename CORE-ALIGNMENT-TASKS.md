@@ -96,6 +96,10 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 [逐文件清单](CORE-SOURCE-INVENTORY.md)补Solidity/Vyper/Swift/Verilog/VHDL/Zig的完整正文与具体版本/链fork/目标综合反证，不照搬绝对proxy/brick/语法禁令。没有从未读取的rule条目，但此前18篇长文仍需补核查；当前多数generic非专用，D1未闭环。下一步补长文及限定相关依赖后进入能力实现；仅文档运行版不变。
 
+## 轮66：五长文补核查
+
+[逐文件清单](CORE-SOURCE-INVENTORY.md)用小批补齐Elm/Haskell/Julia/Nim/OCaml，专用场景与参考不可靠绝对表述单列。剩13篇此前正文状态需补，相关依赖未齐；仅文档，不称generic已具备专用能力。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。
