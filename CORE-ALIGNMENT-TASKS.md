@@ -44,6 +44,10 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 已读[loop.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/llmloop/loop.go)的Deps/Runner、RunMainTask/StopReason、grace round、executeToolCall、定位与压缩调度：task_done才完成，轮限/空轮/压缩/token分开；预算退出最后可交comments仍不标完成；comment优先同文件后跨文件再LLM，异步可WithoutCancel。当前strict JSON有界检索最终schema/共享calls超时/partial是安全替代，不跨文件猜anchor、不在预算外grace/后台发送。参考此退出诚实性发现风险sourceIds未读仍可无发现completed，新增sourceReadCoverage按生成阶段audit记录requested/read/unread；search/find不是读，计划/其他批读取不充当本批，未读产生partial限制。读片段不证明条件或因果、无新调用。285测试，冻结0.30.1。agent.go/templates具体多round/filter仍待A1，不能仅凭loop认定风险闭环对齐。
 
+## 轮53：Agent计划失败回退
+
+分段读[agent.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/agent/agent.go)的入口/Run/dispatch、executeSubtask/Group、plan/main/filter/多轮confirmed及manifest：业务需求注入、按threshold计划、plan失败继续main、每轮filter和等待comment池、多轮移除plan避免覆盖天花板。对应我们风险/验证/coverage部分已有；business需求输入、独立review rounds与filter任务结构待核查templates/工具。resume持久平台及并发后台不照搬。确认plan异常会终止当前文件，改原输入回退保留fallback原因/partial；预算和取消仍硬阻断，不重试无效plan。287测试包含invalid主/交互计划、预算取消。冻结0.30.2。A1 agent.go不是全部功能已对齐，模板/定位源码仍待。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。

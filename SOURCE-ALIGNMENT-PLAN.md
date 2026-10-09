@@ -2,6 +2,10 @@
 
 对标alibaba/open-code-review固定提交2d67596c961f80436deb2afa643efa2b1725d34c，仅借鉴已核实审查设计，自行实现，非全仓等价承诺。总体对齐持续活动（当前48轮检查点不是完成理由），七项不是全量清单；继续核查核心源码发现差距纳入后续，未对齐不标完成。每批完成测试差异复核提交推送正式新版本；固定标签四矩阵CI→Actions npm→相同tgz Release核验。实际模型试跑后置，不自动安装重启，不管理平台/自动修复/独立模型费用。
 
+## 轮53：计划失败仍可有限主审查
+
+分段核查agent.go调度plan/main/filter/multi-round，新增计划异常原输入回退，不传无效风险、不重试，fallback原因/partial诚实保留，取消/预算硬限制不绕过。287测试，冻结0.30.2。需求输入/独立多轮/模板过滤待核查，caller/旧独有context未完。
+
 ## 轮52：风险请求未读不完整通过
 
 读取固定llmloop/loop.go核心退出/定位/预算处理，严格替代和剩余agent/templates核查记录。风险计划sourceIds增生成阶段sourceReadCoverage，auditStart后read同snapshot才计片段，未读report limitation/partial，search/find/前批不代替读，不新增调用/证明。285测试，冻结0.30.1。核心agent/风险需求闭环、caller和旧独有context仍未完。

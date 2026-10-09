@@ -162,6 +162,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           state.riskPlans ??= [];
           const entry = { status: 'pending', windowIds: batch.windowIds, ...(batch.interaction ? {groupId:batch.interaction.id,sourceMode:'file-interaction'} : {}), risks: [] };
           state.riskPlans.push(entry);
+          try {
           const response = await executor({ ...enclosingRequest, input: batch.payload, instructions: RISK_PLAN_INSTRUCTIONS });
           const riskFiles = batch.interaction ? JSON.parse(batch.payload).files : [{ fileId: file.id, edits: changes.edits ?? [] }];
           const risks = validateRiskPlan(response, riskFiles, scope?.catalog() ?? []);
@@ -169,6 +170,11 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           entry.status = 'completed'; entry.risks = risks;
           batchPayload = JSON.stringify({ ...JSON.parse(batch.payload), riskPlan: risks, riskPlanNotice: '未可信假设而非发现或证据；须验证及寻找反证，不增加读取权限。' });
           if (!initialInputBudget({ instructions: REVIEW_INSTRUCTIONS, input: batchPayload }, scope, maxInputBytes).fits) throw new Error('Risk-enriched review input exceeds budget');
+          } catch(error) {
+            enclosingRequest.signal.throwIfAborted();
+            entry.status='fallback';entry.reason=error?.message??String(error);entry.risks=[];batchPayload=batch.payload;
+            report.limitations.push({fileId:file.id,text:'风险计划未完成，回退原输入主审查：'+entry.reason});
+          }
         }
         const request = { ...enclosingRequest, input: batchPayload };
         const auditStart = state.retrievalAudit?.length ?? 0;
