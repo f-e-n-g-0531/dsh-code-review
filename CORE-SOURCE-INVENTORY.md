@@ -66,8 +66,8 @@
 |[config/template/prompts/review_filter_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/review_filter_task_system.md)|已读；闭环须看任务表|A1|
 |[config/template/prompts/review_filter_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/review_filter_task_user.md)|已读；闭环须看任务表|A1|
 |[config/rules/rule_docs/arkts.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/arkts.md)|未读，不声称等价|D1|
-|[config/rules/rule_docs/astro.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/astro.md)|未读，不声称等价|D1|
-|[config/rules/rule_docs/bicep.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/bicep.md)|未读，不声称等价|D1|
+|[config/rules/rule_docs/astro.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/astro.md)|已读正文；能力验收待D1|D1|
+|[config/rules/rule_docs/bicep.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/bicep.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/build_gradle.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/build_gradle.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/c.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/c.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/capnp.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/capnp.md)|已读正文；能力验收待D1|D1|
@@ -76,24 +76,24 @@
 |[config/rules/rule_docs/cpp.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/cpp.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/default.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/default.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/elm.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/elm.md)|未读，不声称等价|D1|
-|[config/rules/rule_docs/freemarker.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/freemarker.md)|未读，不声称等价|D1|
+|[config/rules/rule_docs/freemarker.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/freemarker.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/fsharp.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/fsharp.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/github_config.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/github_config.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/github_workflows.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/github_workflows.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/go.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/go.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/graphql.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/graphql.md)|已读正文；能力验收待D1|D1|
-|[config/rules/rule_docs/handlebars_mustache.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/handlebars_mustache.md)|未读，不声称等价|D1|
+|[config/rules/rule_docs/handlebars_mustache.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/handlebars_mustache.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/haskell.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/haskell.md)|未读，不声称等价|D1|
 |[config/rules/rule_docs/java.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/java.md)|正文核查中；长文省略需补，不声称闭环|D1|
-|[config/rules/rule_docs/jinja.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/jinja.md)|未读，不声称等价|D1|
+|[config/rules/rule_docs/jinja.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/jinja.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/json.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/json.md)|已读正文；能力验收待D1|D1|
-|[config/rules/rule_docs/jsonnet.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/jsonnet.md)|未读，不声称等价|D1|
+|[config/rules/rule_docs/jsonnet.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/jsonnet.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/julia.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/julia.md)|未读，不声称等价|D1|
 |[config/rules/rule_docs/kotlin.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/kotlin.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/mapper_dao_xml.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/mapper_dao_xml.md)|未读，不声称等价|D1|
 |[config/rules/rule_docs/matlab.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/matlab.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/nim.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/nim.md)|未读，不声称等价|D1|
-|[config/rules/rule_docs/nix.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/nix.md)|未读，不声称等价|D1|
+|[config/rules/rule_docs/nix.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/nix.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/objc.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/objc.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/ocaml.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/ocaml.md)|未读，不声称等价|D1|
 |[config/rules/rule_docs/package_json.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/package_json.md)|已读正文；能力验收待D1|D1|
@@ -104,14 +104,14 @@
 |[config/rules/rule_docs/prisma.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/prisma.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/properties.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/properties.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/protobuf.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/protobuf.md)|已读正文；能力验收待D1|D1|
-|[config/rules/rule_docs/pug.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/pug.md)|未读，不声称等价|D1|
+|[config/rules/rule_docs/pug.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/pug.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/python.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/python.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/r.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/r.md)|未读，不声称等价|D1|
-|[config/rules/rule_docs/rego.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/rego.md)|未读，不声称等价|D1|
+|[config/rules/rule_docs/rego.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/rego.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/rust.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/rust.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/solidity.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/solidity.md)|未读，不声称等价|D1|
 |[config/rules/rule_docs/swift.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/swift.md)|未读，不声称等价|D1|
-|[config/rules/rule_docs/terraform.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/terraform.md)|未读，不声称等价|D1|
+|[config/rules/rule_docs/terraform.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/terraform.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/thrift.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/thrift.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/ts_js_tsx_jsx.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/ts_js_tsx_jsx.md)|正文核查中；长文省略需补，不声称闭环|D1|
 |[config/rules/rule_docs/verilog.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/verilog.md)|未读，不声称等价|D1|
@@ -217,6 +217,25 @@ D1后续优先补F#专用及Go版本反证，其他规则剩余42篇仍未读；
 |github_workflows|现trust/PRhead/permissions/artifacts依赖具体方向对应|缺permissions不自动broad、缺timeout非无限、tag/cache/failfast不自动bug；验证上下文实际默认|
 
 首批12篇仍保守核查中；本批15篇已读，余27篇未读。D1协议细分及依据透明仍待实现，caller/旧context不因规则阅读完成。
+
+## 轮63模板/基础设施/策略十篇
+
+完整读取astro/freemarker/handlebars_mustache/jinja/pug/bicep/terraform/nix/rego/jsonnet（最长Pug7702字符）。现模板/infrastructure通用提示只有大类对应，不能声称引擎语义已实现。
+
+|规则|当前与必要专用验收|反证/范围替代|
+|---|---|---|
+|Astro|server/client秘密与serialization边界、hydration/adapter运行前提待细化|不能仅client:load、is:global等即性能bug；需要规模/真实功能后果|
+|FreeMarker|输出格式/ftlh自动escaping、context builtin、locale机器输出待专用|无显式html不等于未escape；engine版本与host设置必须获证；强制controller拆分不照搬|
+|Handlebars/Mustache|默认HTMLescape、helper/data collision、context depth、zero条件、partial engine支持待细化|普通双brace文本不泛报XSS，输出格式serializer必须按sink|
+|Jinja|autoescape host、tojson属性quote、Undefined/falseydefault、loop scope待专用|不强制StrictUndefined，不把未见host当不安全|
+|Pug|untrusted &attributes区别于mixin已escape属性、inline JSON script terminator、compiler options trust待专用|不要以普通#{}/=输出为未escape，必须callee/caller与Pug版本|
+|Bicep|现infra大类对应secure参数/真实network/role范围|无optionalhardening不自动bug；api-version不要求最新；外部private endpoint需上下文|
+|Terraform|state/plaintext/生命周期破坏与scopeconsumer大类已有|sensitive不证明秘密加密；缺prevent_destroy不单独报，实际provider/state不凭空推断|
+|Nix|当前infra仅权限顺序大类；overlay final/prev、build inputs、flake系统输出、lazy rec待专用|不强制flakes/channels迁移，需构建/部署消费者证据|
+|Rego|当前generic；undefined vs false/negation/existential、deny调用方、rule union、OPA版本待专用|缺default不独立绕过，http.send默认5s/TLS、with合法，trace不等普通日志|
+|Jsonnet|当前generic；self/$/super晚绑定、+:与浅merge、hiddenfields/forcedassert/外部输入待专用|extVar可以通过ext-code传非string，不能复制全是字符串绝对说法；K8s null/omission需实际应用方式|
+
+余17篇规则未读，首批12长文仍核查中；D1专用指引需场景测试，不把读取当交付。
 
 ## B2权限待定
 
