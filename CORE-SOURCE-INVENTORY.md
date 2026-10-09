@@ -155,7 +155,7 @@ Diff目录8生产文件已读；config模板/规则正文和相关跨目录依�
 
 ## 审查模板15文件
 
-- template.go/task_template.json：默认独立2review rounds，100tool请求，200000prompt tokens/16384completion；plan单file50行或group100、grouping少于4且总churn<200本地bundle，否则perfile；我们bytes/calls/120s固定budget非token等价。小变更grouping skip v0.33.5及plan skip v0.33.6已正式验收；独立multi-pass A3仍未实现，不以retrieval3轮充当review轮。
+- template.go/task_template.json：默认独立2review rounds，100tool请求，200000prompt tokens/16384completion；plan单file50行或group100、grouping少于4且总churn<200本地bundle，否则perfile；我们bytes/calls/120s固定budget非token等价。小变更grouping skip v0.33.5及plan skip v0.33.6已正式验收；独立multi-pass v0.34.0及preview整数1..3工作量绑定v0.34.1已正式交付，后轮不继承首plan/检索片段/receipt，共享原调用/reader/120s预算；默认1并非参考默认2，不继承参考confirmed comments，不以retrieval3轮充当review轮，真实模型质量未验收。
 - effort.go：low/medium/high映射review1/2/3次，是审查工作量不是模型reasoning effort；插件继承DSH模型effort不等价，独立pass需预算/预览/coverage协议后实现，不引入模型平台。
 - plan system/user：待证风险+工具意图不执行、requirement/rules；我们严格risk schema/sourceIds、缺caller限制、原预算fallback，风格和忽略deletion不照搬。
 - main system/user：每组每file独立pass、上下文工具只背景、评论仅review_files，plan/requirements/confirmed注入；我们primary独立+interaction、snapshot目录边界/归因/需求已实现，多pass移除plan仍缺。
