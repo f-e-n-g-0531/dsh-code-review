@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.37.0
+
+- callerScopePaths接入SVN离线限定目录normal引用方扫描；正文及负匹配hash/node/index/probe复核，共享原30秒、128正文/1MiB、复核2MiB、20上下文/4MiB快照，字面导航不证明语义调用覆盖。
+- 祖先与节点真实路径/URL链/wcroot/UUID及属性校验，拒绝switched/external/special/keywords；竞争含本地未跟踪路径但无正文权限。真实SVN预览零发送、过期拒绝、满槽、二进制及超限验收，375项离线通过；待固定四矩阵与原工件发布，不宣称正式交付。
+
 ## 0.36.0
 
 - callerScopePaths支持Git固定commit/range两侧对象内有界字面引用发现；读取匹配/非匹配blob并绑定OID/hash/version与索引/竞争探针，execute重捕获；不checkout/fetch/读取工作树，SVN仍不支持。
