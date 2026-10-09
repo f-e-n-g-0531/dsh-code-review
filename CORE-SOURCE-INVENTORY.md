@@ -109,16 +109,16 @@
 |[config/rules/rule_docs/r.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/r.md)|正文已取；长文补核查及验收待D1|D1|
 |[config/rules/rule_docs/rego.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/rego.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/rust.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/rust.md)|正文核查中；长文省略需补，不声称闭环|D1|
-|[config/rules/rule_docs/solidity.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/solidity.md)|未读，不声称等价|D1|
-|[config/rules/rule_docs/swift.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/swift.md)|未读，不声称等价|D1|
+|[config/rules/rule_docs/solidity.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/solidity.md)|已读正文；能力验收待D1|D1|
+|[config/rules/rule_docs/swift.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/swift.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/terraform.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/terraform.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/thrift.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/thrift.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/ts_js_tsx_jsx.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/ts_js_tsx_jsx.md)|正文核查中；长文省略需补，不声称闭环|D1|
-|[config/rules/rule_docs/verilog.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/verilog.md)|未读，不声称等价|D1|
-|[config/rules/rule_docs/vhdl.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/vhdl.md)|未读，不声称等价|D1|
-|[config/rules/rule_docs/vyper.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/vyper.md)|未读，不声称等价|D1|
+|[config/rules/rule_docs/verilog.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/verilog.md)|已读正文；能力验收待D1|D1|
+|[config/rules/rule_docs/vhdl.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/vhdl.md)|已读正文；能力验收待D1|D1|
+|[config/rules/rule_docs/vyper.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/vyper.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/yaml.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/yaml.md)|已读正文；能力验收待D1|D1|
-|[config/rules/rule_docs/zig.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/zig.md)|未读，不声称等价|D1|
+|[config/rules/rule_docs/zig.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/zig.md)|已读正文；能力验收待D1|D1|
 
 ## 本轮四文件判定
 
@@ -249,6 +249,19 @@ D1后续优先补F#专用及Go版本反证，其他规则剩余42篇仍未读；
 - Elm/Haskell/Julia/Nim/OCaml：generic为主，需补实际语言效应、FFI/运行版本和调用契约；长正文小段完整核查后列专用验收，未声称语义齐。
 
 现在6篇规则仍未读（solidity/swift/verilog/vhdl/vyper/zig），首批12+本批首组6需要补核查；相关依赖仍待。
+
+## 轮65最后六篇正文
+
+完整读取solidity/swift/verilog/vhdl/vyper/zig，最长Swift8201字符，本次直接正文无省略。规则清单不再有从未读取条目，但前批长文核查状态仍保留，不等于A1/D1闭环。
+
+- Solidity：当前generic不足；需pragma>=0.8 checked/unchecked、reachable跨函数reentrancy、token hook/nonbool返回、proxy storage/签名domain/实际oracle。不能按.sol就认定合约（Gerber），缺event或普通external即问题不复制；selfdestruct后果受链fork/EIP6780前提约束，需版本而非参考绝对brick。
+- Vyper：generic不足；0.3/0.4 external关键字/nonreentrant/module初始化、raw_call返回形态、容量/unsafe arithmetic需专用；无inheritance不等于不能delegate proxy，参考“无proxy standard所以必blueprint/copy”不复制，storage实际部署需证据。Transient storage按transaction而非所有call清零，不能泛化。
+- Swift：已有ARC/actor/cancellation大类部分；SwiftUI identity/state生命周期、continuation一次性、Combine owner cycle、entitlement canonical state需场景。单独未本地化/无.task(id:)不证明回归，非Sendable编译错误不重复泛报。
+- Verilog：需.sv/.vh与.v语言歧义、procedural blocking/nonblocking实际调度、latch/width/signed/CDC/target flow专用；不称同block顺序随机，不强制FPGA initial不综合，不泛报适当net多driver。
+- VHDL：generic不足；delta更新、signal vs variable、signed resize保留sign、range方向、CDC/recovery需专用；完整case不要求others，process(all)有2008前提，不能忽略target支持。
+- Zig：generic不足；allocator匹配/errdefer/借用逃逸、errorunion/optional、C布局ownership、buildmode/版本需专用；Debug安全检查仍可能真实panic，但不能泛称ReleaseFast之外无bug。编译与格式重复不报告。
+
+下一阶段先补此前18篇长文的小段读取、限定gitcmd/pathutil/model/session实际审核依赖而非平台全量；后按B1/B2/A2/A3/D1验收实现，不把read状态当completion。
 
 ## B2权限待定
 
