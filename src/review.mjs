@@ -1,7 +1,7 @@
 import { correctAnchor } from './anchor-correction.mjs';
 import { validateBusinessRequirement } from './business-requirement.mjs';
 import { riskReadCoverage } from './risk-read-coverage.mjs';
-import { BUSINESS_GROUP_INSTRUCTIONS, prepareBusinessGroups, validateBusinessGroups } from './business-groups.mjs';
+import { BUSINESS_GROUP_INSTRUCTIONS, localBusinessGroups, prepareBusinessGroups, validateBusinessGroups } from './business-groups.mjs';
 import { RISK_PLAN_INSTRUCTIONS, validateRiskPlan } from './risk-plan.mjs';
 import { prepareInteractionInput } from './interaction-input.mjs';
 import { validateInteractionFindings } from './interaction-findings.mjs';
@@ -141,12 +141,16 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         if (options.enableBusinessGrouping === true && !report.businessGrouping && prepareBusinessGroups(input.files)) {
           report.businessGrouping = { status: 'pending' };
           try {
+            const local = localBusinessGroups(input.files);
+            let grouped = local;
+            if (!local) {
             const groupInput = prepareBusinessGroups(input.files);
             if (Buffer.byteLength(groupInput) + Buffer.byteLength(BUSINESS_GROUP_INSTRUCTIONS) > maxInputBytes) throw new Error('Business grouping input budget exceeded');
             beforeCall();
             const response = await model({ ...enclosingRequest, instructions: BUSINESS_GROUP_INSTRUCTIONS, input: groupInput });
             enclosingRequest.signal.throwIfAborted();
-            const grouped = validateBusinessGroups(response, input.files);
+            grouped = validateBusinessGroups(response, input.files);
+            }
             report.businessGrouping = { status: 'completed', ...grouped };
             for (const group of grouped.groups.filter(g => g.fileIds.length > 1)) {
               if (interactionPlans.some(p => [...p.group.fileIds].sort().join(',') === [...group.fileIds].sort().join(','))) continue;

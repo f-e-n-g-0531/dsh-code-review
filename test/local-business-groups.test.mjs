@@ -1,0 +1,15 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {localBusinessGroups} from '../src/business-groups.mjs';
+import {reviewSnapshot,REVIEW_INSTRUCTIONS} from '../src/review.mjs';
+import {buildCoveragePlan} from '../src/coverage-plan.mjs';
+import {createRetrievalScope} from '../src/retrieval-scope.mjs';
+const files=(n,lines=1)=>Array.from({length:n},(_,i)=>({id:'f'+i,path:'f'+i+'.cpp',eligibility:'reviewable',properties:[],left:{text:'old\n'.repeat(lines)},right:{text:'new\n'.repeat(lines)}}));
+test('local partition uses strict four-file and 200-line boundaries and excludes forbidden members',()=>{
+ assert.equal(localBusinessGroups(files(1)),null);assert.equal(localBusinessGroups(files(4)),null);assert.equal(localBusinessGroups(files(2,49)).strategy,'local-bundle');assert.equal(localBusinessGroups(files(2,50)).strategy,'local-per-file');assert.equal(localBusinessGroups([...files(3),{id:'x',eligibility:'excluded'}]).groups[0].fileIds.length,3);
+});
+test('local bundle preview execute parity skips grouping call but preserves primary and interaction review',async()=>{
+ const s={id:'s',vcs:'git',context:[],files:files(3)};const p=buildCoveragePlan(s,{instructions:REVIEW_INSTRUCTIONS,scope:createRetrievalScope(s),maxInputBytes:96000,enableBusinessGrouping:true});
+ const r=await reviewSnapshot(s,req=>{assert.ok(!req.instructions.includes('按共同业务契约'));return {findings:[],limitations:[]};},{enableRetrieval:true,enableBusinessGrouping:true});
+ assert.equal(p.minimumCalls,4);assert.equal(r.modelCalls,4);assert.equal(r.businessGrouping.status,'skipped');assert.equal(r.coverage.completed,3);assert.equal(r.interactions[0].status,'completed');assert.equal(r.status,'completed');
+});
