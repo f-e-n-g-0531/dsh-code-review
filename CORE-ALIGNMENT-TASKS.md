@@ -16,8 +16,8 @@
 1. B1：历史/SVN调用方发现与必要语义caller场景。
 2. B2：自动旧侧独有依赖捕获；显式首批已交付。
 3. B3：必要未捕获定义、别名链及实例上下文；现有search/read边界已验收。
-4. A2：小变更免规划、预算拆分、分组失败及跨组遗漏场景闭环。
-5. A3：guard/不可达/原有缺陷/缺caller/预算退出、typed失败、选择分母与空排除场景；真实模型质量后置。
+4. A2：剩余小变更阈值本地分组/免规划与预算拆分；分组失败、共享调用上限、跨组遗漏已验收。固定参考少于4文件时总churn<200本地bundle，否则per-file，不等于风险计划跳过阈值。
+5. A3：剩余guard/不可达/原有缺陷/缺caller及独立multi-pass场景；预算退出、typed失败、选择分母与空排除已离线验收。真实模型质量后置。
 6. D1：必要语言专用缺陷及路径规则分派；具体差距见源码清单。
 7. E1：上述能力场景矩阵及端到端验收。
 
@@ -25,7 +25,9 @@ C2受控畸形输出处理、C3长输入仅具体场景证明确有必要才补�
 
 ## 验收结论
 
-- 当前离线326/326及真实宿主离线smoke通过；不等价真实模型质量。分组失败选择分母/单文件跳过/预算耗尽、跨组遗漏、混合执行失败、取消和报告安全转义已验收。
+- v0.33.4诊断补丁冻结7e604df：标签CI37909626325四矩阵通过；唯一发布37910021333执行中，原artifact11605284464已保存，公开包实际字节仍待核验。
+
+- 当前离线328/328及真实宿主离线smoke通过；不等价真实模型质量。分组失败选择分母/单文件跳过/预算耗尽、跨组遗漏、混合执行失败、取消和报告安全转义已验收。
 - 执行可靠性优先：0.33.2唯一完整JSON围栏兼容，固定CI37907541130通过、唯一发布37907836315已成功，原artifact11605097563，npm/Release88609字节与原工件一致，SHA256 13e40a77c97bb57014d2dd165f0f946ccb921a8d34b8b18530adadae37695887，SHA512 sha512-mI+dhtizlM+2HVyo+WRg3t8HyWUd6M6/ifV6nvuxj7bFaJ0jfeUTGPngan4zJRHf4jVzQK7aXnIMki//ZzaDgg==；0.33.3窗口上下文按批准catalog检索已正式交付：标签CI37908368137通过、唯一发布37908776363；原artifact11605287853，npm/Release88999字节一致，SHA256 aad891b8cab6804ce2992a45da9b78cec7bc70163e943a830c0e303610c9fe2b，SHA512 sha512-Xxv79rG4OsNKMrERkk7GOjZ/ElDGJjqdvECvqDCTNnQRk+1pINtUsYnUZidlhLaaRPCaswWNSUl9p8zP/GF/GA==。实际碰撞项目原报告/响应未知，不宣称三处格式失败或超时根因复现。
 - v0.33.1同一调用行alias重赋值/逃逸误提示已修复并冻结提交cdb95f0529b0fbbee5c5eaecfaf50cc50213562f；发布门禁已通过：标签CI37906386448、唯一发布37906798597成功，原artifact11604593956；npm/Release88082字节匹配原工件，SHA256 754e067662a25779d99f225a957ed1c4519c13e15dd083d8ca575260263f2cbd，SHA512 sha512-u8mPIdeHKrpL6zg1ljM35FMP0nJ5SeS87HjfCw6GSchoggKnmTbQvB7Mnd/LfrdY6Lg/DK/MKBNYwk/VkCul6w==。
 - v0.33.0：提交6fe4261fb7e2bd1b645b8637ba9f82840a760c83，标签四矩阵37904841884成功；唯一发布37905053267成功，原artifact11603897802。npm/正式Release与原工件逐字节一致87754字节；SHA256 fc0d99bebd62e431fdd212d83f51af5ea6e8b00ae6510210ea480b816c72064f；SHA512 sha512-OE81b9ZfHK+Smj/mTKeSiEN3xoZl1ldREKpC5F7dRBSk+grHla/ylt+rbEpwlU/4GEzfaZyNp1prov8OvAiC5g==。
