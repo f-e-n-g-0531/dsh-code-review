@@ -1,5 +1,11 @@
 # 变更记录
 
+## 0.34.0
+
+- 服务显式reviewRounds=1..3（默认1避免静默增加发送）支持独立pass，后续轮不带首轮计划，各轮主审/候选反证与综合共享原调用/检索/超时预算，不继承模型对话或已读证据。
+- 各阶段reviewPasses与候选reviewRound保留，跨文件completedRounds完整才标完成；调用耗尽后未发送pass保留pending，取消/超时不伪造完成。预览minimumCalls及Markdown披露工作量。
+- 353离线测试及真实宿主smoke通过，待固定标签四矩阵与原工件发布核验。
+
 ## 0.33.7
 
 - C++窗口导航重复逐项confidence/notice移为统一免责声明，保留全部已生成line/expression/side，不裁剪hunk或批准源码。复现12KiB阻塞场景现为7217字节ready，预览/执行一致；导航不证明绑定/可达性或全部调用覆盖。

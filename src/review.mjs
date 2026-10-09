@@ -198,6 +198,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           }
         }
         }
+        if(report.modelCalls>=maxCalls)throw new Error('Model call budget exceeded before next review pass');
         if(rounds>1) state.reviewPasses[batchIndex].status='running';
         const request = { ...enclosingRequest, input: batchPayload };
         const auditStart = state.retrievalAudit?.length ?? 0;
@@ -248,7 +249,11 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           }
         }
         if (batch.synthesis) state.synthesisStatus = 'completed';
-        if (batch.interaction) report.interactions.find(p => p.groupId === batch.interaction.id).status = 'completed';
+        if (batch.interaction) {
+          const interaction=report.interactions.find(p => p.groupId === batch.interaction.id);
+          if(rounds>1){interaction.completedRounds??=[];interaction.completedRounds.push(batch.round);interaction.reviewRounds=rounds;}
+          if(batch.round===rounds)interaction.status='completed';
+        }
         if (state.windowCoverage && batch.round === 1) {
           state.windowCoverage.completed.push(...batch.windowIds);
           state.windowCoverage.pending = state.windowCoverage.pending.filter(id => !batch.windowIds.includes(id));
@@ -301,6 +306,7 @@ export function markdownReport(report) {
   if (report.history) output.push('- Git历史审查：' + safe(report.history.mode) + ' · ' + safe(report.history.base ?? 'empty') + ' → ' + safe(report.history.target) + '；精确端点树差异，重命名按增删，不含工作树');
   if (report.businessGrouping) output.push('- 业务分组：' + safe(report.businessGrouping.status) + (report.businessGrouping.reason ? ' — ' + safe(report.businessGrouping.reason) : '') + '；仅调度假设，不证明依赖或覆盖');
   for (const file of report.files) for (const plan of file.riskPlans ?? []) output.push('- 风险计划：' + safe(file.path) + ' · ' + safe(plan.status) + ' · ' + plan.risks.length + '项待证假设；不表示缺陷成立或覆盖完成');
+  for (const file of report.files) if(file.reviewPasses)output.push('- 独立审查轮次 '+safe(file.path)+'：'+file.reviewPasses.filter(p=>p.status==='completed').length+'/'+file.reviewPasses.length+'阶段完成；同一生命周期预算，后续轮无首轮计划；不证明代码正确。');
   for (const file of report.files) output.push('- ' + safe(file.path) + '：' + file.status + (file.reason ? ' — ' + safe(file.reason) : ''));
   if (report.grouping) {
     const names = new Map(report.files.map(f => [f.fileId, f.path]));
