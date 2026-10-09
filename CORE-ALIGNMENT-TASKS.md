@@ -108,6 +108,10 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 [逐文件清单](CORE-SOURCE-INVENTORY.md)解除Go/Python/Rust/ObjC/MATLAB/ArkTS最后省略状态，54规则阅读完成不等于D1验收。限定剩余审核链gitcmd/pathutil/model/session coverage行为，provider平台/telemetry不无限扩范围。随后功能缺口按任务实施。仅文档不变运行包。
 
+## 轮69：限定审核链依赖
+
+[逐文件清单](CORE-SOURCE-INVENTORY.md)新增gitcmd/pathutil/model六文件已读分类，session manifest前13000核查中；其余存储/resume/fullscan排除而不无限扩范围。匿名API403用既有Git凭据内存认证目录读取解决，不是blocker。下一步manifest后段后A1读取可收口并推进功能。仅文档运行包不变。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。

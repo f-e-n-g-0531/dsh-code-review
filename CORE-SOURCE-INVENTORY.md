@@ -302,6 +302,22 @@ Go前9500+尾段、Python前7000+尾段、Rust/ObjC与MATLAB/ArkTS完整直接�
 
 A1六核心目录与规则正文读取收口；相关审核链依赖需限定gitcmd/pathutil/model及session coverage状态行为，供应商SDK/平台持久resume/telemetry不纳实现目标。随后B1/B2/A2/A3/D1按验收实施，不再无限扩大源码表。
 
+## 轮69限定依赖核查
+
+匿名目录API403限流后用已有Git凭据内存认证读取目录，仅输出文件名，未打印凭据。明确审核链依赖范围：gitcmd runner/version、pathutil path、model diff/preview/review、session manifest覆盖行为；不无限扩provider/telemetry/resume平台。
+
+|参考文件|读取状态及判定|当前对应|
+|---|---|---|
+|[gitcmd/runner.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/gitcmd/runner.go)|已读，默认16 semaphore，ctx中止，combined/stdout/split/stream|process.mjs shell-free/windowsHide/字节时间限额、清GIT环境/no-lazy-fetch/no-replace更严格；不并发全仓探测|
+|[gitcmd/version.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/gitcmd/version.go)|已读，version probe/cache能力门禁|命令失败显式不吞，真实Git22/24跨平台tests，无独立version配置|
+|[pathutil/path.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/pathutil/path.go)|已读，Rel判root范围|relativePath/realpath/lstat/link拒绝及workspace repository containment已有，更严格所有link拒绝|
+|[model/diff.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/model/diff.go)|已读，paths/status/diff/oldnewcontent/churn|固定file ID两侧hash/changes精确区间；历史rename add/delete明确不同|
+|[model/preview.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/model/preview.go)|已读，review selection/estimate/identity|preview plan真实bytes/minCalls、owner/cwd/route/TTL/snapshot hash重捕获|
+|[model/review.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/model/review.go)|已读，loose comment category/suggestioncode/thinking|strict候选anchor/attribution/verification evidence，不自动fix不引入思维日志|
+|[session/manifest.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/session/manifest.go)|前13000读取中，failure types/frozen identity/coverage schema；后段尚未读|现files/windows/interactions/limitations/followup；需核查state transitions再分类|
+
+session comments/compare/delete/history/list/persist/raw_writer/resume/resume_identity/testing与model scan作为平台/存储/scan范围排除，不照搬。manifest后段是A1最后限定依赖读取项，完成后按功能验收实施，不能认为overall完成。
+
 ## B2权限待定
 
 旧存在目标不存在的路径必属删除changed，autoContext不得恢复selected排除；被选删除已有old/new来源，不复制成伪独立context-old。需先明确旧侧显式授权及changed冲突协议，不能简单空目标正文。
