@@ -93,6 +93,11 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   const report = { schemaVersion: 1, snapshotId: input.id, vcs: input.vcs, status: 'completed', files: [], findings: [], limitations: [], modelCalls: 0 };
   validateBusinessRequirement(input.businessRequirement);
   if(input.businessRequirement!==undefined)report.businessRequirement={hash:hash(input.businessRequirement),bytes:Buffer.byteLength(input.businessRequirement),status:'untrusted-constraint'};
+  if (input.callerDiscovery) {
+    report.callerDiscovery = structuredClone(input.callerDiscovery);
+    report.limitations.push({text:'调用者发现仅限批准目录内字面引用，不证明函数调用或完整覆盖；仅已捕获上下文可用于证据。'});
+    if (input.callerDiscovery.candidates.some(c=>c.status==='blocked')) report.limitations.push({text:'部分引用方因上下文名额限制未捕获。'});
+  }
   if (input.autoContext) {
     report.autoContext = structuredClone(input.autoContext);
     if (input.autoContext.truncated || input.autoContext.candidates.some(c => c.status === 'blocked')) report.limitations.push({ text: '自动上下文未完全捕获：存在截断或阻塞，仅实际捕获路径可用于证据。' });
@@ -268,6 +273,7 @@ const safe = text => Array.from(String(text ?? '')).map(c => {
 }).join('');
 export function markdownReport(report) {
   const output = ['# Code Review 报告', '', '状态：' + report.status, '快照：' + report.snapshotId, '', '## 覆盖情况'];
+  if (report.callerDiscovery) output.push('- 引用方发现：扫描 '+report.callerDiscovery.scanned.length+' 个文件，捕获 '+report.callerDiscovery.capturedPaths.length+' 个上下文；仅批准目录字面引用导航，不证明函数调用或完整覆盖。');
   if(report.businessRequirement)output.push('- 业务需求：SHA256 '+safe(report.businessRequirement.hash)+' · '+report.businessRequirement.bytes+' bytes；不可信约束，不是证据或权限，全文不在报告重复。');
   for (const file of report.files) for (const correction of file.anchorCorrections ?? []) output.push('- 定位纠正：' + safe(correction.originalCandidate.fileId) + ' · ' + safe(correction.status) + ' · ' + safe(correction.reason) + '；原完整候选保留JSON，仅定位不证明因果');
   if (report.history) output.push('- Git历史审查：' + safe(report.history.mode) + ' · ' + safe(report.history.base ?? 'empty') + ' → ' + safe(report.history.target) + '；精确端点树差异，重命名按增删，不含工作树');

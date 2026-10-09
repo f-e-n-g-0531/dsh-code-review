@@ -1,0 +1,66 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import {checked} from '../src/process.mjs';
+import {captureCallers} from '../src/caller-capture.mjs';
+async function fixture(t){
+ const root=await mkdtemp(path.join(os.tmpdir(),'dsh-caller-capture-'));
+ t.after(async()=>{assert.ok(path.basename(root).startsWith('dsh-caller-capture-'));await rm(root,{recursive:true,force:true});});
+ const git=(...args)=>checked('git',args,{cwd:root});await git('init');
+ await mkdir(path.join(root,'src'));await mkdir(path.join(root,'app'));
+ await writeFile(path.join(root,'src','dep.ts'),'export const x=1;');
+ await writeFile(path.join(root,'app','caller.ts'),"import {x} from '../src/dep';\nx();");
+ await writeFile(path.join(root,'app','negative.ts'),'const unrelated=1;');
+ await writeFile(path.join(root,'app','untracked.ts'),"import {x} from '../src/dep';");
+ await git('add','src','app/caller.ts','app/negative.ts');
+ return {root,git,files:[{path:'src/dep.ts',eligibility:'reviewable'}]};
+}
+test('caller capture includes only matched bodies and hashes every scanned negative working source',async t=>{
+ const {root,git,files}=await fixture(t);
+ const first=await captureCallers(root,files,['app']);
+ assert.deepEqual(first.context.map(s=>s.path),['app/caller.ts']);
+ assert.deepEqual(first.discovery.scanned.map(s=>s.path),['app/caller.ts','app/negative.ts']);
+ assert.equal(first.discovery.incomplete,true);
+ assert.ok(!JSON.stringify(first.discovery).includes('const unrelated'));
+ assert.equal(JSON.stringify(first),JSON.stringify(await captureCallers(root,files,['app'])));
+ await writeFile(path.join(root,'app','negative.ts'),'const unrelated=2;');
+ await assert.rejects(first.verify(),/source changed/);
+ const second=await captureCallers(root,files,['app']);
+ assert.equal(first.discovery.indexFingerprint,second.discovery.indexFingerprint);
+ assert.notEqual(first.discovery.scanned[1].hash,second.discovery.scanned[1].hash);
+ await writeFile(path.join(root,'app','caller.ts'),"import {x} from '../src/dep';\nx(42);");
+ assert.match((await captureCallers(root,files,['app'])).context[0].text,/42/);
+ await writeFile(path.join(root,'src','dep.js'),'x');await git('add','src');
+ assert.equal((await captureCallers(root,files,['app'])).context.length,0);
+});
+test('changed old paths rules credentials and nonregular index entries never become scanned bodies',async t=>{
+ const {root,git,files}=await fixture(t);
+ await mkdir(path.join(root,'app','.ssh'));
+ await writeFile(path.join(root,'app','.ssh','key.ts'),"import x from '../../src/dep';");
+ await writeFile(path.join(root,'app','excluded.ts'),"import x from '../src/dep';");
+ await git('add','app');
+ await git('update-index','--add','--cacheinfo','120000,e69de29bb2d1d6434b8b29ae775ad8c2e48c5391,app/link.ts');
+ const result=await captureCallers(root,[...files,{path:'app/excluded.ts',oldPath:'app/negative.ts',eligibility:'excluded'}],['app'],{rulePaths:['app/caller.ts']});
+ assert.deepEqual(result.discovery.scanned.map(s=>s.path),['app/untracked.ts']);
+ assert.ok(!result.discovery.scanned.some(s=>s.path.includes('.ssh')||s.path.includes('link')));
+});
+test('read failures cancellation and byte or file exhaustion fail instead of negative coverage',async t=>{
+ const {root,git,files}=await fixture(t);
+ const controller=new AbortController();controller.abort();
+ await assert.rejects(captureCallers(root,files,['app'],{signal:controller.signal}));
+ await writeFile(path.join(root,'app','negative.ts'),Buffer.from([0,1,2]));
+ await assert.rejects(captureCallers(root,files,['app']),/Binary/);
+ await writeFile(path.join(root,'app','negative.ts'),'x'.repeat(256*1024+1));
+ await assert.rejects(captureCallers(root,files,['app']),/size limit/);
+ await writeFile(path.join(root,'app','negative.ts'),'x'.repeat(230*1024));
+ for(let i=0;i<4;i++)await writeFile(path.join(root,'app','large'+i+'.ts'),'x'.repeat(230*1024));
+ await git('add','app');
+ await assert.rejects(captureCallers(root,files,['app']),/scan byte limit/);
+ for(let i=0;i<4;i++)await writeFile(path.join(root,'app','large'+i+'.ts'),'x');
+ await writeFile(path.join(root,'app','negative.ts'),'x');
+ for(let i=0;i<129;i++)await writeFile(path.join(root,'app','small'+i+'.ts'),'x');
+ await git('add','app');
+ await assert.rejects(captureCallers(root,files,['app']),/scan file limit/);
+});

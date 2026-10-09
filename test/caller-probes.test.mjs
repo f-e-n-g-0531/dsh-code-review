@@ -1,0 +1,27 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import {checked} from '../src/process.mjs';
+import {gitCallerProbes} from '../src/caller-probes.mjs';
+import {callerCandidates} from '../src/caller-candidates.mjs';
+test('real Git probes preserve directory symlink and conflicting resolution competitors',async t=>{
+ const root=await mkdtemp(path.join(os.tmpdir(),'dsh-caller-probes-'));
+ t.after(async()=>{assert.ok(path.basename(root).startsWith('dsh-caller-probes-'));await rm(root,{recursive:true,force:true});});
+ const git=(...args)=>checked('git',args,{cwd:root});await git('init');
+ await mkdir(path.join(root,'src')); await writeFile(path.join(root,'src','dep.ts'),'x');await git('add','src');
+ const files=[{path:'src/dep.ts',eligibility:'reviewable'}],scanned=[{path:'a.ts',text:"import x from './src/dep';"}];
+ const names=callerCandidates(files,scanned,[]).probePaths;
+ const first=await gitCallerProbes(root,names);
+ assert.equal(callerCandidates(files,scanned,first.paths).candidates.length,1);
+ await mkdir(path.join(root,'src','dep'));await writeFile(path.join(root,'src','dep','other.txt'),'x');await git('add','src');
+ const second=await gitCallerProbes(root,names);assert.ok(second.paths.includes('src/dep'));
+ assert.notEqual(first.fingerprint,second.fingerprint);assert.equal(callerCandidates(files,scanned,second.paths).candidates.length,0);
+ await git('update-index','--add','--cacheinfo','120000,e69de29bb2d1d6434b8b29ae775ad8c2e48c5391,src/dep.js');
+ assert.ok((await gitCallerProbes(root,names)).paths.includes('src/dep.js'));
+ assert.deepEqual((await gitCallerProbes(root,['src/*'])).paths,[]);
+ assert.notEqual((await gitCallerProbes(root,['missing-a'])).fingerprint,(await gitCallerProbes(root,['missing-b'])).fingerprint);
+ await assert.rejects(gitCallerProbes(root,Array(513).fill('x')),/probes/);
+ await assert.rejects(gitCallerProbes(root,['../escape']),/Unsafe/);
+});
