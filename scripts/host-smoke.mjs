@@ -75,7 +75,12 @@ try {
   assert.match(output.markdown, /Code Review/);
   assert.deepEqual(await checked('git', ['status', '--porcelain=v1'], { cwd: root }), statusBefore);
   assert.equal(await readFile(path.join(root, 'sample.js'), 'utf8'), 'const value = 1;');
-  console.log('Host-invoked offline adapter completed review without additional approval via current Agent route without modifying Git content.');
+  const roundsPreview=JSON.parse((await previewTool.execute({reviewRounds:2},exec)).json);
+  assert.equal(roundsPreview.plan.reviewRounds,2);assert.equal(roundsPreview.plan.minimumCalls,2);
+  const twice=JSON.parse((await tools.get('code_review_execute').execute({previewId:roundsPreview.previewId,confirmed:true},exec)).json);
+  assert.equal(modelCalls,3);assert.equal(twice.files[0].reviewPasses.length,2);assert.ok(twice.files[0].reviewPasses.every(p=>p.status==='completed'));assert.equal(approvalCalls,0);
+  assert.deepEqual(await checked('git',['status','--porcelain=v1'],{cwd:root}),statusBefore);
+  console.log('Host-invoked offline adapter completed single and explicit double review without additional approval via current Agent route without modifying Git content.');
 } finally {
   assert.ok(path.basename(root).startsWith('dsh-review-host-'));
   await rm(root, { recursive: true, force: true });
