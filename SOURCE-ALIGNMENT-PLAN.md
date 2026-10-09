@@ -2,6 +2,10 @@
 
 对标alibaba/open-code-review固定提交2d67596c961f80436deb2afa643efa2b1725d34c，仅借鉴已核实审查设计，自行实现，非全仓等价承诺。总体对齐持续活动（当前48轮检查点不是完成理由），七项不是全量清单；继续核查核心源码发现差距纳入后续，未对齐不标完成。每批完成测试差异复核提交推送正式新版本；固定标签四矩阵CI→Actions npm→相同tgz Release核验。实际模型试跑后置，不自动安装重启，不管理平台/自动修复/独立模型费用。
 
+## 轮51：Git自动上下文不全索引
+
+直接已捕获源码候选512探针，仅literal index对应路径metadata，capture结尾同probe重核fingerprint；1MiB累计/64KiB单个，目录扩张拒绝，普通tracked/changed排除保持。11000大树auto import与相关索引变更/无关指纹/通配/限额回归283通过，冻结0.30.0。已读tool_args_json.go仅尾随JSON恢复，strict替代记录；SVN索引/caller及核心loop未完成。
+
 ## 轮50：工作树小改不枚举HEAD
 
 已读preview.go共享选择/无模型及provider排除统计行为；进一步发现工作captureGit仍全HEAD metadata，改仅可读change基线字面非递归lookup，上限200原变化/旧rename路径，排除凭据不读取。11000大树4Shader工作改捕获/哈希/status回归通过，282测试，冻结0.29.2。autoContext tracked索引/目录排除统计及核心agent流程仍待，目标继续。

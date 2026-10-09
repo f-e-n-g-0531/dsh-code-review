@@ -39,9 +39,10 @@ export async function captureSnapshot(cwd, options = {}) {
   if (!Array.isArray(rulePaths) || rulePaths.some(name => contextPaths.includes(name))) throw new Error('Rule paths must be separate from context paths');
   const rules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
   const context = [];
-  let autoContext, index;
+  let autoContext, index, indexOptions = options;
   if (options.autoContext === true) {
-    index = await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, options);
+    if(type==='git'){const probes=new Set();contextCandidates(snapshot.files,[],{onProbe:paths=>{for(const p of paths)probes.add(p);if(probes.size>512)throw new Error('Git context lookup limit exceeded');}});indexOptions={...options,probePaths:[...probes]};}
+    index = await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, indexOptions);
     const plan = contextCandidates(snapshot.files, index.paths);
     autoContext = { ...plan, candidates: plan.candidates.filter(c => !contextPaths.includes(c.path) && !rulePaths.includes(c.path)), capturedPaths: [] };
     for (const candidate of autoContext.candidates) {
@@ -63,7 +64,7 @@ export async function captureSnapshot(cwd, options = {}) {
   // Re-capture verifies both selected sides while collecting explicit context.
   if ((await capture(cwd, options)).id !== snapshot.id) throw new Error('Snapshot changed while collecting context');
   for (const item of context) if ((await readLocal(snapshot.root, item.path, options)).hash !== item.hash) throw new Error('Context changed during capture');
-  if (index && (await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, options)).fingerprint !== index.fingerprint) throw new Error('Tracked context index changed during capture');
+  if (index && (await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, indexOptions)).fingerprint !== index.fingerprint) throw new Error('Tracked context index changed during capture');
   const verifiedRules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
   if (JSON.stringify(verifiedRules) !== JSON.stringify(rules)) throw new Error('Rules changed during capture');
   const result = { ...snapshot, context, ...(autoContext ? { autoContext } : {}), ...(rules.length ? { rules } : {}) };

@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.30.0
+
+- Git自动直接上下文改512字面候选index探针，不枚举全tracked；普通tracked有效性及同probe竞态重核保持。
+- 累计metadata1MiB/每probe64KiB、目录扩张拒绝；11000大树auto及指纹相关性回归，283测试通过。SVN索引未改。
+
 ## 0.29.2
 
 - Git工作副本基线捕获不再全HEAD枚举，仅可审查变更基线路径literal非递归lookup，改名使用oldPath，删除/子模块边界不变。
