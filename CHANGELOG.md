@@ -4,7 +4,7 @@
 
 - 服务显式reviewRounds=1..3（默认1避免静默增加发送）支持独立pass，后续轮不带首轮计划，各轮主审/候选反证与综合共享原调用/检索/超时预算，不继承模型对话或已读证据。
 - 各阶段reviewPasses与候选reviewRound保留，跨文件completedRounds完整才标完成；调用耗尽后未发送pass保留pending，取消/超时不伪造完成。预览minimumCalls及Markdown披露工作量。
-- 353离线测试及真实宿主smoke通过，待固定标签四矩阵与原工件发布核验。
+- 353冻结离线测试及真实宿主smoke、固定标签四矩阵通过；唯一发布37915572586原工件92276字节与npm/Release逐字节及双hash一致。
 
 ## 0.33.7
 

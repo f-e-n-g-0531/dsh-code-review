@@ -25,7 +25,7 @@ C3新增可复现场景：重复零参调用的大C++文件在12KiB模型预算�
 
 ## 验收结论
 
-- v0.34.0冻结38caf51：标签CI37915325263通过；唯一发布37915572586四矩阵通过，registry核验等待中；原artifact11609188405已保存92276字节，SHA256 0309651af9ebae5fb0693210b051dc1bc63619a0441757884949a656bc6bc88d，SHA512 sha512-ukzXyFg/FtMF3xxJWniqlRBObjvXeUDYQh8DSA/nONYUcK5iIoUh28Rz1MmslqR1cz6/ZvG5+ITY2wsy3eh3dg==。公开字节未核验，不宣称正式。额外验收：不同pass不继承检索片段/receipt，caller修改不影响批准正文；旧receipt在新复核拒绝并保留incomplete候选。
+- v0.34.0冻结38caf51：标签CI37915325263通过；唯一发布37915572586四矩阵通过，registry核验等待中；原artifact11609188405已保存92276字节，SHA256 0309651af9ebae5fb0693210b051dc1bc63619a0441757884949a656bc6bc88d，SHA512 sha512-ukzXyFg/FtMF3xxJWniqlRBObjvXeUDYQh8DSA/nONYUcK5iIoUh28Rz1MmslqR1cz6/ZvG5+ITY2wsy3eh3dg==。npm/Release实际字节逐字节一致，双hash及校验清单匹配，正式交付。额外验收：不同pass不继承检索片段/receipt，caller修改不影响批准正文；旧receipt在新复核拒绝并保留incomplete候选。
 
 - v0.33.7冻结b7f5f95：标签CI37913636438，唯一发布37914089607，原artifact11609330268；npm/Release91349字节逐字节一致，SHA256 5c3d1cc39a844755741e39f7e748c0dd81309ad4d751417bff09ec5167eec7db，SHA512 sha512-rMRqzCLaghsAO+fhsxC7GO7fKF3L8/+/M4OSUu8D+aWcXHhtpospXIxTfHcf9gvsCIbOnC0Q68X9wUhk3fRZ8Q==，校验清单匹配。
 
