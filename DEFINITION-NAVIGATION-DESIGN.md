@@ -21,4 +21,8 @@ import-call-sites已识别named import alias的独立调用行，directImportBin
 
 先纯导航parser测试，再snapshot reader预算（共享50 operations/256KiB输出）、协议整批校验与catalog side身份，最后模型提示与端到端。覆盖同名、alias、遮蔽、注释、旧侧、耗尽与取消。实例调用确切绑定另列后续，不以此窄首批称B3全覆盖。
 
-最终策略实施前仍需对固定参考定义工具输入输出核对；当前属于最小设计提案，不是已批准模型可调用操作或交付完成。
+轮101重读固定参考internal/tool/definitions.go，确认是工具注册定义而不是符号解析器；内建TaskDone/CodeComment/FileRead/FileFind/FileReadDiff/CodeSearch，没有独立symbol lookup。因此以上结构化操作提案暂停，不以工具数量对齐。先用已有approved search（sourceIds限定）→read定位必要定义，验收同名/别名/旧侧/输出耗尽与准确证据；只有验证发现必要缺口才考虑纯导航增强。实例/别名链上下文缺口仍保留，不能凭工具注册表称参考有语义解析。
+
+源码依据：https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/definitions.go
+
+轮101发布运行37905053267：Ubuntu两矩阵通过，Windows两矩阵仍运行，原Actions工件尚未保存、正式Release未生成，未重复dispatch。
