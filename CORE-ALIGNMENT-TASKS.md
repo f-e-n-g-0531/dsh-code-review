@@ -18,7 +18,7 @@
 3. B3：必要未捕获定义、别名链及实例上下文；现有search/read边界已验收。
 4. A2：剩余预算拆分场景；小变更免风险规划已正式交付；小变更阈值本地分组已正式交付；分组失败、共享调用上限、跨组遗漏已验收。固定参考少于4文件时总churn<200本地bundle，否则per-file，不等于风险计划跳过阈值。
 5. A3：v0.34.0服务独立1..3pass正式交付；v0.34.1入口reviewRounds正式交付，实际ToolRuntime双轮及快照/路由/确认/owner/TTL/重放拒绝通过；guard/不可达/原有缺陷/缺caller受控响应全流程已验收（原文双侧receipt校验，不证明模型会自行发现或判断正确）；预算退出、typed失败、选择分母与空排除已离线验收。真实模型质量后置。
-6. D1：必要语言专用缺陷及路径规则分派；具体差距见源码清单。下一候选合并protocol-schema五类专用指导：proto/thrift/capnp/GraphQL/Prisma当前实测均generic、同两条purpose提示（4总checks），存在numeric identifier提示误投GraphQL风险。需保持wire与source/API兼容区别、各类反证及消费者/版本前提，并验证主审/复核/窗口输入预算，不新增源读取或通用规则加载。
+6. D1：必要语言专用缺陷及路径规则分派；具体差距见源码清单。下一候选合并protocol-schema五类专用指导：proto/thrift/capnp/GraphQL/Prisma当前实测均generic、同两条purpose提示（4总checks），存在numeric identifier提示误投GraphQL风险。需保持wire与source/API兼容区别、各类反证及消费者/版本前提，消费者已核查：primary guidance进入full/window base及跨窗口synthesis；interaction逐文件guidance，verification优先继承envelope再按path回退。集中验收需覆盖五类大小写/备份不误匹配、反证提示、主审/复核/interaction/window共享输入预算与零额外call；不新增源读取或通用规则加载。
 7. E1：上述能力场景矩阵及端到端验收。
 
 C3新增可复现场景：重复零参调用的大C++文件在12KiB模型预算下，窗口仍因导航元数据超限input-blocked；不能扩大预算或丢原证据，v0.33.7候选仅统一重复confidence/notice，全部已生成line/expression/side保留，复現输入7217字节；原文两侧read及更低预算blocked已验收，已正式公开工件核验。C2受控畸形输出处理、C3长输入仅具体场景证明确有必要才补；严格失败、原文证据保留为安全替代，不新增无限重试/宽松接受。
