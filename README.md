@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-当前正式版本为 0.34.1（固定标签四矩阵及npm/Release原工件字节双hash门禁通过）。JSON围栏兼容与有界窗口上下文已交付；实际项目审查效果仍需原报告和新预览执行验证。
+当前正式版本为 0.35.0（固定标签四矩阵及npm/Release原工件字节双hash门禁通过）。JSON围栏兼容与有界窗口上下文已交付；实际项目审查效果仍需原报告和新预览执行验证。
 
 Git历史预览新增oldContextPaths：最多20个显式仓库相对文件，与contextPaths/自动上下文共享20槽、256KiB每blob及4MiB快照。仅从baseline普通Git blob捕获，不checkout/fetch/读取工作树；根提交无baseline拒绝，working/SVN明确拒绝。旧侧条目携带oldRevision/oldBlobOid/oldHash，仅进入context-old；oldOnly表示仅批准旧侧，不证明target路径不存在。所选变更复用原changed-old，不重复上下文；excluded/blocked变更、链接/submodule、凭据路径不能重新进入。预览显示身份元数据、不显示正文，确认执行才按宿主正常权限发送。主审/综合/复核按侧提示，计入原输入预算，旧证据不能冒充新侧回归证明。
 
@@ -30,7 +30,7 @@ C#自动上下文支持窄语法同目录Type.cs静态零参调用探针，需fi
 
 历史捕获用diff-tree精确端点变更元数据，不前置完整枚举文件树；显式上下文/规则和直接导入依赖按字面非递归路径查询。自动依赖最多512个待查路径，仍保留200变更/20上下文/4MiB快照限制，大树小提交不因无关文件元数据超限。
 
-历史自动上下文也导航旧侧import/include，仅未修改且两侧普通blob；上下文oldText/oldRevision和目标revision明确，检索context-old单独身份，仍共用20文件总量及4MiB快照。旧侧独有/删除上下文暂不捕获，调用者覆盖仍不保证。
+历史自动上下文导航旧侧import/include：未修改依赖保留两侧普通blob及版本；已批准删除依赖复用原changed-old，不重复捕获或占用上下文槽。excluded/blocked删除不恢复，目标链接不赋予新侧权限。新增上下文仍共享20槽、blob字节及4MiB快照限额，自动来源边界其余场景待验收；导航不证明调用者覆盖或符号绑定。
 
 单提交审查直接读取原始commit头的父节点，不受浅克隆遍历边界影响；缺失父树明确失败且不自动fetch，不能把非根提交当空旧侧。
 

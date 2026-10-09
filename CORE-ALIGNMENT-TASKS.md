@@ -14,7 +14,7 @@
 ## 未完成
 
 1. B1：历史/SVN调用方发现与必要语义caller场景。
-2. B2：v0.35.0候选自动旧侧删除依赖复用批准changed-old；真实Git服务预览/重捕获/execute/read、满槽复用与排除不恢复已验收，待正式核验。其他旧侧独有来源/链接及预算场景仍需闭环；显式首批已交付。
+2. B2：v0.35.0自动旧侧删除依赖复用批准changed-old已正式交付；真实Git服务预览/重捕获/execute/read、满槽复用与排除不恢复已验收。其他旧侧独有来源/链接及预算场景仍需闭环；显式首批已交付。
 3. B3：必要未捕获定义、别名链及实例上下文；现有search/read边界已验收。
 4. A2：剩余预算拆分场景；小变更免风险规划已正式交付；小变更阈值本地分组已正式交付；分组失败、共享调用上限、跨组遗漏已验收。固定参考少于4文件时总churn<200本地bundle，否则per-file，不等于风险计划跳过阈值。
 5. A3：v0.34.0服务独立1..3pass正式交付；v0.34.1入口reviewRounds正式交付，实际ToolRuntime双轮及快照/路由/确认/owner/TTL/重放拒绝通过；guard/不可达/原有缺陷/缺caller受控响应全流程已验收（原文双侧receipt校验，不证明模型会自行发现或判断正确）；预算退出、typed失败、选择分母与空排除已离线验收。真实模型质量后置。
@@ -25,7 +25,7 @@ C3新增可复现场景：重复零参调用的大C++文件在12KiB模型预算�
 
 ## 验收结论
 
-- v0.35.0冻结06deba9：标签CI37917761142通过；唯一发布37918056608四矩阵通过、registry核验等待。原artifact11610243325已保存92968字节，SHA256 f46126682f917b88a848512ab6d6e00caaa75e177d9065e983de8a9c8ccb3ade，SHA512 sha512-h/TKIHsGRO/xb8vnUYx4GUxJGCxqWZFxMlaCWO9pYvXndo5p/Lylnn1ir8o+qYor+fGgjsNyFsDNfxEOCfCD7g==；公开字节尚未核验，不宣称正式。
+- v0.35.0冻结06deba9：标签CI37917761142通过；唯一发布37918056608成功。原artifact11610243325已保存92968字节，SHA256 f46126682f917b88a848512ab6d6e00caaa75e177d9065e983de8a9c8ccb3ade，SHA512 sha512-h/TKIHsGRO/xb8vnUYx4GUxJGCxqWZFxMlaCWO9pYvXndo5p/Lylnn1ir8o+qYor+fGgjsNyFsDNfxEOCfCD7g==；npm/Release实际字节逐字节一致，双hash及校验清单匹配，正式交付。
 
 - v0.34.1冻结df24f41：标签CI37916385091通过，唯一发布37916636188成功，原artifact11609634644；npm/Release92590字节逐字节一致，SHA256 89a291fbc76806331eefb5d3e9caa7f4c892ae50c7b16e3f4b36d995578ac864，SHA512 sha512-5LH6oR3yHA0HPWMdZGzxwiBgl0ZWIFBWMEiNyF5sY4kIXLksseyRu3sxgjcgsyWV2ku/1OniJB21sCVQ4B5riQ==，校验清单匹配。
 
