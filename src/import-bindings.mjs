@@ -11,6 +11,10 @@ export function directImportBindings(lines, importLine, calls, targetText) {
   const token = new RegExp('(^|[^A-Za-z0-9_$])' + local.replaceAll('$', '\\$') + '([^A-Za-z0-9_$]|$)');
   const positions = calls.filter(c => c.local === local);
   if (!positions.length) continue;
+  // Arguments may mutate/escape the alias on the SAME indexed call line.
+  // Keep a hint only when the sole local token is the call callee.
+  const occurrences = new RegExp('(^|[^A-Za-z0-9_$])' + local.replaceAll('$', '\\$') + '(?=[^A-Za-z0-9_$]|$)', 'g');
+  if (positions.some(call => [...lines[call.line - 1].matchAll(occurrences)].length !== 1)) continue;
   // Every other occurrence may be declaration, parameter, mutation or escape.
   if (lines.some((line, i) => i + 1 !== importLine && !positions.some(c => c.line === i + 1) && token.test(line))) continue;
   const declarations = targets.map((line, i) => ({ line, number: i + 1 })).filter(item => /^\s*export\s+(?:async\s+)?function\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.exec(item.line)?.[1] === imported);

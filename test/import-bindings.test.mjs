@@ -33,6 +33,13 @@ test('actual primary inputs preserve binding locations and target mutation rejec
  assert.deepEqual(resolve(lines, target + String.fromCharCode(10) + 'run = other;'), []);
  assert.deepEqual(resolve(lines, target + String.fromCharCode(10) + 'const run = replacement;'), []);
 });
+test('same-line alias mutation escape and nested alias calls do not assert binding', () => {
+ for (const call of ['execute(execute = other);','execute(execute);','execute(execute());','execute({ execute });','execute(() => execute);']) {
+  assert.equal(importedCallSites([lines[0],call],1).length,1);
+  assert.deepEqual(resolve([lines[0],call]), []);
+ }
+ assert.equal(resolve([lines[0],'execute(next);']).length,1);
+});
 test('shadowing assignment escapes ambiguous exports and reexports fail closed', () => {
  for (const extra of ['function outer(execute) {', 'const execute = local;', 'execute = local;', 'consume(execute);']) assert.deepEqual(resolve([...lines, extra]), []);
  for (const text of [target + String.fromCharCode(10) + target, "export { run } from './other.js';", '/* comment */' + target]) assert.deepEqual(resolve(lines, text), []);
