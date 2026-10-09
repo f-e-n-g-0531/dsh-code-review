@@ -117,6 +117,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     const prepared = preparePrimaryInput(input, file, { instructions: REVIEW_INSTRUCTIONS, scope, grouping: report.grouping, maxInputBytes });
     const { changes, payload } = prepared;
     Object.assign(state, prepared.metadata);
+    if (state.contextMode === 'approved-retrieval') report.limitations.push({ fileId: file.id, text: '窗口初始输入仅带上下文身份目录，全文须按需读取；不声明所有上下文已核查。' });
     if (prepared.synthesis) state.synthesisStatus = prepared.synthesis.budget.fits ? 'pending' : 'blocked';
     if (prepared.synthesis && !prepared.synthesis.budget.fits) report.limitations.push({ fileId: file.id, text: '跨窗口综合输入超限，未发送；单窗口完成不表示交互影响已检查' });
     if (state.sourceMode === 'change-windows') state.windowCoverage = { completed: [], pending: [...state.windowIds] };
