@@ -2,6 +2,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {reviewSnapshot,markdownReport} from '../src/review.mjs';
 import {createDshModel} from '../src/dsh-model.mjs';
+test('cancellation retains completed primary and cancels only pending approved files',async()=>{
+ const controller=new AbortController();let sends=0;
+ const report=await reviewSnapshot({id:'s',vcs:'git',context:[],files:[file('done'),file('cancel'),{id:'skip',path:'skip.cpp',eligibility:'excluded'}]},async req=>{sends++;if(sends===2){controller.abort(new Error('user stopped'));throw req.signal.reason;}return {findings:[],limitations:[]};},{signal:controller.signal});
+ assert.equal(sends,2);assert.equal(report.status,'cancelled');assert.deepEqual(report.files.map(f=>f.status),['completed','cancelled','excluded']);assert.deepEqual(report.followup.suggestedPaths,['cancel.cpp']);assert.equal(report.coverage.completed,1);
+});
+test('failure summaries escape untrusted paths and reasons without generating findings',async()=>{
+ const report=await reviewSnapshot({id:'s',vcs:'git',context:[],files:[{...file('f'),path:'a<script>.cpp'}]},()=>{throw Error('<img> [fake](https://bad)');});
+ const summary=markdownReport(report);assert.ok(!summary.includes('<script>'));assert.ok(!summary.includes('<img>'));assert.ok(summary.includes('&lt;img&gt;'));assert.equal(report.findings.length,0);assert.equal(report.status,'failed');
+});
 const file=(id,text='new();')=>({id,path:id+'.cpp',eligibility:'reviewable',properties:[],left:{text:'old();'},right:{text}});
 test('mixed protocol timeout and input failures retain exact coverage instead of clean bill',async()=>{
  const files=[file('ok'),file('format'),file('timeout'),file('huge','x'.repeat(50000))];let sent=[];
