@@ -13,7 +13,7 @@
 
 ## 未完成
 
-1. B1：历史caller底层固定OID限定目录索引/精确竞争路径metadata已实现验收（非普通blob不授正文、256记录/64KiB、512探针/1MiB；绑定missing名及commit），已接入历史两侧blob扫描及preview/execute，真实Git同catalog/版本、非匹配hash及满槽阻塞验收通过；两侧共享30秒/128正文/1MiB，旧Only复用不自动批准new。v0.36.0冻结5830853；集中预算/根提交/删除/竞争及真实宿主门禁通过，移动range引用导致非匹配caller变化在发送前拒绝已验收。标签CI37929559884四矩阵通过；唯一发布37929860863成功。共享正文字节耗尽及未读二进制非匹配fail-closed已验收；原工件公开字节双hash核验通过，历史字面caller导航正式交付，不等价语义调用覆盖。SVN限定目录离线status索引基础已实现（256记录/64KiB，目录真实路径/状态校验，normal候选筛选、修改非匹配fingerprint验收）；祖先depth<=32的离线status/info/proplist、真实目录、wcroot/UUID一致及externals/special阻断已实现；已提交externals与修改目录拒绝验收。尚未接正文/probes/节点属性及preview/execute，switched/嵌套外部端到端场景仍待，不宣称SVN caller交付。必要语义caller场景仍未完成。
+1. B1：历史caller底层固定OID限定目录索引/精确竞争路径metadata已实现验收（非普通blob不授正文、256记录/64KiB、512探针/1MiB；绑定missing名及commit），已接入历史两侧blob扫描及preview/execute，真实Git同catalog/版本、非匹配hash及满槽阻塞验收通过；两侧共享30秒/128正文/1MiB，旧Only复用不自动批准new。v0.36.0冻结5830853；集中预算/根提交/删除/竞争及真实宿主门禁通过，移动range引用导致非匹配caller变化在发送前拒绝已验收。标签CI37929559884四矩阵通过；唯一发布37929860863成功。共享正文字节耗尽及未读二进制非匹配fail-closed已验收；原工件公开字节双hash核验通过，历史字面caller导航正式交付，不等价语义调用覆盖。SVN限定目录离线status索引基础已实现（256记录/64KiB，目录真实路径/状态校验，normal候选筛选、修改非匹配fingerprint验收）；祖先depth<=32的离线status/info/proplist、真实目录、wcroot/UUID一致及externals/special阻断已实现；已提交externals与修改目录拒绝验收。普通source节点离线info/status/proplist与wcroot/UUID、special/keywords拒绝、512本地lstat竞争探针基础已实现验收（只metadata不授正文）；尚未接正文/负hash复核及preview/execute，switched/嵌套外部端到端场景仍待，不宣称SVN caller交付。必要语义caller场景仍未完成。
 2. B2：v0.35.0自动旧侧删除依赖复用批准changed-old已正式交付；真实Git服务预览/重捕获/execute/read、满槽复用与排除不恢复已验收。二进制删除依赖blocked不获检索权限、两侧扩展名独立解析及原身份read已验收。其他旧侧独有来源/链接及预算场景仍需闭环；显式首批已交付。
 3. B3：必要未捕获定义、别名链及实例上下文；现有search/read边界已验收。
 4. A2：剩余预算拆分场景；小变更免风险规划已正式交付；小变更阈值本地分组已正式交付；分组失败、共享调用上限、跨组遗漏已验收。固定参考少于4文件时总churn<200本地bundle，否则per-file，不等于风险计划跳过阈值。
