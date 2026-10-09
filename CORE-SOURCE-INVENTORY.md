@@ -1,6 +1,6 @@
 # 固定参考核心逐文件清单
 
-固定提交2d67596c961f80436deb2afa643efa2b1725d34c；轮56通过contents API目录枚举所得，排除测试，逐条记录生产源码/模板/规则文档。读取不等于功能闭环。跨目录session/model/llm/gitcmd依赖仍须后续补。第二次API收集遭非数组响应，采用本轮已成功读取的目录结果，不推断遗漏文件。
+固定提交2d67596c961f80436deb2afa643efa2b1725d34c；生产核心源码、模板、54篇规则正文及有界相关依赖已分类。读取不等价能力完成；具体验收状态见CORE-ALIGNMENT-TASKS.md。
 
 |文件|读取状态|任务|
 |---|---|---|
@@ -120,14 +120,14 @@
 |[config/rules/rule_docs/yaml.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/yaml.md)|已读正文；能力验收待D1|D1|
 |[config/rules/rule_docs/zig.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/rule_docs/zig.md)|已读正文；能力验收待D1|D1|
 
-## 本轮四文件判定
+## 四文件判定
 
 - estimate.go：固定overhead/平均7轮token估算，删除跳过；现coverage-plan真实bytes/minCalls为明确安全替代，不做独立成本平台。
 - identity.go：selection后冻结输入及规则hash、range merge-base；现preview/execute重捕获身份，exact端点为刻意替代，resume持久平台不照搬。
 - util.go：confirmed裁剪、空plan块移除、fence剥离/XML/token；现strict JSON及原始证据预算替代，多pass仍待A3。
 - format.go：规则source/pattern/适用文件Markdown；现规则显式统一，路径分派D1未完，不重印不可信规则。
 
-## 轮57工具/定位逐文件判定
+## 工具/定位逐文件判定
 
 - tool/file_read.go：500行上限、显式truncated/范围/总行；我们200行快照来源ID+hash、64KiB/result累计256KiB，严格整数/整批预校验为安全替代。
 - tool/filereader.go：workspace实时文件/symlink范围，历史ref git show、30s/stream全行计数；我们执行前捕获稳定OID/正文，执行只snapshot，拒绝所有link且字节限额。范围外必要caller仍B1，实时读取不照搬。
@@ -143,7 +143,7 @@
 
 此轮tool/llmloop清单已读项齐，不等于A1全部闭环：diff另外5文件、config及模板/规则正文、跨目录依赖仍待。
 
-## 轮58剩余Diff分类
+## 剩余Diff分类
 
 - diff/hunk.go：unified @@默认count1、去no-newline元数据、按prefix提取；我们两侧正文line-diff/change-map原始行区间，限额limited明确，不解析任意patch。
 - diff/parser.go：quoted header/CRLF/new/deleted/rename/binary/churn，finalize读取失败仅warning正文空；我们NUL metadata与受限blob/local捕获，失败blocked不会空正文伪成功。
@@ -153,7 +153,7 @@
 
 Diff目录8生产文件已读；config模板/规则正文和相关跨目录依赖A1仍未完成，不能停止于此。
 
-## 轮59审查模板15文件
+## 审查模板15文件
 
 - template.go/task_template.json：默认独立2review rounds，100tool请求，200000prompt tokens/16384completion；plan单file50行或group100、grouping少于4且总churn<200本地bundle，否则perfile；我们bytes/calls/120s固定budget非token等价。小变更skip A2与独立multi-pass A3明确未实现，不以retrieval3轮充当review轮。
 - effort.go：low/medium/high映射review1/2/3次，是审查工作量不是模型reasoning effort；插件继承DSH模型effort不等价，独立pass需预算/预览/coverage协议后实现，不引入模型平台。
@@ -166,7 +166,7 @@ Diff目录8生产文件已读；config模板/规则正文和相关跨目录依�
 
 scan_template.json尚未读需界定full scan范围；其他config规则/allowlist/工具schema及依赖仍待。
 
-## 轮60其余配置九文件
+## 其余配置九文件
 
 - allowed_ext.go/supported_file_types.json：大小写无关扩展allowlist；default_exclude_patterns.json排除tests/fixture/generated/dependencies/build/lock等。我们严格可解码有界文本+显式changed选择，凭据强门禁；不因扩展隐藏未知文本，也不静默排除测试/锁文件真实缺陷，明确行为不同。必要语言指导映射D1未完成，非扩大无界扫描。
 - system_rules.go：有序first-match pattern，custom>project>global>system，用户默认replace可merge_system_rule，最高有include/exclude层负责filter（不是层合并），规则来源pattern可追踪；项目root自动读rule.json/引用文件，global/home自动读，文件512KiB及symlink检查。我们显式rulePaths4个/16KiB每个/32KiB合计、批准snapshot/hash保持，不自动项目/global读取；路径分派与来源透明仍D1，不能称完全等价。
@@ -176,7 +176,7 @@ scan_template.json尚未读需界定full scan范围；其他config规则/allowli
 
 六目录生产配置源码现已读；54篇rule_docs仍未读，对语言能力不能泛称完成；相关跨目录依赖也待补。
 
-## 轮61首批语言正文与D1验收缺口
+## 首批语言正文与D1验收缺口
 
 直接fetch default/c/cpp/go/java/ts_js_tsx_jsx/python/rust/objc/matlab/fsharp/kotlin共12篇；输出长字符串被格式器省略，读取spill和raw尾段补内容但保守记正文核查中，不称全文闭环。当前defect-guidance版本4按实际正文对比，检查项仅生成导航不是事实证明。
 
@@ -196,7 +196,7 @@ scan_template.json尚未读需界定full scan范围；其他config规则/allowli
 
 D1后续优先补F#专用及Go版本反证，其他规则剩余42篇仍未读；不把首批映射当语言全覆盖。
 
-## 轮62协议与配置15篇正文
+## 协议与配置15篇正文
 
 本轮直接正文读取完整（最大6422字），对应现有protocol-schema/configuration/dependency-manifest/workflow指引为部分，不等于具体协议语义齐。
 
@@ -218,7 +218,7 @@ D1后续优先补F#专用及Go版本反证，其他规则剩余42篇仍未读；
 
 首批12篇仍保守核查中；本批15篇已读，余27篇未读。D1协议细分及依据透明仍待实现，caller/旧context不因规则阅读完成。
 
-## 轮63模板/基础设施/策略十篇
+## 模板/基础设施/策略十篇
 
 完整读取astro/freemarker/handlebars_mustache/jinja/pug/bicep/terraform/nix/rego/jsonnet（最长Pug7702字符）。现模板/infrastructure通用提示只有大类对应，不能声称引擎语义已实现。
 
@@ -237,7 +237,7 @@ D1后续优先补F#专用及Go版本反证，其他规则剩余42篇仍未读；
 
 余17篇规则未读，首批12长文仍核查中；D1专用指引需场景测试，不把读取当交付。
 
-## 轮64剩余语言与翻译11篇
+## 剩余语言与翻译11篇
 
 直接读取arkts/elm/haskell/julia/nim/ocaml/php/mapper_dao_xml/po/pot/r；首组长文组合显示省略，保守记录正文已取但需小段补核查，不声明完整闭环。PHP/R及映射翻译组完整显示。
 
@@ -250,7 +250,7 @@ D1后续优先补F#专用及Go版本反证，其他规则剩余42篇仍未读；
 
 现在6篇规则仍未读（solidity/swift/verilog/vhdl/vyper/zig），首批12+本批首组6需要补核查；相关依赖仍待。
 
-## 轮65最后六篇正文
+## 最后六篇正文
 
 完整读取solidity/swift/verilog/vhdl/vyper/zig，最长Swift8201字符，本次直接正文无省略。规则清单不再有从未读取条目，但前批长文核查状态仍保留，不等于A1/D1闭环。
 
@@ -261,9 +261,8 @@ D1后续优先补F#专用及Go版本反证，其他规则剩余42篇仍未读；
 - VHDL：generic不足；delta更新、signal vs variable、signed resize保留sign、range方向、CDC/recovery需专用；完整case不要求others，process(all)有2008前提，不能忽略target支持。
 - Zig：generic不足；allocator匹配/errdefer/借用逃逸、errorunion/optional、C布局ownership、buildmode/版本需专用；Debug安全检查仍可能真实panic，但不能泛称ReleaseFast之外无bug。编译与格式重复不报告。
 
-下一阶段先补此前18篇长文的小段读取、限定gitcmd/pathutil/model/session实际审核依赖而非平台全量；后按B1/B2/A2/A3/D1验收实现，不把read状态当completion。
 
-## 轮66五篇长文补核查
+## 五篇长文补核查
 
 小批次完整输出Elm/Haskell与Julia/Nim/OCaml，原省略部分已补；这些现为generic，D1专用能力未实现。
 
@@ -275,7 +274,7 @@ D1后续优先补F#专用及Go版本反证，其他规则剩余42篇仍未读；
 
 剩13篇前批核查状态需补正文；A1相关依赖范围也未完成，不能先把功能任务标闭环。
 
-## 轮67七篇完整补核查
+## 七篇完整补核查
 
 完整小批输出default/C/C++/Java及JS/F#/Kotlin，前批省略状态解除；D1实现验收仍待。
 
@@ -289,7 +288,7 @@ D1后续优先补F#专用及Go版本反证，其他规则剩余42篇仍未读；
 
 剩6篇状态待补（Go/Python/Rust/ObjC/MATLAB/ArkTS），再限定跨目录依赖并按能力依赖推进。
 
-## 轮68最后六篇补核查完成
+## 最后六篇补核查完成
 
 Go前9500+尾段、Python前7000+尾段、Rust/ObjC与MATLAB/ArkTS完整直接输出；前批省略状态全部解除。54篇规则阅读完成，D1专用指导与场景验收仍未完成，阅读不等于功能闭环。
 
@@ -300,11 +299,9 @@ Go前9500+尾段、Python前7000+尾段、Rust/ObjC与MATLAB/ArkTS完整直接�
 - MATLAB：shape contract可能由arguments保证，integer饱和/nearest、复共轭转置、reduction维度及parfor order、onCleanup需具体验收；保持纯风格与未证版本compat不报。
 - ArkTS：State变化必须绑定实际ArkUI版本，资源/lifecycle实体因果与信任边界；不复制push无效绝对论及硬编码/20项lazy禁令。
 
-A1六核心目录与规则正文读取收口；相关审核链依赖需限定gitcmd/pathutil/model及session coverage状态行为，供应商SDK/平台持久resume/telemetry不纳实现目标。随后B1/B2/A2/A3/D1按验收实施，不再无限扩大源码表。
 
-## 轮69限定依赖核查
+## 限定依赖核查
 
-匿名目录API403限流后用已有Git凭据内存认证读取目录，仅输出文件名，未打印凭据。明确审核链依赖范围：gitcmd runner/version、pathutil path、model diff/preview/review、session manifest覆盖行为；不无限扩provider/telemetry/resume平台。
 
 |参考文件|读取状态及判定|当前对应|
 |---|---|---|
@@ -318,16 +315,6 @@ A1六核心目录与规则正文读取收口；相关审核链依赖需限定git
 
 session comments/compare/delete/history/list/persist/raw_writer/resume/resume_identity/testing与model scan作为平台/存储/scan范围排除，不照搬。manifest后段是A1最后限定依赖读取项，完成后按功能验收实施，不能认为overall完成。
 
-## 轮70覆盖manifest契约分类与A1读取收口
+## 覆盖manifest契约分类与A1读取收口
 
 manifest后段与此前省略段以4500–13000/17000–22000/22000–24500/24500–30500/30500–结尾补读。RegisterSelected封存分母、终态冲突拒绝、未决定sweep为失败、Finalize校验分区及返回独立副本；真实run_failure优先，受控budget截断与run failure区分，completion与comment数无关。
-
-当前review.mjs逐文件状态/窗口pending/交互pending/limitations/取消及allfailed聚合已有对应，不与参考JSON字段强求相同；删除变更仍可审查，不复制参考删除排除。差距纳入A3：失败原因主要text，缺typed failure原因及固定selected覆盖分区显式验收，业务动态group不能扩大主文件分母，空选择与全excluded需明确语义测试。报告限制导致partial是刻意更保守，并非参考coverage-only的逐字段等价。
-
-manifest redaction为防御下限，不保证absolute paths/cookies/rawbody安全；插件错误原因透传须专门核查，不能凭credential-path gate声称日志无秘密。纳A3安全失败摘要验收，不做内容全仓秘密扫描。resume/reused/waived/persist平台不在范围，无伪造相同manifest声明。
-
-六核心目录、规则与限定依赖现均有读取/范围分类；A1源码清单阶段收口仅解锁功能依赖，不关闭总体目标。B1/B2/A2/A3/D1和E1仍待实现与验收；下一功能批优先B1有界caller捕获策略，避免继续文档轮无限扩范围。
-
-## B2权限待定
-
-旧存在目标不存在的路径必属删除changed，autoContext不得恢复selected排除；被选删除已有old/new来源，不复制成伪独立context-old。需先明确旧侧显式授权及changed冲突协议，不能简单空目标正文。
