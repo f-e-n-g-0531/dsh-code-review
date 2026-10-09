@@ -1,5 +1,10 @@
 # 变更记录
 
+## 0.39.0
+
+- working Git autoContext最多3层字面import/include依赖链，visited循环、512共享精确probe、20候选/上下文槽/显式预留、1MiB正文/256KiB每文件及30秒贯穿重核；不全仓枚举，不恢复排除变化。历史/SVN保持直接导航。
+- 真实Git/service预览零发送、执行批准链、链末stale发送前拒绝、深度/循环/竞争/槽/探针/文件预算集中验收，383全量及真实宿主通过。仅导航不证明语义绑定；待固定标签原工件发布。
+
 ## 0.38.0
 
 - protobuf/thrift/capnp/GraphQL/Prisma五类专用缺陷指导替换同泛化protocol提示，区分wire/JSON/生成API/迁移兼容方向，保留实际消费者/版本及反证前提；GraphQL不混wire/tag概念。

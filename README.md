@@ -18,7 +18,7 @@ Git历史预览新增oldContextPaths：最多20个显式仓库相对文件，与
 
 风险计划sourceIds会记录本批生成读取片段/未读状态；未读产生partial覆盖限制。search/find不算读，读过片段也不证明条件已核查或缺陷成立，不自动添加调用。
 
-Git自动直接依赖上下文仅查询从已捕获源码导出的最多512路径索引探针，不列整个tracked树；累计索引1MiB并在结束核对同探针指纹。SVN沿用原索引限额，此项不冒充SVN等价。
+Git工作区autoContext最多沿3层字面import/include依赖链捕获，visited去循环；共享512精确路径探针、20候选/上下文槽（含显式预留）、1MiB正文、256KiB/文件及30秒贯穿正文/索引复核，不列完整tracked树。终态正文变化执行前拒绝，排除变化不恢复，竞争扩展保守拒绝；深度未闭合保留truncated。仅导航非语义定义绑定；Git历史与SVN仍为直接导航，不冒称等价。
 
 凭据路径硬排除：.env及其后缀（.env.example/.env.sample/.env.template例外）、.ssh目录、SSH私钥及.netrc/_netrc/.npmrc/.pypirc/.dockercfg，大小写无关；显式选择不可绕过，上下文/规则同样拒绝。仅路径策略，不保证普通文件无秘密。
 
