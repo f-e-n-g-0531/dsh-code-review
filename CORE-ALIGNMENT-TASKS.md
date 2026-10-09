@@ -13,7 +13,7 @@
 
 ## 未完成
 
-1. B1：Git working/history有界字面引用方已正式交付，不等价语义调用覆盖。SVN v0.37.0冻结5f2395f：限定目录normal普通节点，祖先/节点URL链、wcroot/UUID与属性安全校验；共享30秒/128正文1MiB/复核2MiB、20上下文/4MiB快照，256索引64KiB、512竞争探针1MiB。真实预览零发送、负匹配变化发送前拒绝、歧义/满槽、switched/嵌套根、二进制/超限/取消均验收，XML canonical绑定身份；375测试及pack78文件99052字节/独立安装通过；实际安装冻结包独立真实SVN fixture预览零发送、执行1发送/1完成、负匹配变化发送前拒绝通过。固定标签CI37933398779四矩阵成功；唯一发布37933848198四矩阵成功/registry核验中；原artifact11617224527已保存，99052字节，SHA256 0976a84db149bfee263f4dfd34fc75a1ca1abeec6719b4cad698d09f5f363998，SHA512 sha512-yExFyOf7YexBHNd73eDfpr4yNw60zWxtTzFrj0sm+QLjAGiBQ2GecrxTKwXvjexs2EKuClmK74qocjrsxLAzCQ==。npm元数据200/integrity匹配，tarball初次404传播中；待实际公开字节及Release/终态核验，不宣称正式交付。必要语义caller仍未完成。
+1. B1：Git working/history有界字面引用方已正式交付，不等价语义调用覆盖。SVN v0.37.0冻结5f2395f：限定目录normal普通节点，祖先/节点URL链、wcroot/UUID与属性安全校验；共享30秒/128正文1MiB/复核2MiB、20上下文/4MiB快照，256索引64KiB、512竞争探针1MiB。真实预览零发送、负匹配变化发送前拒绝、歧义/满槽、switched/嵌套根、二进制/超限/取消均验收，XML canonical绑定身份；375测试及pack78文件99052字节/独立安装通过；实际安装冻结包独立真实SVN fixture预览零发送、执行1发送/1完成、负匹配变化发送前拒绝通过。固定标签CI37933398779四矩阵成功；唯一npm发布37933848198成功，四矩阵通过但registry tarball404重试耗尽导致run failure/Release skipped；原artifact11617224527已保存，99052字节，SHA256 0976a84db149bfee263f4dfd34fc75a1ca1abeec6719b4cad698d09f5f363998，SHA512 sha512-yExFyOf7YexBHNd73eDfpr4yNw60zWxtTzFrj0sm+QLjAGiBQ2GecrxTKwXvjexs2EKuClmK74qocjrsxLAzCQ==。npm元数据200/integrity匹配，tarball404持续，已准备固定SHA/原run artifact+SHA256的仅核验/Release恢复workflow，不npm publish或pack；待实际公开字节及恢复终态核验，不宣称正式交付。必要语义caller仍未完成。
 2. B2：v0.35.0自动旧侧删除依赖复用批准changed-old已正式交付；真实Git服务预览/重捕获/execute/read、满槽复用与排除不恢复已验收。二进制删除依赖blocked不获检索权限、两侧扩展名独立解析及原身份read已验收。其他旧侧独有来源/链接及预算场景仍需闭环；显式首批已交付。
 3. B3：必要未捕获定义、别名链及实例上下文；现有search/read边界已验收。
 4. A2：剩余预算拆分场景；小变更免风险规划已正式交付；小变更阈值本地分组已正式交付；分组失败、共享调用上限、跨组遗漏已验收。固定参考少于4文件时总churn<200本地bundle，否则per-file，不等于风险计划跳过阈值。
