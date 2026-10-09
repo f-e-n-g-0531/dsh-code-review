@@ -76,6 +76,10 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 [逐文件清单](CORE-SOURCE-INVENTORY.md)记录allowlist/excludes/types、system规则分层及firstmatch、tool schema、testconnection、scan配置的实际行为。explicit规则vs自动global是权限替代，路径来源分派D1未完；tests/锁file不盲目隐藏，fullscan平台不在范围。生产配置已读不等于54规则正文已核查，语言指导仍未完成。仅文档核查运行包不变。
 
+## 轮61：语言正文首批实质对照
+
+[逐文件清单](CORE-SOURCE-INVENTORY.md)对12篇核心语言正文与现version4指引逐语言记录已对应/具体缺口/不照搬项。长文工具格式输出省略保守记核查中；剩余42篇未读。确认F#仍generic、Go版本timer反证、ObjC临时bytes/NSNull、MATLAB数值语义等具体差距，D1后续验收明确，不把风格禁令复制成缺陷。仅文档，运行版0.31.1不变。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。
