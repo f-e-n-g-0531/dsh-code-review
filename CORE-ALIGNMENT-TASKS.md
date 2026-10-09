@@ -21,9 +21,11 @@
 6. D1：必要语言专用缺陷及路径规则分派；具体差距见源码清单。
 7. E1：上述能力场景矩阵及端到端验收。
 
-C3新增可复现场景：重复零参调用的大C++文件在12KiB模型预算下，窗口仍因导航元数据超限input-blocked；不能扩大预算或丢原证据，v0.33.7候选仅统一重复confidence/notice，全部已生成line/expression/side保留，复現输入7217字节；原文两侧read及更低预算blocked已验收，待公开工件核验。C2受控畸形输出处理、C3长输入仅具体场景证明确有必要才补；严格失败、原文证据保留为安全替代，不新增无限重试/宽松接受。
+C3新增可复现场景：重复零参调用的大C++文件在12KiB模型预算下，窗口仍因导航元数据超限input-blocked；不能扩大预算或丢原证据，v0.33.7候选仅统一重复confidence/notice，全部已生成line/expression/side保留，复現输入7217字节；原文两侧read及更低预算blocked已验收，已正式公开工件核验。C2受控畸形输出处理、C3长输入仅具体场景证明确有必要才补；严格失败、原文证据保留为安全替代，不新增无限重试/宽松接受。
 
 ## 验收结论
+
+- v0.33.7冻结b7f5f95：标签CI37913636438，唯一发布37914089607，原artifact11609330268；npm/Release91349字节逐字节一致，SHA256 5c3d1cc39a844755741e39f7e748c0dd81309ad4d751417bff09ec5167eec7db，SHA512 sha512-rMRqzCLaghsAO+fhsxC7GO7fKF3L8/+/M4OSUu8D+aWcXHhtpospXIxTfHcf9gvsCIbOnC0Q68X9wUhk3fRZ8Q==，校验清单匹配。
 
 - v0.33.6免规划冻结6a5ab64：标签CI37912399789通过；唯一发布37912784526四矩阵及npm发布步骤成功，等待registry字节可用后创建Release，未重复npm发布。原artifact11607167873已保存：91049字节，SHA256 6cbedc7597f637af865ac958ebed02c3321f75f7585efdc3bed505973376d2ec，SHA512 sha512-y6QhnMwaVZwABJZwqnTZF8eOaPzeEnVrj5GvBqIRKwYbr8OmgBVcPdeCyfMUcWRV5h+A0XA5r/jhh39gdjEKIg==；npm/Release实际字节逐字节一致，双hash与校验清单匹配，正式交付。
 
