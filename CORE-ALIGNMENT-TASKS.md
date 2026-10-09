@@ -16,7 +16,7 @@
 1. B1：历史/SVN调用方发现与必要语义caller场景。
 2. B2：自动旧侧独有依赖捕获；显式首批已交付。
 3. B3：必要未捕获定义、别名链及实例上下文；现有search/read边界已验收。
-4. A2：剩余小变更免风险规划与预算拆分；小变更阈值本地分组已正式交付；分组失败、共享调用上限、跨组遗漏已验收。固定参考少于4文件时总churn<200本地bundle，否则per-file，不等于风险计划跳过阈值。
+4. A2：剩余预算拆分场景；小变更免风险规划已正式交付；小变更阈值本地分组已正式交付；分组失败、共享调用上限、跨组遗漏已验收。固定参考少于4文件时总churn<200本地bundle，否则per-file，不等于风险计划跳过阈值。
 5. A3：剩余guard/不可达/原有缺陷/缺caller及独立multi-pass场景；预算退出、typed失败、选择分母与空排除已离线验收。真实模型质量后置。
 6. D1：必要语言专用缺陷及路径规则分派；具体差距见源码清单。
 7. E1：上述能力场景矩阵及端到端验收。
@@ -25,7 +25,7 @@ C3新增可复现场景：重复零参调用的大C++文件在12KiB模型预算�
 
 ## 验收结论
 
-- v0.33.6免规划冻结6a5ab64：标签CI37912399789通过；唯一发布37912784526四矩阵及npm发布步骤成功，等待registry字节可用后创建Release，未重复npm发布。原artifact11607167873已保存：91049字节，SHA256 6cbedc7597f637af865ac958ebed02c3321f75f7585efdc3bed505973376d2ec，SHA512 sha512-y6QhnMwaVZwABJZwqnTZF8eOaPzeEnVrj5GvBqIRKwYbr8OmgBVcPdeCyfMUcWRV5h+A0XA5r/jhh39gdjEKIg==；公开字节尚未验证，不宣称正式交付。
+- v0.33.6免规划冻结6a5ab64：标签CI37912399789通过；唯一发布37912784526四矩阵及npm发布步骤成功，等待registry字节可用后创建Release，未重复npm发布。原artifact11607167873已保存：91049字节，SHA256 6cbedc7597f637af865ac958ebed02c3321f75f7585efdc3bed505973376d2ec，SHA512 sha512-y6QhnMwaVZwABJZwqnTZF8eOaPzeEnVrj5GvBqIRKwYbr8OmgBVcPdeCyfMUcWRV5h+A0XA5r/jhh39gdjEKIg==；npm/Release实际字节逐字节一致，双hash与校验清单匹配，正式交付。
 
 - v0.33.5本地分组冻结7f3ebe6：标签CI37911121645、唯一发布37911400566，原artifact11606897122；npm/Release90189字节逐字节一致，SHA256 d138c4f52a1343ef6810ba0205bb116be48023b971e3bf23da4fbb84f5fe7f71，SHA512 sha512-xUpz312imQ44nIyTjIaq4Gex6S4JH/zZrKWKN2srRcbEuIGi6a+meH0q164RHTTyxICZS93+jWitJC3p+ftd5g==，校验清单匹配。
 

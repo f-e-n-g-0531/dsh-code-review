@@ -48,7 +48,12 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
       const compactFile = { ...file, left: { ...file.left, text: undefined }, right: { ...file.right, text: undefined } };
       const contextCatalog = scope.catalog().filter(source => ['context', 'context-old'].includes(source.side));
       if (contextCatalog.length) metadata.contextMode = 'approved-retrieval';
-      const compact = JSON.stringify({ ...base, context: [], contextCatalog, contextMode: 'approved-retrieval', contextNotice: '上下文全文仍在同一批准快照，仅目录进入窗口初始输入；必须按sourceId和版本侧read原文，不把目录视为证据或完整覆盖。', file: compactFile, windows, sourceMode: 'change-windows', windowNotice: '仅提供全部精确hunk窗口，start/count为原始源码行号，不得重编号。完整源码未随初始输入发送，可在catalog批准范围内检索；缺少上下文时说明限制。' });
+      const windowBase = { ...base };
+      if (base.cppCallSites?.length) {
+        windowBase.cppCallSites = base.cppCallSites.map(({line,expression,side})=>({line,expression,side}));
+        windowBase.cppCallNotice = '最多40条旧/新侧零参语法导航；统一confidence=syntax-only-unresolved，可能为宏/重载/动态分派，无绑定、可达性或顺序保证，不是证据或完整覆盖。原文仍须按批准catalog读取。';
+      }
+      const compact = JSON.stringify({ ...windowBase, context: [], contextCatalog, contextMode: 'approved-retrieval', contextNotice: '上下文全文仍在同一批准快照，仅目录进入窗口初始输入；必须按sourceId和版本侧read原文，不把目录视为证据或完整覆盖。', file: compactFile, windows, sourceMode: 'change-windows', windowNotice: '仅提供全部精确hunk窗口，start/count为原始源码行号，不得重编号。完整源码未随初始输入发送，可在catalog批准范围内检索；缺少上下文时说明限制。' });
       if (!measure(compact).fits) {
         const envelope = JSON.parse(compact);
         const plan = planWindowBatches(windows, subset => JSON.stringify({ ...envelope, windows: subset, windowNotice: '本批仅审查windows包含的编辑，其他hunk另批；行号为原始行号，跨片段上下文不足说明限制。' }), measure);
