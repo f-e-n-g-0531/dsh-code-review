@@ -72,6 +72,10 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 [逐文件清单](CORE-SOURCE-INVENTORY.md)更新template/effort/task配置及12prompt，共15文件。确认默认2独立pass非retrieval轮/模型effort；plan50/group100与grouping4/200跳过策略A2、multi-pass A3明确待办。过滤默认approve和protected veto不等于反证确认，当前候选保留并标verdict是安全替代。配置其余规则/schema/full-scan分类仍待。仅文档，不变运行包。
 
+## 轮60：剩余配置九文件
+
+[逐文件清单](CORE-SOURCE-INVENTORY.md)记录allowlist/excludes/types、system规则分层及firstmatch、tool schema、testconnection、scan配置的实际行为。explicit规则vs自动global是权限替代，路径来源分派D1未完；tests/锁file不盲目隐藏，fullscan平台不在范围。生产配置已读不等于54规则正文已核查，语言指导仍未完成。仅文档核查运行包不变。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。

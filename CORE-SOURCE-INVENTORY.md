@@ -37,22 +37,22 @@
 |[diff/relocation.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/relocation.go)|已读；闭环须看任务表|A1|
 |[diff/resolver.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/resolver.go)|已读；闭环须看任务表|A1|
 |[diff/workspace_file.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/diff/workspace_file.go)|已读；闭环须看任务表|A1|
-|[config/allowlist/allowed_ext.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/allowed_ext.go)|未读，不声称等价|A1|
-|[config/allowlist/default_exclude_patterns.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/default_exclude_patterns.json)|未读，不声称等价|A1|
+|[config/allowlist/allowed_ext.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/allowed_ext.go)|已读；闭环须看任务表|A1|
+|[config/allowlist/default_exclude_patterns.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/default_exclude_patterns.json)|已读；闭环须看任务表|A1|
 |[config/allowlist/default_secret_patterns.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/default_secret_patterns.json)|已读；闭环须看任务表|A1|
 |[config/allowlist/secret_path.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/secret_path.go)|已读；闭环须看任务表|A1|
-|[config/allowlist/supported_file_types.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/supported_file_types.json)|未读，不声称等价|A1|
+|[config/allowlist/supported_file_types.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/supported_file_types.json)|已读；闭环须看任务表|A1|
 |[config/rules/sniffer.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/sniffer.go)|已读；闭环须看任务表|A1|
-|[config/rules/system_rules.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/system_rules.go)|未读，不声称等价|A1|
+|[config/rules/system_rules.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/system_rules.go)|已读；闭环须看任务表|A1|
 |[config/rules/system_rules.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/rules/system_rules.json)|已读；闭环须看任务表|A1|
 |[config/template/effort.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/effort.go)|已读；闭环须看任务表|A1|
-|[config/template/scan_template.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/scan_template.json)|未读，不声称等价|A1|
+|[config/template/scan_template.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/scan_template.json)|已读；闭环须看任务表|A1|
 |[config/template/task_template.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/task_template.json)|已读；闭环须看任务表|A1|
 |[config/template/template.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/template.go)|已读；闭环须看任务表|A1|
-|[config/testconnection/task.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/testconnection/task.json)|未读，不声称等价|A1|
-|[config/testconnection/testconnection.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/testconnection/testconnection.go)|未读，不声称等价|A1|
-|[config/toolsconfig/tools.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/toolsconfig/tools.json)|未读，不声称等价|A1|
-|[config/toolsconfig/toolsconfig.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/toolsconfig/toolsconfig.go)|未读，不声称等价|A1|
+|[config/testconnection/task.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/testconnection/task.json)|已读；闭环须看任务表|A1|
+|[config/testconnection/testconnection.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/testconnection/testconnection.go)|已读；闭环须看任务表|A1|
+|[config/toolsconfig/tools.json](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/toolsconfig/tools.json)|已读；闭环须看任务表|A1|
+|[config/toolsconfig/toolsconfig.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/toolsconfig/toolsconfig.go)|已读；闭环须看任务表|A1|
 |[config/template/prompts/grouping_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/grouping_task_system.md)|已读；闭环须看任务表|A1|
 |[config/template/prompts/grouping_task_user.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/grouping_task_user.md)|已读；闭环须看任务表|A1|
 |[config/template/prompts/main_task_system.md](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/template/prompts/main_task_system.md)|已读；闭环须看任务表|A1|
@@ -165,6 +165,16 @@ Diff目录8生产文件已读；config模板/规则正文和相关跨目录依�
 - relocation system/user：模型改existing snippet选择单相关段；我们不可变原anchor精确唯一校正，同file/side，不照搬证据替换。
 
 scan_template.json尚未读需界定full scan范围；其他config规则/allowlist/工具schema及依赖仍待。
+
+## 轮60其余配置九文件
+
+- allowed_ext.go/supported_file_types.json：大小写无关扩展allowlist；default_exclude_patterns.json排除tests/fixture/generated/dependencies/build/lock等。我们严格可解码有界文本+显式changed选择，凭据强门禁；不因扩展隐藏未知文本，也不静默排除测试/锁文件真实缺陷，明确行为不同。必要语言指导映射D1未完成，非扩大无界扫描。
+- system_rules.go：有序first-match pattern，custom>project>global>system，用户默认replace可merge_system_rule，最高有include/exclude层负责filter（不是层合并），规则来源pattern可追踪；项目root自动读rule.json/引用文件，global/home自动读，文件512KiB及symlink检查。我们显式rulePaths4个/16KiB每个/32KiB合计、批准snapshot/hash保持，不自动项目/global读取；路径分派与来源透明仍D1，不能称完全等价。
+- toolsconfig.go/tools.json：外部/embedded工具schema按plan/main过滤，task_done/comment/find/search/diff/read，read目标侧500行，search支持regex/pathspec100条。我们固定严格JSON read/search/find sourceIds批准范围200行、无regex、整批预校验；plan只source意图，不挂动态工具，范围外callerB1待实现。
+- testconnection.go/task.json：工具call roundtrip连接测试120s；独立provider连接配置不在范围，当前DSH route与离线runtime smoke已覆盖宿主接口，真实模型效果后置不声称已连接质量验收。
+- scan_template.json：全file scan，无diff、by-language50 batch、60tool/2MiB、模型near-duplicate删除及项目summary；不属于本项目变更回归核心目标，不实现全仓scan平台/模糊去重。全文necessary context不等于全仓扫描。
+
+六目录生产配置源码现已读；54篇rule_docs仍未读，对语言能力不能泛称完成；相关跨目录依赖也待补。
 
 ## B2权限待定
 
