@@ -1,3 +1,4 @@
+import { isSecretPath } from './secret-path.mjs';
 import { realpath, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -39,6 +40,7 @@ export async function captureSvn(cwd, options = {}) {
     const state = entry['wc-status'], status = state['@_item'];
     const item = { id: hash(name), path: name, rawStatus: status, baseRevision: state['@_revision'], eligibility: 'reviewable', properties: [] };
     files.push(item);
+    if (isSecretPath(name)) { item.eligibility='excluded'; item.reason='Credential path excluded'; continue; }
     if ((selectedPaths && !selectedPaths.includes(name)) || (status === 'unversioned' && !selectedPaths?.includes(name))) {
       item.eligibility = 'excluded'; item.reason = 'Not explicitly selected'; continue;
     }

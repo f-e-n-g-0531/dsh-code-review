@@ -4,7 +4,9 @@
 
 ## 当前状态
 
-当前代码版本为 0.29.0
+当前代码版本为 0.29.1
+
+凭据路径硬排除：.env及其后缀（.env.example/.env.sample/.env.template例外）、.ssh目录、SSH私钥及.netrc/_netrc/.npmrc/.pypirc/.dockercfg，大小写无关；显式选择不可绕过，上下文/规则同样拒绝。仅路径策略，不保证普通文件无秘密。
 
 检索支持find批准catalog路径字面子串查找，返回来源身份/版本侧/hash；仅导航不证明正文已读，不搜索仓库外路径。当前持续任务见[核心对照任务](CORE-ALIGNMENT-TASKS.md)。
 

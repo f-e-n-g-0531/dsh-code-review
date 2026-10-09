@@ -1,3 +1,4 @@
+import { isSecretPath } from './secret-path.mjs';
 import { realpath } from 'node:fs/promises';
 import { run, checked } from './process.mjs';
 import { hash, decode, readLocal, relativePath } from './content.mjs';
@@ -46,6 +47,7 @@ export async function captureGit(cwd, options = {}) {
     signal?.throwIfAborted();
     const item = { ...change, id: hash(change.path), eligibility: 'reviewable', properties: [] };
     files.push(item);
+    if (isSecretPath(change.path) || isSecretPath(change.oldPath)) { item.eligibility='excluded'; item.reason='Credential path excluded'; continue; }
     if ((selectedPaths && !selectedPaths.includes(change.path)) || (change.rawStatus === '??' && !selectedPaths?.includes(change.path))) {
       item.eligibility = 'excluded'; item.reason = 'Not explicitly selected'; continue;
     }

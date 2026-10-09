@@ -1,3 +1,4 @@
+import { assertNonSecretPath } from './secret-path.mjs';
 import path from 'node:path';
 import { lstat, realpath, open } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -17,6 +18,7 @@ export function decode(bytes) {
 }
 export async function readLocal(root, name, { maxFileBytes = 256 * 1024, signal } = {}) {
   relativePath(name);
+  assertNonSecretPath(name);
   if (!Number.isSafeInteger(maxFileBytes) || maxFileBytes < 1 || maxFileBytes > 16 * 1024 * 1024) throw new Error('Invalid file size limit');
   signal?.throwIfAborted();
   const canonicalRoot = await realpath(root);

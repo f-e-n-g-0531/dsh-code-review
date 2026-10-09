@@ -1,3 +1,4 @@
+import { assertNonSecretPath } from './secret-path.mjs';
 import { readLocal, relativePath } from './content.mjs';
 
 // Explicit paths only. This helper neither authorizes sending nor follows includes.
@@ -6,6 +7,7 @@ export async function captureProjectRules(root, paths, { signal, files = [], rea
   const seen = new Set();
   for (const name of paths) {
     relativePath(name);
+    assertNonSecretPath(name);
     if (!/[.](md|txt)$/i.test(name)) throw new Error('Rules must be Markdown or text');
     if (seen.has(name)) throw new Error('Duplicate rule path');
     seen.add(name);

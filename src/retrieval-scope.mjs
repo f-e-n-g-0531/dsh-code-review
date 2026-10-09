@@ -1,3 +1,4 @@
+import { assertNonSecretPath } from './secret-path.mjs';
 import { createSnapshotReader } from './snapshot-reader.mjs';
 
 // Call only after authorization of this exact snapshot; this function grants nothing.
@@ -6,6 +7,7 @@ export function createRetrievalScope(snapshot, options) {
   const entries = [], catalog = [], paths = new Map(), identities = new Set();
   const add = (path, side, text, fileId) => {
     if (typeof text !== 'string') throw new Error('Missing retrieval text');
+    assertNonSecretPath(path);
     const id = 's' + (entries.length + 1);
     entries.push({ id, text, path, side });
     catalog.push({ id, path, side, ...(fileId ? { fileId } : {}) });

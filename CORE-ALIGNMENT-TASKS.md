@@ -20,6 +20,14 @@
 
 以上已读行为并非均要复制。更宽权限、不同组上限、自动压缩和失败伪接受应按安全边界明确替代，不强行照搬。
 
+## 轮49新增核实与安全优先差距
+
+已读[selection.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/agent/selection.go)、[secret_path.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/secret_path.go)、[凭据路径模式](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/config/allowlist/default_secret_patterns.json)：参考secret门禁优先于include，不可恢复。当前此前无门禁，新增S1统一路径策略，覆盖changed两路径/历史/local context/rules/catalog；模板例外。282测试含显式选择、历史/工作context、rename旧凭据路径、模板与正文不泄漏。不是内容敏感信息扫描，不声称普通文件无秘密。
+
+已读[comment_args_repair.go](https://github.com/alibaba/open-code-review/blob/2d67596c961f80436deb2afa643efa2b1725d34c/internal/tool/comment_args_repair.go)：参考修serialized comments JSON转义且检查截断，非anchor relocation；我们strict JSON拒绝，无自动结构修复。纳入C2评估，不将该源码冒充已核对定位算法。
+
+S1本批0.29.1实现冻结；A1其余agent/preview/loop/comment定位生产源码仍待。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。
