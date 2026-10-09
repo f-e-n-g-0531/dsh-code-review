@@ -116,11 +116,15 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 [逐文件清单](CORE-SOURCE-INVENTORY.md)补manifest分段，封存分母/终态冲突/未完成sweep/typed失败分类与当前review聚合对照；A3新增失败原因类型、selected固定分区、空选择/all-excluded及错误安全摘要验收。A1读取范围分类阶段收口，仅解锁B1等功能，不关闭总体目标。下一批优先有界caller捕获，不继续扩大平台源码范围。
 
+## 轮71：B1首批捕获契约
+
+[caller捕获设计](CALLER-CAPTURE-DESIGN.md)固定显式scope/working Git首批、metadata/body/time预算、所有扫描hash重核、JS竞争路径探针及preview发送透明；禁止把模块引用当函数调用。历史/SVN需显式拒绝而非忽略。B1进入实施但未交付，下一步索引与纯导航测试再接capture。
+
 ## 有依赖顺序的执行任务
 
 - A1 **源码读取与范围分类阶段收口（轮70，非总体完成）**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。
 - B0 **本批实现**：批准catalog路径find导航；无正文/快照外权限，版本身份/hash/显式truncated，复用calls/output，整批预校验，loop审计。验收：2新增测试+全量280通过。
-- B1 **待办（依赖A1）**：预览阶段有界caller定位捕获。限制路径/扫描字节/时间/文件/历史OID，候选与未覆盖可见，execute只原快照。验收：未改调用方接口回归、歧义、excluded、dirty/race、大仓小改、耗尽无假阴性。
+- B1 **进行中：轮71授权与捕获契约冻结，尚未实现**：预览阶段有界caller定位捕获。限制路径/扫描字节/时间/文件/历史OID，候选与未覆盖可见，execute只原快照。验收：未改调用方接口回归、歧义、excluded、dirty/race、大仓小改、耗尽无假阴性。
 - B2 **待办（依赖A1，独立于B1）**：旧侧独有context捕获/身份/证据/关系。验收：基线依赖目标不存在不伪造target正文；删除主文件保持独立changed身份；全部预算与hash稳定。
 - B3 **待办（依赖B1策略）**：常见跨目录定义/别名/实例调用必要上下文，先窄语言场景，歧义保守。验收：确定导航与语义绑定分开，不猜未解析行为。
 - A2 **待办（依赖A1）**：分组小变更免调用/预算拆分/失败回退与跨组关联遗漏对照，已有能力不重造。验收：原文件覆盖保持、调用下界正确、拆组限制显式。
