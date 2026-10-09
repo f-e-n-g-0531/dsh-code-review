@@ -21,6 +21,11 @@ test('deferred historical contexts keep distinct side identities and timeout doe
  },{enableRetrieval:true,maxInputBytes:12000,timeoutMs:20});
  assert.equal(cleaned,true);assert.equal(r.status,'failed');assert.match(r.files[0].reason,/timeout/);assert.deepEqual(r.files[0].windowCoverage.completed,[]);assert.equal(r.files[0].windowCoverage.pending.length,1);
 });
+test('C++ navigation metadata can block exact windows at a tight budget without pretending review ran',async()=>{
+ const old='same();\n'.repeat(6000),s={id:'s',vcs:'git',context:[],files:[{id:'f',path:'solver.cpp',eligibility:'reviewable',properties:[],left:{text:old},right:{text:old+'changed();\n'.repeat(50)}}]};
+ const p=buildCoveragePlan(s,{instructions:REVIEW_INSTRUCTIONS,scope:createRetrievalScope(s),maxInputBytes:12000});assert.equal(p.items[0].status,'input-blocked');assert.equal(p.items[0].windowBlocked[0].reason,'input-budget');
+ const r=await reviewSnapshot(s,()=>assert.fail('blocked source not sent'),{enableRetrieval:true,maxInputBytes:12000});assert.equal(r.modelCalls,0);assert.equal(r.files[0].status,'blocked');assert.equal(r.status,'partial');assert.equal(r.coverage.completed,0);
+});
 test('without approved scope context is never discarded to force input acceptance',()=>{
  const plan=buildCoveragePlan(snapshot(),{instructions:REVIEW_INSTRUCTIONS,maxInputBytes:12000});assert.equal(plan.items[0].status,'input-blocked');
 });
