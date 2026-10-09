@@ -80,6 +80,10 @@ Git自动context从捕获源码收集最多512直接候选，仅literal索引路
 
 [逐文件清单](CORE-SOURCE-INVENTORY.md)对12篇核心语言正文与现version4指引逐语言记录已对应/具体缺口/不照搬项。长文工具格式输出省略保守记核查中；剩余42篇未读。确认F#仍generic、Go版本timer反证、ObjC临时bytes/NSNull、MATLAB数值语义等具体差距，D1后续验收明确，不把风格禁令复制成缺陷。仅文档，运行版0.31.1不变。
 
+## 轮62：协议配置15篇正文对照
+
+[逐文件清单](CORE-SOURCE-INVENTORY.md)更新15篇完整正文已读及具体验收：GraphQL无tag、Capnp XOR/ordinal、Thrift methodname与required、Prisma provider/migration、Composer autoload/allowplugins。当前通用schema/manifest提示只部分对应，D1协议细分待办；不复制workflow缺permissions/timeout泛报与snapshot依赖禁令。27篇仍未读+首批12核查中。仅文档运行版不变。
+
 ## 有依赖顺序的执行任务
 
 - A1 **进行中**：逐文件读取agent.go/preview.go/selection.go、llmloop/loop.go、tool定义/read/comment/repair、config templates/rules与diff核心；记录函数、输入输出、失败/结束/反证行为与当前实现对应。验收：全部核心生产文件已分类，未读项单列，无泛称完成。
