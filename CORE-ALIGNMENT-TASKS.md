@@ -13,7 +13,7 @@
 
 ## 未完成
 
-1. B1：历史caller底层固定OID限定目录索引/精确竞争路径metadata已实现验收（非普通blob不授正文、256记录/64KiB、512探针/1MiB；绑定missing名及commit），已接入历史两侧blob扫描及preview/execute，真实Git同catalog/版本、非匹配hash及满槽阻塞验收通过；两侧共享30秒/128正文/1MiB，旧Only复用不自动批准new。尚未冻结发布，剩集中预算/根提交/删除/竞争场景及宿主门禁，不宣称历史caller已正式交付。SVN及必要语义caller场景仍未完成。
+1. B1：历史caller底层固定OID限定目录索引/精确竞争路径metadata已实现验收（非普通blob不授正文、256记录/64KiB、512探针/1MiB；绑定missing名及commit），已接入历史两侧blob扫描及preview/execute，真实Git同catalog/版本、非匹配hash及满槽阻塞验收通过；两侧共享30秒/128正文/1MiB，旧Only复用不自动批准new。v0.36.0冻结5830853；集中预算/根提交/删除/竞争及真实宿主门禁通过，移动range引用导致非匹配caller变化在发送前拒绝已验收。待固定四矩阵与原工件发布，不宣称历史caller已正式交付。SVN及必要语义caller场景仍未完成。
 2. B2：v0.35.0自动旧侧删除依赖复用批准changed-old已正式交付；真实Git服务预览/重捕获/execute/read、满槽复用与排除不恢复已验收。二进制删除依赖blocked不获检索权限、两侧扩展名独立解析及原身份read已验收。其他旧侧独有来源/链接及预算场景仍需闭环；显式首批已交付。
 3. B3：必要未捕获定义、别名链及实例上下文；现有search/read边界已验收。
 4. A2：剩余预算拆分场景；小变更免风险规划已正式交付；小变更阈值本地分组已正式交付；分组失败、共享调用上限、跨组遗漏已验收。固定参考少于4文件时总churn<200本地bundle，否则per-file，不等于风险计划跳过阈值。
@@ -39,7 +39,7 @@ C3新增可复现场景：重复零参调用的大C++文件在12KiB模型预算�
 
 - v0.33.4诊断补丁冻结7e604df：标签CI37909626325四矩阵通过；唯一发布37910021333原artifact11605284464已保存；npm/Release89493字节逐字节一致，SHA256 7a14a2c0689506897a1a58557bcbfd688806741ab278b51daa14d1690ad22364，SHA512 sha512-qmlWLV/sSkzcI9JJtRKFS4spGh+M//TLh5cWwxcic0tHrWj0r+Wz2sk2jTr7iGy0Az2q0E4DTwNOaoY6NzViBA==，校验清单匹配，正式交付。
 
-- 当前离线368/368及真实宿主离线smoke通过；不等价真实模型质量。分组失败选择分母/单文件跳过/预算耗尽、跨组遗漏、混合执行失败、取消和报告安全转义已验收。
+- 当前离线371/371及真实宿主离线smoke通过；不等价真实模型质量。分组失败选择分母/单文件跳过/预算耗尽、跨组遗漏、混合执行失败、取消和报告安全转义已验收。
 - 执行可靠性优先：0.33.2唯一完整JSON围栏兼容，固定CI37907541130通过、唯一发布37907836315已成功，原artifact11605097563，npm/Release88609字节与原工件一致，SHA256 13e40a77c97bb57014d2dd165f0f946ccb921a8d34b8b18530adadae37695887，SHA512 sha512-mI+dhtizlM+2HVyo+WRg3t8HyWUd6M6/ifV6nvuxj7bFaJ0jfeUTGPngan4zJRHf4jVzQK7aXnIMki//ZzaDgg==；0.33.3窗口上下文按批准catalog检索已正式交付：标签CI37908368137通过、唯一发布37908776363；原artifact11605287853，npm/Release88999字节一致，SHA256 aad891b8cab6804ce2992a45da9b78cec7bc70163e943a830c0e303610c9fe2b，SHA512 sha512-Xxv79rG4OsNKMrERkk7GOjZ/ElDGJjqdvECvqDCTNnQRk+1pINtUsYnUZidlhLaaRPCaswWNSUl9p8zP/GF/GA==。实际碰撞项目原报告/响应未知，不宣称三处格式失败或超时根因复现。
 - v0.33.1同一调用行alias重赋值/逃逸误提示已修复并冻结提交cdb95f0529b0fbbee5c5eaecfaf50cc50213562f；发布门禁已通过：标签CI37906386448、唯一发布37906798597成功，原artifact11604593956；npm/Release88082字节匹配原工件，SHA256 754e067662a25779d99f225a957ed1c4519c13e15dd083d8ca575260263f2cbd，SHA512 sha512-u8mPIdeHKrpL6zg1ljM35FMP0nJ5SeS87HjfCw6GSchoggKnmTbQvB7Mnd/LfrdY6Lg/DK/MKBNYwk/VkCul6w==。
 - v0.33.0：提交6fe4261fb7e2bd1b645b8637ba9f82840a760c83，标签四矩阵37904841884成功；唯一发布37905053267成功，原artifact11603897802。npm/正式Release与原工件逐字节一致87754字节；SHA256 fc0d99bebd62e431fdd212d83f51af5ea6e8b00ae6510210ea480b816c72064f；SHA512 sha512-OE81b9ZfHK+Smj/mTKeSiEN3xoZl1ldREKpC5F7dRBSk+grHla/ylt+rbEpwlU/4GEzfaZyNp1prov8OvAiC5g==。
