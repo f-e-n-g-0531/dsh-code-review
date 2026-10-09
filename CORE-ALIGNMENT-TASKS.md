@@ -15,7 +15,7 @@
 
 1. B1：Git working/history与SVN v0.37.0有界字面引用方已正式交付。SVN限定目录normal普通节点，祖先/节点URL链、wcroot/UUID与属性校验，拒绝switched/external/special/keywords；正文/负hash/node/index/probe复核共享30秒/128正文1MiB/复核2MiB、20上下文/4MiB快照。375测试、实际独立安装真实SVN预览执行、索引/探针限额及原工件门禁通过。仅导航，不等价函数调用、语义绑定或完整覆盖；必要语义caller仍未完成。
 2. B2：v0.35.0自动旧侧删除依赖复用批准changed-old已正式交付；真实Git服务预览/重捕获/execute/read、满槽复用与排除不恢复已验收。二进制删除依赖blocked不获检索权限、两侧扩展名独立解析及原身份read已验收。其他旧侧独有来源/链接及预算场景仍需闭环；显式首批已交付。
-3. B3：必要未捕获定义、别名链及实例上下文；现有search/read边界已验收。
+3. B3：必要未捕获定义、别名链及实例上下文；现有search/read边界已验收。可复现缺口：changed use.ts直接import barrel只捕获barrel.ts，后者export run from impl不继续捕获impl.ts；纯candidate二段定位成功但现捕获不授链末正文。下一批需显式有界depth/visited循环/总probe/上下文字节槽、版本独立及excluded不恢复，拒绝歧义/宏/动态绑定；不以导航冒称定义或调用语义证明。
 4. A2：剩余预算拆分场景；小变更免风险规划已正式交付；小变更阈值本地分组已正式交付；分组失败、共享调用上限、跨组遗漏已验收。固定参考少于4文件时总churn<200本地bundle，否则per-file，不等于风险计划跳过阈值。
 5. A3：v0.34.0服务独立1..3pass正式交付；v0.34.1入口reviewRounds正式交付，实际ToolRuntime双轮及快照/路由/确认/owner/TTL/重放拒绝通过；guard/不可达/原有缺陷/缺caller受控响应全流程已验收（原文双侧receipt校验，不证明模型会自行发现或判断正确）；预算退出、typed失败、选择分母与空排除已离线验收。真实模型质量后置。
 6. D1：必要语言专用缺陷及路径规则分派；具体差距见源码清单。已实现protocol-schema五类专用指导（protobuf/thrift/capnp/GraphQL/Prisma），替换同泛化提示，GraphQL不混wire/tag；各类兼容与反证前提保留。专项11及全量378、实际宿主回归通过；差异复核纠正协议扩展regex字面点，补伪后缀不匹配验收。v0.38.0冻结71de293，pack79文件100379字节/独立安装五类指导接口通过；实际安装包五类主审各1调用、窗口ready及低输入预算拒绝通过；固定标签CI37936027285执行中，待唯一发布与原工件门禁。需保持wire与source/API兼容区别、各类反证及消费者/版本前提，消费者已核查：primary guidance进入full/window base及跨窗口synthesis；interaction逐文件guidance，verification优先继承envelope再按path回退。集中验收需覆盖五类大小写/备份不误匹配、反证提示、主审/复核/interaction/window共享输入预算与零额外call；不新增源读取或通用规则加载。
