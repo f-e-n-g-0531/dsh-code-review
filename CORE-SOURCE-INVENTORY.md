@@ -130,7 +130,7 @@
 ## 工具/定位逐文件判定
 
 - tool/file_read.go：500行上限、显式truncated/范围/总行；我们200行快照来源ID+hash、64KiB/result累计256KiB，严格整数/整批预校验为安全替代。
-- tool/filereader.go：workspace实时文件/symlink范围，历史ref git show、30s/stream全行计数；我们执行前捕获稳定OID/正文，执行只snapshot，拒绝所有link且字节限额。范围外必要caller仍B1，实时读取不照搬。
+- tool/filereader.go：workspace实时文件/symlink范围，历史ref git show、30s/stream全行计数；我们执行前捕获稳定OID/正文，执行只snapshot，拒绝所有link且字节限额。v0.32.0限定working Git与v0.36.0历史固定对象字面引用方已交付；v0.37.0 SVN限定离线normal节点候选冻结待发布。必要语义caller及未捕获定义仍B1/B3，实时无界读取不照搬。
 - tool/definitions.go：tool注册冻结、动态MCP保留名；我们固定read/search/find能力不注入动态工具，宿主注册preview/execute保持正常策略。
 - tool/response_message.go：Completed/Failed/Data终止协议；我们最终JSON严格schema、failed/cancelled/partial显式状态，不伪success。
 - tool/stub.go：缺provider返回not-available；我们未知kind及来源在访问前拒绝，不添加stub伪能力。
@@ -170,7 +170,7 @@ scan_template.json尚未读需界定full scan范围；其他config规则/allowli
 
 - allowed_ext.go/supported_file_types.json：大小写无关扩展allowlist；default_exclude_patterns.json排除tests/fixture/generated/dependencies/build/lock等。我们严格可解码有界文本+显式changed选择，凭据强门禁；不因扩展隐藏未知文本，也不静默排除测试/锁文件真实缺陷，明确行为不同。必要语言指导映射D1未完成，非扩大无界扫描。
 - system_rules.go：有序first-match pattern，custom>project>global>system，用户默认replace可merge_system_rule，最高有include/exclude层负责filter（不是层合并），规则来源pattern可追踪；项目root自动读rule.json/引用文件，global/home自动读，文件512KiB及symlink检查。我们显式rulePaths4个/16KiB每个/32KiB合计、批准snapshot/hash保持，不自动项目/global读取；路径分派与来源透明仍D1，不能称完全等价。
-- toolsconfig.go/tools.json：外部/embedded工具schema按plan/main过滤，task_done/comment/find/search/diff/read，read目标侧500行，search支持regex/pathspec100条。我们固定严格JSON read/search/find sourceIds批准范围200行、无regex、整批预校验；plan只source意图，不挂动态工具，范围外callerB1待实现。
+- toolsconfig.go/tools.json：外部/embedded工具schema按plan/main过滤，task_done/comment/find/search/diff/read，read目标侧500行，search支持regex/pathspec100条。我们固定严格JSON read/search/find sourceIds批准范围200行、无regex、整批预校验；plan只source意图，不挂动态工具，有界Git working/history字面引用caller已正式交付，SVN限定离线候选待固定标签发布；语义caller/必要定义B1/B3仍未完成。
 - testconnection.go/task.json：工具call roundtrip连接测试120s；独立provider连接配置不在范围，当前DSH route与离线runtime smoke已覆盖宿主接口，真实模型效果后置不声称已连接质量验收。
 - scan_template.json：全file scan，无diff、by-language50 batch、60tool/2MiB、模型near-duplicate删除及项目summary；不属于本项目变更回归核心目标，不实现全仓scan平台/模糊去重。全文necessary context不等于全仓扫描。
 
