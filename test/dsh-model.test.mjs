@@ -26,6 +26,14 @@ test('DSH bridge closes iterator on invalid output', async () => {
   assert.equal(closed, true);
 });
 
+test('bridge unwraps one complete JSON fence but rejects prose multiple objects and truncated JSON without retries', async () => {
+ for(const text of ['```json\n{"findings":[],"limitations":[]}\n```','```\r\n{"requests":[]}\r\n```']){
+  let calls=0;const model=createDshModel({async *stream(){calls++;yield {type:'text-delta',text};yield {type:'finish',reason:{kind:'stop'}};}},route);assert.doesNotThrow(()=>JSON.parse(text.replace(/^```(?:json)?\r?\n|\r?\n```$/g,'')));await model(request);assert.equal(calls,1);
+ }
+ for(const text of ['Here is JSON: {}','{} {}','```json\n{\n```','SECRET source not JSON']){
+  const model=createDshModel({async *stream(){yield {type:'text-delta',text};yield {type:'finish',reason:{kind:'stop'}};}},route);await assert.rejects(model(request),e=>e.code==='MODEL_INVALID_JSON'&&!e.message.includes('SECRET'));
+ }
+});
 test('DSH bridge bounds reasoning as well as visible output', async () => {
   const model = createDshModel({ async *stream() { yield { type: 'reasoning-delta', text: '12345' }; } }, route, { maxOutputBytes: 4 });
   await assert.rejects(model(request), /limit/);

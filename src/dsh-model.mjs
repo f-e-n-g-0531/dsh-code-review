@@ -1,3 +1,4 @@
+import { modelJson } from './model-json.mjs';
 /** One-shot host LLM call. No agent loop and no executable tools. */
 export function createDshModel(llm, route, { maxTokens = 4096, maxOutputBytes = 128 * 1024 } = {}) {
   if (!llm || typeof llm.stream !== 'function' || !route?.provider || !route?.model) throw new Error('DSH provider and model are required');
@@ -21,6 +22,6 @@ export function createDshModel(llm, route, { maxTokens = 4096, maxOutputBytes = 
       }
     }
     if (!finished) throw new Error('Model stream ended without finish');
-    return output;
+    return modelJson(output);
   };
 }
