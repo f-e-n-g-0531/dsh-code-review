@@ -32,6 +32,11 @@ test('compact navigation never substitutes evidence and both approved sides rema
  assert.equal(calls,2);assert.equal(r.coverage.completed,1);assert.equal(r.files[0].retrievalAudit.filter(x=>x.kind==='read'&&x.stage==='retrieved-locally').length,2);assert.equal(s.files[0].right.text,old+'changed();\n'.repeat(50));
  const blocked=await reviewSnapshot(s,()=>assert.fail('no send outside input budget'),{enableRetrieval:true,maxInputBytes:3000});assert.equal(blocked.modelCalls,0);assert.equal(blocked.coverage.completed,0);assert.equal(blocked.files[0].status,'blocked');
 });
+test('compact historical C++ windows retain immutable side hashes and do not finish on shared timeout',async()=>{
+ const old='same();\n'.repeat(6000),now=old+'changed();\n'.repeat(50),s={id:'s',vcs:'git',history:{mode:'range',base:'a'.repeat(40),target:'b'.repeat(40)},context:[],files:[{id:'f',path:'solver.cpp',eligibility:'reviewable',properties:[],left:{text:old},right:{text:now}}]};let cleaned=false;
+ const r=await reviewSnapshot(s,async req=>{const p=JSON.parse(req.input);if(!p.retrieved.length)return {requests:['old','new'].map(side=>({kind:'read',id:p.catalog.find(x=>x.side===side).id,start:1,count:1}))};assert.equal(p.retrieved[0].result.hash,hash(old));assert.equal(p.retrieved[1].result.hash,hash(now));assert.match(p.contextSideNotice,/旧/);assert.equal(p.cppCallSites.length,40);await new Promise(resolve=>req.signal.addEventListener('abort',resolve,{once:true}));cleaned=true;throw req.signal.reason;},{enableRetrieval:true,maxInputBytes:12000,timeoutMs:30});
+ assert.equal(cleaned,true);assert.equal(r.status,'failed');assert.equal(r.files[0].failureCode,'MODEL_TIMEOUT');assert.deepEqual(r.files[0].windowCoverage.completed,[]);assert.equal(r.files[0].windowCoverage.pending.length,1);assert.equal(r.coverage.completed,0);assert.equal(r.modelCalls,2);
+});
 test('without approved scope context is never discarded to force input acceptance',()=>{
  const plan=buildCoveragePlan(snapshot(),{instructions:REVIEW_INSTRUCTIONS,maxInputBytes:12000});assert.equal(plan.items[0].status,'input-blocked');
 });
