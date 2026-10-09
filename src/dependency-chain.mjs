@@ -4,7 +4,7 @@ import {readLocal} from './content.mjs';
 // Fixed-depth literal navigation, not symbol binding. Never enumerate the repository.
 export async function captureDependencyChain(root,files,options={}){
  const signal=AbortSignal.any([AbortSignal.timeout(30000),...(options.signal?[options.signal]:[])]);
- const scoped={...options,signal},probes=new Set(),visited=new Set(files.map(f=>f.path)),context=[],candidates=[];
+ const scoped={...options,maxFileBytes:Math.min(options.maxFileBytes??256*1024,256*1024),signal},probes=new Set(),visited=new Set(files.map(f=>f.path)),context=[],candidates=[];
  const reserved=new Set([...(options.contextPaths??[]),...(options.rulePaths??[])]),limit=Math.min(options.maxContextFiles??20,20);
  let frontier=files,index,bytes=0,truncated=false,depth=0;
  const onProbe=paths=>{for(const p of paths)probes.add(p);if(probes.size>512)throw new Error('Git context lookup limit exceeded');};
@@ -17,7 +17,6 @@ export async function captureDependencyChain(root,files,options={}){
    if(visited.has(entry.path)||reserved.has(entry.path))continue;
    visited.add(entry.path);const candidate={...entry,depth};candidates.push(candidate);
    if(candidates.length>20)throw new Error('Dependency candidate limit exceeded');
-   if(files.some(f=>f.path===entry.path)){candidate.status='blocked';candidate.reason='Changed path cannot reenter as dependency';continue;}
    if(context.length+new Set(options.contextPaths??[]).size>=limit){candidate.status='blocked';candidate.reason='Context file limit exceeded';continue;}
    try{
     const item={path:entry.path,...await readLocal(root,entry.path,scoped)};

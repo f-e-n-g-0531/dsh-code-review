@@ -1,3 +1,5 @@
+import {createReviewService} from '../src/service.mjs';
+import {captureDependencyChain} from '../src/dependency-chain.mjs';
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
 import {checked} from '../src/process.mjs';import {captureSnapshot} from '../src/snapshot.mjs';
@@ -6,3 +8,14 @@ test('working Git captures bounded barrel definition navigation depth and identi
 test('chain preserves slot budget, explicit reservation, excluded changes and competing extensions',()=>fixture(async({root,put,git})=>{const limited=await captureSnapshot(root,{autoContext:true,maxContextFiles:1});assert.equal(limited.context.length,1);assert.equal(limited.autoContext.candidates[1].status,'blocked');const explicit=await captureSnapshot(root,{autoContext:true,contextPaths:['src/impl.ts']});assert.deepEqual(explicit.context.map(c=>c.path),['src/barrel.ts','src/impl.ts']);await put('impl.ts','export function hidden(){}');const excluded=await captureSnapshot(root,{autoContext:true,selectedPaths:['src/use.ts']});assert.deepEqual(excluded.context.map(c=>c.path),['src/barrel.ts']);await put('barrel.js','export function run(){}');await git('add','src/barrel.js');assert.equal((await captureSnapshot(root,{autoContext:true})).context.length,0);}));
 test('chain cycle never rereads or duplicates files and aborted capture refuses',()=>fixture(async({root,put,git})=>{await put('impl.ts','export {run} from "./barrel";');await git('add','src/impl.ts');await git('commit','-qm','cycle');const s=await captureSnapshot(root,{autoContext:true});assert.deepEqual(s.context.map(c=>c.path),['src/barrel.ts','src/impl.ts']);assert.equal(s.autoContext.truncated,false);
 await assert.rejects(captureSnapshot(root,{autoContext:true,signal:AbortSignal.abort()}));}));
+test('chain preview is body-free and execution reads approved chain only; stale terminal source rejects before send',()=>fixture(async({root,put})=>{
+ let sends=0;const exec={agent:{session:{header:{cwd:root}},options:{provider:'offline',model:'test'}},signal:new AbortController().signal};
+ const service=createReviewService({async *stream(req){sends++;const p=JSON.parse(req.messages[0].content[0].text);assert.ok(p.catalog.some(c=>c.path==='src/impl.ts'));assert.ok(!p.catalog.some(c=>c.path==='src/beyond.ts'));yield {type:'text-delta',text:'{"findings":[],"limitations":[]}'};yield {type:'finish',reason:{kind:'stop'}};}},{allowModelSending:true,authorize:async()=>true});
+ const preview=await service.preview({autoContext:true},exec);assert.equal(sends,0);assert.ok(!JSON.stringify(preview).includes('export {run}'));const result=await service.execute({previewId:preview.previewId,confirmed:true},exec);assert.equal(sends,1);assert.equal(result.report.coverage.completed,1);
+ const next=await service.preview({autoContext:true},exec);await put('end.ts','export {changed} from "./beyond";');await assert.rejects(service.execute({previewId:next.previewId,confirmed:true},exec),/changed|outdated/i);assert.equal(sends,1);
+}));
+test('chain shares 512 probes before lookup and never silently expands per-file cap',()=>fixture(async({root,git})=>{
+ const files=[{path:'src/test.ts',eligibility:'reviewable',right:{text:Array.from({length:40},(_,i)=>'import x'+i+' from "./dep'+i+'";').join('\n')}}];
+ await assert.rejects(captureDependencyChain(root,files),/lookup limit/);
+ await writeFile(path.join(root,'src/barrel.ts'),'x'.repeat(256*1024+1));await git('add','src/barrel.ts');await git('commit','-qm','oversized dependency');const snapshot=await captureSnapshot(root,{autoContext:true,maxFileBytes:1024*1024});assert.equal(snapshot.context.length,0);assert.match(snapshot.autoContext.candidates[0].reason,/File size/);
+}));
