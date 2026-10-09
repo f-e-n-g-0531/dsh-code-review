@@ -1,6 +1,8 @@
 # v0.33.0 发布门禁记录
 
-状态：轮100进行中，不是正式发布完成声明。
+状态：轮102自身四矩阵success，release仍in_progress，registry metadata404，正式Release尚无；非正式发布完成声明。
+
+原Actions artifact11603897802，release-v0.33.0-37905053267，下载解包D:/TEMP/dsh-release-0330-D0bcyJ/original。tarball87754字节，SHA256 fc0d99bebd62e431fdd212d83f51af5ea6e8b00ae6510210ea480b816c72064f；SHA512 integrity sha512-OE81b9ZfHK+Smj/mTKeSiEN3xoZl1ldREKpC5F7dRBSk+grHla/ylt+rbEpwlU/4GEzfaZyNp1prov8OvAiC5g==。待实际npm/Release字节核验，不使用本地重打包替代。
 
 - 冻结提交6fe4261fb7e2bd1b645b8637ba9f82840a760c83，固定标签v0.33.0。
 - 本地311/311、差异检查、pack/隔离entry、离线真实DSH ToolRuntime smoke通过。
