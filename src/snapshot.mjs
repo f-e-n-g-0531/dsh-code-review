@@ -49,10 +49,10 @@ export async function captureSnapshot(cwd, options = {}) {
   if (!Array.isArray(rulePaths) || rulePaths.some(name => contextPaths.includes(name))) throw new Error('Rule paths must be separate from context paths');
   const rules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
   const context = [];
-  let autoContext, index, indexOptions = options;
+  let autoContext, index, explicitSeeds = [], indexOptions = options;
   if (options.autoContext === true && type==='git') {
     const chain=await captureDependencyChain(snapshot.root,snapshot.files,options);
-    context.push(...chain.context);autoContext=chain.autoContext;index=chain.index;indexOptions=chain.indexOptions;
+    explicitSeeds=chain.explicitSeeds;context.push(...chain.context);autoContext=chain.autoContext;index=chain.index;indexOptions=chain.indexOptions;
   } else if (options.autoContext === true) {
     if(type==='git'){const probes=new Set();contextCandidates(snapshot.files,[],{onProbe:paths=>{for(const p of paths)probes.add(p);if(probes.size>512)throw new Error('Git context lookup limit exceeded');}});indexOptions={...options,probePaths:[...probes]};}
     index = await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, indexOptions);
@@ -72,7 +72,12 @@ export async function captureSnapshot(cwd, options = {}) {
       if (changed.eligibility !== 'reviewable') throw new Error('Context path is an excluded or blocked change');
       if (changed.rightExists === false) throw new Error('Deleted path cannot be working context');
       context.push({ path: name, ...changed.right });
-    } else context.push({ path: name, ...await readLocal(snapshot.root, name, options) });
+    } else {
+      const item={path:name,...await readLocal(snapshot.root,name,indexOptions)};
+      const seed=explicitSeeds.find(c=>c.path===name);
+      if(seed&&seed.hash!==item.hash)throw new Error('Explicit dependency seed changed during capture');
+      context.push(item);
+    }
   }
   let callerDiscovery, verifyCallers;
   if (options.callerScopePaths !== undefined) {
@@ -93,7 +98,7 @@ export async function captureSnapshot(cwd, options = {}) {
     }
   }
   // Re-capture verifies both selected sides while collecting explicit context.
-  if ((await capture(cwd, options)).id !== snapshot.id) throw new Error('Snapshot changed while collecting context');
+  if ((await capture(cwd, indexOptions)).id !== snapshot.id) throw new Error('Snapshot changed while collecting context');
   for (const item of context) if ((await readLocal(snapshot.root, item.path, indexOptions)).hash !== item.hash) throw new Error('Context changed during capture');
   if (index && (await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, indexOptions)).fingerprint !== index.fingerprint) throw new Error('Tracked context index changed during capture');
   const verifiedRules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
