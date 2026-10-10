@@ -1,56 +1,47 @@
-# 核心审查对齐结论
+# 核心能力对照与剩余工作
 
-固定参考：alibaba/open-code-review@2d67596c961f80436deb2afa643efa2b1725d34c。总体尚未完成；源码分类清单见[CORE-SOURCE-INVENTORY.md](CORE-SOURCE-INVENTORY.md)。
+本文供维护者和关注开发进度的用户阅读，不是安装说明。日常使用见 [README](README.md)。
 
-## 已交付
+对照对象是 alibaba/open-code-review 的固定提交 2d67596c961f80436deb2afa643efa2b1725d34c。只对齐代码审查所需能力，不建设管理平台、自动修复或独立模型计费系统。
 
-- Git/SVN只读变更快照、精确位置与编辑归因、证据凭据验证、候选反证与保守报告归组。
-- 风险假设规划、业务分组及失败回退、hunk有界输入、明确pending/partial覆盖、显式规则与业务需求快照绑定。
-- Git历史commit/range固定对象端点；不checkout/fetch，不混入工作树。
-- 批准catalog内find/search/read及sourceIds筛选，定义同名歧义保留；文本导航不证明符号绑定。
-- v0.32.0有界working Git引用方捕获：指定目录、普通tracked文件、负匹配hash复核、共享预算；v0.36.0补齐有界Git历史引用方对象捕获；v0.37.0补齐SVN离线字面引用方；语义caller仍未实现。
-- v0.33.0显式oldContextPaths：baseline普通blob/OID/hash，唯一context-old身份、消费者按侧使用；不证明target不存在，不恢复excluded变化。
+**结论：主要审查流程已经具备，必要上下文和整体效果验收仍未完成。不能用版本数量或测试数量表示对齐百分比。**
 
-## 未完成
+## 已具备的能力
 
-1. B1：Git working/history与SVN v0.37.0有界字面引用方已正式交付。SVN限定目录normal普通节点，祖先/节点URL链、wcroot/UUID与属性校验，拒绝switched/external/special/keywords；正文/负hash/node/index/probe复核共享30秒/128正文1MiB/复核2MiB、20上下文/4MiB快照。375测试、实际独立安装真实SVN预览执行、索引/探针限额及原工件门禁通过。仅导航，不等价函数调用、语义绑定或完整覆盖；必要语义caller仍未完成。
-2. B2：v0.35.0自动旧侧删除依赖复用批准changed-old已正式交付；真实Git服务预览/重捕获/execute/read、满槽复用与排除不恢复已验收。二进制删除依赖blocked不获检索权限、两侧扩展名独立解析及原身份read已验收。其他旧侧独有来源/链接及预算场景仍需闭环；显式首批已交付。
-3. B3：必要未捕获定义、别名链及实例上下文；现有search/read边界已验收。可复现缺口：changed use.ts直接import barrel只捕获barrel.ts，后者export run from impl不继续捕获impl.ts；纯candidate二段定位成功但现捕获不授链末正文；实际独立冻结包真实Git working及commit autoContext均仅捕获barrel、不含impl正文已复现；显式contextPaths补批准impl正文可用，selected排除修改impl再次显式请求拒绝已验证，后续链捕获不得破此边界。当前已实现working Git三层literal依赖链候选（未发布）：visited循环/512共享精确probe/20候选与上下文槽/1MiB正文/30秒贯穿重核，保留explicit预留、excluded不恢复、扩展竞争拒绝；真实fixture/service预览0发送执行批准链、末端stale发送前拒绝、512探针及256KiB硬限额、383全量及真实宿主通过；v0.39.0冻结69d0d24，pack80文件101822字节/独立安装接口及全套真实fixture5/5通过；固定标签CI37939628646执行中，待唯一发布与原工件字节双hash闭环。历史两侧链、SVN及完整别名/实例语义仍未完成；不以导航冒称定义或调用语义证明。
-4. A2：剩余预算拆分场景；小变更免风险规划已正式交付；小变更阈值本地分组已正式交付；分组失败、共享调用上限、跨组遗漏已验收。固定参考少于4文件时总churn<200本地bundle，否则per-file，不等于风险计划跳过阈值。
-5. A3：v0.34.0服务独立1..3pass正式交付；v0.34.1入口reviewRounds正式交付，实际ToolRuntime双轮及快照/路由/确认/owner/TTL/重放拒绝通过；guard/不可达/原有缺陷/缺caller受控响应全流程已验收（原文双侧receipt校验，不证明模型会自行发现或判断正确）；预算退出、typed失败、选择分母与空排除已离线验收。真实模型质量后置。
-6. D1：必要语言专用缺陷及路径规则分派仍有剩余差距见源码清单。v0.38.0五类协议专用指导正式交付（protobuf/thrift/capnp/GraphQL/Prisma），区分wire/JSON/生成API/迁移兼容与反证前提，GraphQL不混wire/tag；精确大小写扩展名、不误匹配备份/伪后缀。378测试、实际宿主及独立安装主审各1调用/窗口/低输入拒绝通过；primary/window/synthesis/interaction/verification沿原输入预算继承，不新增源读取、调用或规则权限。
-7. E1：上述能力场景矩阵及端到端验收。
+| 能力 | 已完成内容 | 不能据此推断 |
+|---|---|---|
+| 变更采集 | Git/SVN 本地变更、Git 固定历史版本、位置与原文校验 | 支持所有 SVN 状态或历史模式 |
+| 范围保护 | 预览确认、版本与内容指纹、执行前复核、凭据路径排除 | 普通源码中一定没有秘密 |
+| 审查流程 | 风险规划、分组与回退、窗口分析、跨文件综合、候选反证 | 模型一定找到所有问题 |
+| 检索 | 只在批准文件中查找、搜索和读行段，记录来源与证据 | 找到名称就证明符号绑定 |
+| 引用方发现 | Git 工作区、历史与 SVN 的指定目录字面引用导航 | 完整函数调用图或动态分派 |
+| 历史上下文 | 显式旧版本文件；复用已批准删除依赖的旧正文 | 自动批准对应的新正文 |
+| 审查次数 | 默认一次，可选 1～3 次，各阶段共享预算 | 次数增加就保证效果提高 |
+| 文件指导 | 常用语言大类与五类协议指导 | 全部语言专用检查已验收 |
 
-C3新增可复现场景：重复零参调用的大C++文件在12KiB模型预算下，窗口仍因导航元数据超限input-blocked；不能扩大预算或丢原证据，v0.33.7候选仅统一重复confidence/notice，全部已生成line/expression/side保留，复現输入7217字节；原文两侧read及更低预算blocked已验收，已正式公开工件核验。C2受控畸形输出处理、C3长输入仅具体场景证明确有必要才补；严格失败、原文证据保留为安全替代，不新增无限重试/宽松接受。
+## 剩余工作与优先级
 
-## 验收结论
+| 优先级 | 未完成项 | 验收重点 |
+|---|---|---|
+| 1 | 必要语义调用者、定义、别名及实例上下文 | 歧义不能猜测；不扩大到全仓无界扫描 |
+| 2 | Git 历史两侧及 SVN 的依赖链 | 旧新版本分别捕获；共享读取上限；排除文件不能重新进入 |
+| 3 | 其他旧侧独有来源 | 来源、版本、权限与删除场景保持一致 |
+| 4 | 剩余语言与路径专用指导 | 只提示具体缺陷和反证；不照搬风格禁令 |
+| 5 | 剩余预算组合与端到端矩阵 | 分组、窗口、检索、多次审查的终态与覆盖一致 |
+| 后置 | 真实模型质量评测 | 保存真实输出，人工裁决，分开统计失败和未完成 |
 
-- v0.38.0冻结71de293，标签CI37936027285四矩阵通过，唯一npm发布37936577727成功但传播404核验超时；原artifact11618702959仅恢复37937933474成功，不重pack/publish。npm/Release100379字节逐字节一致，SHA256 523b329a87f38eaa442bdd90a826d9347e51425b76bd1eed02b0e156d0083c86，SHA512 sha512-hHfG7lujbzUsyQba1d/i4VcM8ObF62fORFIDwKSMIj1dXCV5jxmnO8OdI7vWFD6TTEUfS7W0ckPHUvTFVQm8DA==，清单匹配。
+Git 工作区三层字面依赖链已实现并通过测试。这解决了“导入转发文件后，未取得后续实现正文”的部分问题，但仍不是完整定义绑定。历史与 SVN 不具备同样的链式能力。
 
-- v0.37.0冻结5f2395f；标签CI37933398779四矩阵通过，唯一npm发布37933848198成功但tarball传播404核验超时；原artifact11617224527仅恢复37935128694成功，不重pack/publish。npm/Release99052字节逐字节一致，SHA256 0976a84db149bfee263f4dfd34fc75a1ca1abeec6719b4cad698d09f5f363998，SHA512 sha512-yExFyOf7YexBHNd73eDfpr4yNw60zWxtTzFrj0sm+QLjAGiBQ2GecrxTKwXvjexs2EKuClmK74qocjrsxLAzCQ==，清单匹配。
+## 当前验证结论
 
-- v0.36.0冻结5830853：标签CI37929559884及唯一发布37929860863成功，原artifact11615712667；npm/Release95603字节逐字节一致，SHA256 bdbceb8836707cb624bdddd2a37e4766090347da7e1585814ae93a92a316fcdf，SHA512 sha512-e7EyutEJDyzP082U1acAsWPbhI1dREEVwahS+zllFbSiq+BfvHsEp6qKvnsbTkFYVuITCH+ziK7J020C8ScqpA==，校验清单匹配。
+- 最近完整回归：383 项通过。
+- 实际 DSH 工具运行时检查通过；模型响应受控，不是质量成绩。
+- v0.39.0 独立安装包的真实 Git、服务与预算测试：5 项通过。
+- 已核验正式交付至 v0.38.0。v0.39.0 已冻结标签，本文不在缺少公开安装包核验时把它算作正式交付。
+- 当前优先任务是文档重构与新正式版本；文档发布完成不代表本表的核心差距完成。
 
-- v0.35.0冻结06deba9：标签CI37917761142通过；唯一发布37918056608成功。原artifact11610243325已保存92968字节，SHA256 f46126682f917b88a848512ab6d6e00caaa75e177d9065e983de8a9c8ccb3ade，SHA512 sha512-h/TKIHsGRO/xb8vnUYx4GUxJGCxqWZFxMlaCWO9pYvXndo5p/Lylnn1ir8o+qYor+fGgjsNyFsDNfxEOCfCD7g==；npm/Release实际字节逐字节一致，双hash及校验清单匹配，正式交付。
+## 不在范围内
 
-- v0.34.1冻结df24f41：标签CI37916385091通过，唯一发布37916636188成功，原artifact11609634644；npm/Release92590字节逐字节一致，SHA256 89a291fbc76806331eefb5d3e9caa7f4c892ae50c7b16e3f4b36d995578ac864，SHA512 sha512-5LH6oR3yHA0HPWMdZGzxwiBgl0ZWIFBWMEiNyF5sY4kIXLksseyRu3sxgjcgsyWV2ku/1OniJB21sCVQ4B5riQ==，校验清单匹配。
+自动改代码、管理平台、独立模型配置与费用系统、无限扫描仓库、运行项目代码。保守拒绝不支持的内容是安全边界，不应为了模拟参考实现而取消。
 
-- v0.34.0冻结38caf51：标签CI37915325263通过；唯一发布37915572586成功；原artifact11609188405已保存92276字节，SHA256 0309651af9ebae5fb0693210b051dc1bc63619a0441757884949a656bc6bc88d，SHA512 sha512-ukzXyFg/FtMF3xxJWniqlRBObjvXeUDYQh8DSA/nONYUcK5iIoUh28Rz1MmslqR1cz6/ZvG5+ITY2wsy3eh3dg==。npm/Release实际字节逐字节一致，双hash及校验清单匹配，正式交付。额外验收：不同pass不继承检索片段/receipt，caller修改不影响批准正文；旧receipt在新复核拒绝并保留incomplete候选。
-
-- v0.33.7冻结b7f5f95：标签CI37913636438，唯一发布37914089607，原artifact11609330268；npm/Release91349字节逐字节一致，SHA256 5c3d1cc39a844755741e39f7e748c0dd81309ad4d751417bff09ec5167eec7db，SHA512 sha512-rMRqzCLaghsAO+fhsxC7GO7fKF3L8/+/M4OSUu8D+aWcXHhtpospXIxTfHcf9gvsCIbOnC0Q68X9wUhk3fRZ8Q==，校验清单匹配。
-
-- v0.33.6免规划冻结6a5ab64：标签CI37912399789通过；唯一发布37912784526成功，未重复npm发布。原artifact11607167873已保存：91049字节，SHA256 6cbedc7597f637af865ac958ebed02c3321f75f7585efdc3bed505973376d2ec，SHA512 sha512-y6QhnMwaVZwABJZwqnTZF8eOaPzeEnVrj5GvBqIRKwYbr8OmgBVcPdeCyfMUcWRV5h+A0XA5r/jhh39gdjEKIg==；npm/Release实际字节逐字节一致，双hash与校验清单匹配，正式交付。
-
-- v0.33.5本地分组冻结7f3ebe6：标签CI37911121645、唯一发布37911400566，原artifact11606897122；npm/Release90189字节逐字节一致，SHA256 d138c4f52a1343ef6810ba0205bb116be48023b971e3bf23da4fbb84f5fe7f71，SHA512 sha512-xUpz312imQ44nIyTjIaq4Gex6S4JH/zZrKWKN2srRcbEuIGi6a+meH0q164RHTTyxICZS93+jWitJC3p+ftd5g==，校验清单匹配。
-
-- v0.33.4诊断补丁冻结7e604df：标签CI37909626325四矩阵通过；唯一发布37910021333原artifact11605284464已保存；npm/Release89493字节逐字节一致，SHA256 7a14a2c0689506897a1a58557bcbfd688806741ab278b51daa14d1690ad22364，SHA512 sha512-qmlWLV/sSkzcI9JJtRKFS4spGh+M//TLh5cWwxcic0tHrWj0r+Wz2sk2jTr7iGy0Az2q0E4DTwNOaoY6NzViBA==，校验清单匹配，正式交付。
-
-- 当前离线383/383及真实宿主离线smoke通过；不等价真实模型质量。分组失败选择分母/单文件跳过/预算耗尽、跨组遗漏、混合执行失败、取消和报告安全转义已验收。
-- 执行可靠性优先：0.33.2唯一完整JSON围栏兼容，固定CI37907541130通过、唯一发布37907836315已成功，原artifact11605097563，npm/Release88609字节与原工件一致，SHA256 13e40a77c97bb57014d2dd165f0f946ccb921a8d34b8b18530adadae37695887，SHA512 sha512-mI+dhtizlM+2HVyo+WRg3t8HyWUd6M6/ifV6nvuxj7bFaJ0jfeUTGPngan4zJRHf4jVzQK7aXnIMki//ZzaDgg==；0.33.3窗口上下文按批准catalog检索已正式交付：标签CI37908368137通过、唯一发布37908776363；原artifact11605287853，npm/Release88999字节一致，SHA256 aad891b8cab6804ce2992a45da9b78cec7bc70163e943a830c0e303610c9fe2b，SHA512 sha512-Xxv79rG4OsNKMrERkk7GOjZ/ElDGJjqdvECvqDCTNnQRk+1pINtUsYnUZidlhLaaRPCaswWNSUl9p8zP/GF/GA==。实际碰撞项目原报告/响应未知，不宣称三处格式失败或超时根因复现。
-- v0.33.1同一调用行alias重赋值/逃逸误提示已修复并冻结提交cdb95f0529b0fbbee5c5eaecfaf50cc50213562f；发布门禁已通过：标签CI37906386448、唯一发布37906798597成功，原artifact11604593956；npm/Release88082字节匹配原工件，SHA256 754e067662a25779d99f225a957ed1c4519c13e15dd083d8ca575260263f2cbd，SHA512 sha512-u8mPIdeHKrpL6zg1ljM35FMP0nJ5SeS87HjfCw6GSchoggKnmTbQvB7Mnd/LfrdY6Lg/DK/MKBNYwk/VkCul6w==。
-- v0.33.0：提交6fe4261fb7e2bd1b645b8637ba9f82840a760c83，标签四矩阵37904841884成功；唯一发布37905053267成功，原artifact11603897802。npm/正式Release与原工件逐字节一致87754字节；SHA256 fc0d99bebd62e431fdd212d83f51af5ea6e8b00ae6510210ea480b816c72064f；SHA512 sha512-OE81b9ZfHK+Smj/mTKeSiEN3xoZl1ldREKpC5F7dRBSk+grHla/ylt+rbEpwlU/4GEzfaZyNp1prov8OvAiC5g==。
-- v0.32.0：冻结aa99d1d0127eff3fc03a46f9503aeb63d026445f；标签四矩阵37897428028成功；npm发布37897709965成功但registry等待耗尽，原artifact11600619879；同工件恢复37898945312成功、无重复npm发布。npm/Release85750字节逐字节匹配；SHA256 9b977da62affab4f4994265b7ed939564a1e14562f40f26dca8eb7f4f7610551；SHA512 sha512-iq6llEjoIFxkm+3koKwawci2+cmnC/QnoxkRT7CSuz1GQM6anS7J6PGDnEmyeXOXTj+rJ/sVza0q/tjodiWBoA==。
-
-## 不变边界
-
-仅代码审核，不自动修复/管理平台/独立模型费用/无界扫描。当前Agent继承与宿主正常策略、确认和快照权限不变。每完整功能批测试复核→提交推送新版本→冻结标签四矩阵→Actions npm→同原工件正式Release→实际字节双hash。文档只保留结论，不再新增逐轮过程记录。
+参考来源及语言差距见 [源码对照](CORE-SOURCE-INVENTORY.md)。小规模模型观察见 [评测结果](https://github.com/f-e-n-g-0531/dsh-code-review/blob/main/evaluation/PILOT-RESULTS.md)。
