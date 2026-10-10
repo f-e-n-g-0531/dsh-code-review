@@ -53,7 +53,7 @@ export function uniqueApprovedDeclarations(lines, imported) {
 // Named imports only. Missing, duplicate, comment, or reexport names stay unresolved.
 export function namedImportDefinitions(importLine, targetText) {
  if (typeof targetText !== 'string' || Buffer.byteLength(targetText) > 256 * 1024 || /[\x60]|\/\*/.test(targetText)) return [];
- const match = /^\s*import\s+\{([^}]+)\}\s+from\s+(['"])[^'"]+\2\s*;?\s*(?:\/\/.*)?$/.exec(importLine);
+ const match = /^\s*import\s+(?:[A-Za-z_$][A-Za-z0-9_$]*\s*,\s*)?\{([^}]+)\}\s+from\s+(['"])[^'"]+\2\s*;?\s*(?:\/\/.*)?$/.exec(importLine);
  if (!match) return [];
  const names = match[1].split(',').map(part => /^\s*([A-Za-z_$][A-Za-z0-9_$]*)(?:\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*))?\s*$/.exec(part));
  if (!names.length || names.some(item => !item) || new Set(names.map(item => item[1])).size !== names.length || new Set(names.map(item => item[2] ?? item[1])).size !== names.length) return [];
@@ -63,4 +63,19 @@ export function namedImportDefinitions(importLine, targetText) {
   if (found.length === 1) result.push({ imported: name[1], declarationLine: found[0].number, declarationKind: found[0].kind, confidence: 'approved-unique-syntax-only' });
  }
  return result.slice(0, 20);
+}
+
+// Unique default export inside already approved text; anonymous defaults keep their line only.
+export function defaultImportDefinition(importLine, targetText) {
+ if (typeof targetText !== 'string' || Buffer.byteLength(targetText) > 256 * 1024 || /[\x60]|\/\*/.test(targetText)) return [];
+ if (targetText.includes(String.fromCharCode(92,10)) || targetText.includes(String.fromCharCode(92,13,10))) return [];
+ const match = /^\s*import\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*(?:,\s*\{[^}]*\}\s*)?from\s+(['"])[^'"]+\2\s*;?\s*(?:\/\/.*)?$/.exec(importLine);
+ if (!match) return [];
+ const lines = targetText.split(String.fromCharCode(10)), declarations = [];
+ for (let i = 0; i < lines.length; i++) if (/^\s*export\s+default\b/.test(lines[i])) declarations.push(i + 1);
+ if (declarations.length !== 1) return [];
+ const line = lines[declarations[0] - 1];
+ const kind = /^\s*export\s+default\s+(?:function|class)\b/.test(line) ? 'default-declaration' : /^\s*export\s+default\s+[^=;]+;\s*(?:\/\/.*)?$/.test(line) ? 'default-expression' : undefined;
+ if (!kind) return [];
+ return [{ imported: 'default', local: match[1], declarationLine: declarations[0], declarationKind: kind, confidence: 'approved-default-syntax-only' }];
 }

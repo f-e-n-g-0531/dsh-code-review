@@ -3,7 +3,7 @@ import { inferImportRelations } from '../src/import-relations.mjs';
 import { inferContextRelations } from '../src/context-relations.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { directImportBindings as bind, uniqueApprovedDeclarations, namedImportDefinitions } from '../src/import-bindings.mjs';
+import { directImportBindings as bind, uniqueApprovedDeclarations, namedImportDefinitions, defaultImportDefinition } from '../src/import-bindings.mjs';
 import { importedCallSites } from '../src/import-call-sites.mjs';
 const target = 'export function run(value) {}';
 const lines = ["import { run as execute } from './target.js';", 'execute(1);'];
@@ -106,6 +106,25 @@ test('definition hint caps and unsafe sources do not grant reads or binding proo
  assert.deepEqual(namedImportDefinitions('import type { Gate } from "./target.js";', 'export class Gate {}'),[]);
  assert.deepEqual(namedImportDefinitions('import * as Gate from "./target.js";', 'export class Gate {}'),[]);
  assert.deepEqual(namedImportDefinitions('import Gate from "./target.js";', 'export class Gate {}'),[]);
+});
+test('unique default export binds default imports while ambiguity and reexports refuse', async () => {
+ assert.deepEqual(defaultImportDefinition("import Gate from './target.js';", 'export default class Gate {}'), [{ imported: 'default', local: 'Gate', declarationLine: 1, declarationKind: 'default-declaration', confidence: 'approved-default-syntax-only' }]);
+ assert.equal(defaultImportDefinition("import App from './target.js';", 'export default function () {}')[0].declarationKind, 'default-declaration');
+ assert.equal(defaultImportDefinition("import app from './target.js';", 'export default createApp();')[0].declarationKind, 'default-expression');
+ for (const text of ['export default class A {}' + String.fromCharCode(10) + 'export default class B {}', "export { default } from './other.js';", '/* export default class A {} */', 'export default {', 'export default class A {}' + String.fromCharCode(92,10) + 'export default class B {}']) assert.deepEqual(defaultImportDefinition("import Gate from './target.js';", text), []);
+ assert.deepEqual(defaultImportDefinition("import { Gate } from './target.js';", 'export default class Gate {}'), []);
+ assert.deepEqual(defaultImportDefinition("import * as Gate from './target.js';", 'export default class Gate {}'), []);
+ const file = { id: 'a', path: 'a.js', eligibility: 'reviewable', properties: [], left: { text: '' }, right: { text: "import Gate, { run } from './target.js';" } };
+ const dep = { id: 'b', path: 'target.js', eligibility: 'reviewable', properties: [], left: { text: '' }, right: { text: 'export default class Gate {}' + String.fromCharCode(10) + 'export function run() {}' } };
+ const hints = inferImportRelations([file, dep])[0].definitionHints;
+ assert.deepEqual(hints.map(h => [h.imported, h.declarationKind]), [['run', 'function'], ['default', 'default-declaration']]);
+ assert.equal(hints[1].declarationLine, 1); assert.equal(hints[0].declarationLine, 2);
+ let sends = 0;
+ await reviewSnapshot({ id: 's', vcs: 'git', context: [], files: [file, dep] }, async request => { const payload = JSON.parse(request.input); assert.equal(payload.bindingRelations[0].definitionHints[1].local, 'Gate'); sends++; return { findings: [], limitations: [] }; }, { enableGrouping: true, grouping: { groups: [{ id: 'g', fileIds: ['a', 'b'] }], links: [] } });
+ assert.equal(sends, 2);
+ const old = { ...dep, left: { text: 'export default class Gate {}' }, right: { text: 'export const Gate = 1;' } };
+ const oldFile = { ...file, left: { text: "import Gate from './target.js';" }, right: { text: '' } };
+ assert.equal(inferImportRelations([oldFile, old]).find(item => item.side === 'old').definitionHints[0].declarationKind, 'default-declaration');
 });
 test('shadowing assignment escapes ambiguous exports and reexports fail closed', () => {
  for (const extra of ['function outer(execute) {', 'const execute = local;', 'execute = local;', 'consume(execute);']) assert.deepEqual(resolve([...lines, extra]), []);
