@@ -1,4 +1,5 @@
 import { CONTEXT_SIDE_NOTICE } from './context-identity.mjs';
+import { approvedCallerBindings } from './caller-binding-input.mjs';
 import { REQUIREMENT_NOTICE } from './business-requirement.mjs';
 import { defectGuidance } from './defect-guidance.mjs';
 import { cppCallSites } from './cpp-call-sites.mjs';
@@ -26,14 +27,20 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
   }
   const csharpHints = inferCsharpContext(input, file);
   if (csharpHints.length) { base.csharpContextHints = csharpHints; base.csharpContextNotice = '仅批准context的C#静态类型/方法语法位置；历史输入按contextSide/contextVersion区分正文，无旧正文不回退目标侧。不证明语义绑定或执行可达。歧义不推定，线索不增加审查覆盖。'; }
-  if (!input.history && input.callerDiscovery) {
-    const approved = new Set((input.context ?? []).filter(c => typeof c.text === 'string').map(c => c.path));
-    const callerBindings = input.callerDiscovery.candidates.filter(c => c.targetPath === file.path && c.bindings?.length && approved.has(c.fromPath)).map(({ fromPath, bindings }) => ({ fromPath, bindings }));
-    if (callerBindings.length) { base.callerBindings = callerBindings; base.callerBindingNotice = '调用方文件的导入行、调用行与目标声明行仅为语法位置线索，来源限于已批准上下文；不证明执行可达、动态分派、重载选择或完整调用覆盖，也不代表全部调用方。'; }
+  if (input.callerDiscovery) {
+    const callerBindings = approvedCallerBindings(input, file);
+    if (callerBindings.length) { base.callerBindings = callerBindings; base.callerBindingNotice = '调用方文件的导入行、调用行与目标声明行仅为语法位置线索，来源限于已批准上下文；历史side/revision要求调用方与目标声明同版本，缺侧不回退。仅导航，窗口中的原文须按相应版本catalog读取；不证明执行可达、动态分派、重载选择或完整调用覆盖，也不代表全部调用方。'; }
   }
   let payload = JSON.stringify(base);
   const measure = value => initialInputBudget({ instructions, input: value }, scope, maxInputBytes);
   const metadata = {};
+  // Optional navigation must not block source review or force extra windows.
+  if (base.callerBindings?.length && !measure(payload).fits) {
+    metadata.callerBindingFallback = 'input-budget';
+    metadata.omittedCallerBindingCount = base.callerBindings.reduce((count,c)=>count+c.bindings.length,0);
+    delete base.callerBindings; delete base.callerBindingNotice;
+    payload = JSON.stringify(base);
+  }
   let batches, synthesis;
   const group = grouping?.groups.find(g => g.fileIds.includes(file.id));
   if (group) {

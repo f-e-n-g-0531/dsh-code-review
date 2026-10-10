@@ -32,7 +32,7 @@ test('real tracked caller bodies bind the changed declaration without extra read
  assert.deepEqual(captured.discovery.candidates.map(c=>({fromPath:c.fromPath,targetPath:c.targetPath,bindings:c.bindings})),[{fromPath:'app/a.ts',targetPath:'src/dep.ts',bindings:[{imported:'run',local:'execute',importLine:1,callLine:2,declarationLine:1,declarationKind:'function',confidence:'conservative-syntax-only'}]}]);
  assert.deepEqual(captured.context.map(c=>c.path),['app/a.ts']);
 });
-test('historical capture omits target-side bindings from baseline discovery and reports',async t=>{
+test('historical capture never supplies a target declaration to baseline discovery and reports',async t=>{
  const root=await mkdtemp(path.join(os.tmpdir(),'dsh-history-bind-'));
  t.after(async()=>{assert.ok(path.basename(root).startsWith('dsh-history-bind-'));await rm(root,{recursive:true,force:true});});
  const git=(...args)=>checked('git',args,{cwd:root});
@@ -43,9 +43,11 @@ test('historical capture omits target-side bindings from baseline discovery and 
  await writeFile(path.join(root,'dep.ts'),'\n\nexport function x() {}');await git('commit','-qam','target');
  const captured=await captureSnapshot(root,{commit:'HEAD',callerScopePaths:['app']});
  assert.deepEqual(captured.callerDiscovery.candidates.map(c=>c.side),['old','new']);
- assert.ok(captured.callerDiscovery.candidates.every(c=>c.bindings===undefined));
- const report=await reviewSnapshot(captured,async request=>{assert.equal(JSON.parse(request.input).callerBindings,undefined);return {findings:[],limitations:[]};});
- assert.ok(report.callerDiscovery.candidates.every(c=>c.bindings===undefined));
+ assert.equal(captured.callerDiscovery.candidates[0].bindings,undefined);
+ assert.equal(captured.callerDiscovery.candidates[1].bindings[0].declarationLine,3);
+ const report=await reviewSnapshot(captured,async request=>{const hints=JSON.parse(request.input).callerBindings;assert.equal(hints.length,1);assert.equal(hints[0].side,'new');assert.equal(hints[0].revision,captured.history.target);assert.equal(hints[0].bindings[0].declarationLine,3);return {findings:[],limitations:[]};});
+ assert.equal(report.callerDiscovery.candidates[0].bindings,undefined);
+ assert.equal(report.callerDiscovery.candidates[1].bindings[0].declarationLine,3);
 });
 test('historical reviews never bind current-side caller call sites',async()=>{
  const historical=snapshot();historical.history={base:'a'.repeat(40),target:'b'.repeat(40)};
