@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { directImportBindings } from './import-bindings.mjs';
+import { directImportBindings, namedImportDefinitions } from './import-bindings.mjs';
 import { importedCallSites, indexStandaloneCalls } from './import-call-sites.mjs';
 
 const extensions = ['.mjs', '.cjs', '.js', '.jsx', '.ts', '.tsx'];
@@ -39,7 +39,8 @@ export function inferImportRelations(files) {
         const callSites = importedCallSites(lines, i + 1, callIndex);
         const targetText = (side === 'old' ? matches[0].left : matches[0].right)?.text;
         const bindingHints = directImportBindings(lines, i + 1, callSites, targetText);
-        edges.push({ from: file.id, to: matches[0].id, reason: 'relative-import:' + side + ':L' + (i + 1), side, line: i + 1, specifier: match[2], callSites, bindingHints });
+        const definitionHints = namedImportDefinitions(lines[i], targetText);
+        edges.push({ from: file.id, to: matches[0].id, reason: 'relative-import:' + side + ':L' + (i + 1), side, line: i + 1, specifier: match[2], callSites, bindingHints, definitionHints });
         if (callSites.length && edges.length < 2000) edges.push({ from: file.id, to: matches[0].id, reason: 'imported-call-syntax:' + side + ':L' + callSites.map(c => c.line).join(','), side, callSites });
         if (edges.length >= 2000) return edges;
       }

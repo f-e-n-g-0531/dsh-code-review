@@ -26,7 +26,7 @@ export function inferContextRelations(input, file) {
   const all = [primary, ...entries, ...competitors];
   if (all.length > 200) return [];
   const byId = new Map(all.map(f => [f.id, f.path]));
-  const imports = inferImportRelations(all).filter(e => e.specifier && (e.from === 'primary' || e.to === 'primary')).map(e => ({ fromPath: byId.get(e.from), toPath: byId.get(e.to), side: e.from === 'primary' ? e.side : 'context', line: e.line, specifier: e.specifier, callSites: e.callSites, bindingHints: e.bindingHints, reason: 'relative-import:approved-context' }));
+  const imports = inferImportRelations(all).filter(e => e.specifier && (e.from === 'primary' || e.to === 'primary')).map(e => ({ fromPath: byId.get(e.from), toPath: byId.get(e.to), side: e.from === 'primary' ? e.side : 'context', line: e.line, specifier: e.specifier, callSites: e.callSites, bindingHints: e.bindingHints, definitionHints: e.definitionHints, reason: 'relative-import:approved-context' }));
   const cpp = inferCppRelations(all).filter(e => e.from === 'primary' || e.to === 'primary').map(e => ({ fromPath: byId.get(e.from), toPath: byId.get(e.to), side: e.from === 'primary' ? e.side : 'context', line: e.line, specifier: e.specifier, reason: e.reason, contextVersion: 'approved-current-not-historical' }));
   return [...imports, ...cpp].slice(0, 2000);
 }

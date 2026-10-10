@@ -3,13 +3,13 @@ import { inferImportRelations } from '../src/import-relations.mjs';
 import { inferContextRelations } from '../src/context-relations.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { directImportBindings as bind } from '../src/import-bindings.mjs';
+import { directImportBindings as bind, uniqueApprovedDeclarations, namedImportDefinitions } from '../src/import-bindings.mjs';
 import { importedCallSites } from '../src/import-call-sites.mjs';
 const target = 'export function run(value) {}';
 const lines = ["import { run as execute } from './target.js';", 'execute(1);'];
 const resolve = (source, text = target) => bind(source, 1, importedCallSites(source, 1), text);
 test('named alias links original import call and direct exported declaration', () => {
- assert.deepEqual(resolve(lines), [{ imported: 'run', local: 'execute', importLine: 1, callLine: 2, declarationLine: 1, confidence: 'conservative-syntax-only' }]);
+ assert.deepEqual(resolve(lines), [{ imported: 'run', local: 'execute', importLine: 1, callLine: 2, declarationLine: 1, declarationKind: 'function', confidence: 'conservative-syntax-only' }]);
 });
 test('binding hints reach approved selected and explicit context relations only', () => {
  const file = { id: 'a', path: 'a.js', eligibility: 'reviewable', left: { text: '' }, right: { text: lines.join(String.fromCharCode(10)) } };
@@ -19,6 +19,26 @@ test('binding hints reach approved selected and explicit context relations only'
  const context = inferContextRelations({ files: [file], context: [{ path: 'target.js', text: target }] }, file);
  assert.equal(context[0].bindingHints[0].local, 'execute');
  assert.deepEqual(inferImportRelations([file, { ...dep, eligibility: 'excluded' }]), []);
+});
+test('review input keeps a unique definition without a call and drops an ambiguous one', async () => {
+ const file = { id: 'a', path: 'a.js', eligibility: 'reviewable', properties: [], left: { text: '' }, right: { text: "import { limit } from './target.js';" } };
+ const dep = { id: 'b', path: 'target.js', eligibility: 'reviewable', properties: [], left: { text: '' }, right: { text: 'export const limit = 2;' } };
+ const ambiguous = { ...dep, right: { text: 'export const limit = 2;' + String.fromCharCode(10) + 'limit = 3;' } };
+ const grouping = { groups: [{ id: 'g', fileIds: ['a', 'b'] }], links: [] };
+ let seen = 0;
+ await reviewSnapshot({ id: 's', vcs: 'git', context: [], files: [file, dep] }, async request => {
+  const payload = JSON.parse(request.input);
+  assert.equal(payload.bindingRelations[0].definitionHints[0].declarationKind, 'const');
+  assert.equal(payload.bindingRelations[0].bindingHints.length, 0);
+  seen++;
+  return { findings: [], limitations: [] };
+ }, { enableGrouping: true, grouping });
+ await reviewSnapshot({ id: 's', vcs: 'git', context: [], files: [file, ambiguous] }, async request => {
+  assert.equal(JSON.parse(request.input).bindingRelations.length, 0);
+  seen++;
+  return { findings: [], limitations: [] };
+ }, { enableGrouping: true, grouping });
+ assert.equal(seen, 4);
 });
 test('actual primary inputs preserve binding locations and target mutation rejects', async () => {
  const file = { id: 'a', path: 'a.js', eligibility: 'reviewable', properties: [], left: { text: '' }, right: { text: lines.join(String.fromCharCode(10)) } };
@@ -39,6 +59,26 @@ test('same-line alias mutation escape and nested alias calls do not assert bindi
   assert.deepEqual(resolve([lines[0],call]), []);
  }
  assert.equal(resolve([lines[0],'execute(next);']).length,1);
+});
+test('unique approved const and class declarations bind while duplicates reexports and other files do not', () => {
+ const linesOf = text => text.split(String.fromCharCode(10));
+ assert.deepEqual(uniqueApprovedDeclarations(linesOf('export const limit = 2;'), 'limit'), [{ number: 1, kind: 'const' }]);
+ assert.deepEqual(uniqueApprovedDeclarations(linesOf('export class Gate {}'), 'Gate'), [{ number: 1, kind: 'class' }]);
+ assert.equal(resolve(["import { limit as cap } from './target.js';", 'cap();'], 'export const limit = 2;')[0].declarationKind, 'const');
+ for (const text of ['export const limit = 2;' + String.fromCharCode(10) + 'export function limit() {}', "export { limit } from './other.js';", 'export const limit = 2;' + String.fromCharCode(10) + 'limit();']) assert.deepEqual(uniqueApprovedDeclarations(linesOf(text), 'limit'), []);
+ assert.deepEqual(uniqueApprovedDeclarations(linesOf('export const other = 1;'), 'limit'), []);
+});
+test('named definition hints stay on the supplied side and omit ambiguous names', () => {
+ const line = "import { limit, missing as other } from './target.js';";
+ const hints = namedImportDefinitions(line, 'export const limit = 2;');
+ assert.deepEqual(hints, [{ imported: 'limit', declarationLine: 1, declarationKind: 'const', confidence: 'approved-unique-syntax-only' }]);
+ assert.deepEqual(namedImportDefinitions(line, '/* export const limit = 2; */'), []);
+ assert.deepEqual(namedImportDefinitions(line, 'export const limit = 2;' + String.fromCharCode(10) + 'export class limit {}'), []);
+ const file = { id: 'a', path: 'a.js', eligibility: 'reviewable', left: { text: line }, right: { text: '' } };
+ const old = { id: 'b', path: 'target.js', eligibility: 'reviewable', left: { text: 'export const limit = 1;' }, right: { text: 'export function limit() {}' } };
+ const edge = inferImportRelations([file, old]).find(item => item.side === 'old' && item.specifier);
+ assert.equal(edge.definitionHints[0].declarationKind, 'const');
+ assert.ok(!JSON.stringify(edge.definitionHints).includes('function'));
 });
 test('shadowing assignment escapes ambiguous exports and reexports fail closed', () => {
  for (const extra of ['function outer(execute) {', 'const execute = local;', 'execute = local;', 'consume(execute);']) assert.deepEqual(resolve([...lines, extra]), []);
