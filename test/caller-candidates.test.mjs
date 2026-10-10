@@ -8,6 +8,17 @@ test('reverse navigation identifies literal references not semantic calls',()=>{
  assert.ok(result.probePaths.includes('src/dep.js')); assert.match(result.notice,/not function calls/);
  assert.equal(callerCandidates([file('dep.h')],[{path:'a.cpp',text:'#include "dep.h"'}],['dep.h']).candidates.length,1);
 });
+test('approved caller and target bodies bind call line to unique declaration without asserting reachability',()=>{
+ const target=file('src/dep.ts',{right:{text:'export function x(value) {}'}});
+ const scanned=[{path:'app/a.ts',text:"import { x as alias } from '../src/dep';\nalias();"}];
+ const bound=callerCandidates([target],scanned,['src/dep.ts']).candidates[0];
+ assert.deepEqual(bound.bindings,[{imported:'x',local:'alias',importLine:1,callLine:2,declarationLine:1,declarationKind:'function',confidence:'conservative-syntax-only'}]);
+ const ambiguous=file('src/dep.ts',{right:{text:'export function x(value) {}' + String.fromCharCode(10) + 'x = other;'}});
+ assert.equal(callerCandidates([ambiguous],scanned,['src/dep.ts']).candidates[0].bindings,undefined);
+ const escaped=file('src/dep.ts',{right:{text:'export function x(value) {}'}});
+ assert.equal(callerCandidates([escaped],[{path:'app/a.ts',text:"import { x as alias } from '../src/dep';" + String.fromCharCode(10) + 'consume(alias);'}],['src/dep.ts']).candidates[0].bindings,undefined);
+ assert.match(callerCandidates([target],scanned,['src/dep.ts']).notice,/not function calls/);
+});
 test('all resolution competitors suppress ambiguous references including directories',()=>{
  for(const competing of ['src/dep.js','src/dep','src/dep/index.ts']) assert.equal(callerCandidates([file('src/dep.ts')],[{path:'a.ts',text:"import x from './src/dep';"}],['src/dep.ts',competing]).candidates.length,0);
 });
