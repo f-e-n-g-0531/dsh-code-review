@@ -1,10 +1,10 @@
+import {captureSvnDependencyChain} from './svn-dependency-chain.mjs';
 import {captureDependencyChain} from './dependency-chain.mjs';
 import {captureSvnCallers} from './svn-caller-capture.mjs';
 import { captureCallers } from './caller-capture.mjs';
 import { validateCallerScopes } from './caller-index.mjs';
 import { bindBusinessRequirement, validateBusinessRequirement } from './business-requirement.mjs';
 import { gitContextIndex, svnContextIndex } from './tracked-context.mjs';
-import { contextCandidates } from './context-candidates.mjs';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { captureGitHistory } from './git-history.mjs';
@@ -49,22 +49,13 @@ export async function captureSnapshot(cwd, options = {}) {
   if (!Array.isArray(rulePaths) || rulePaths.some(name => contextPaths.includes(name))) throw new Error('Rule paths must be separate from context paths');
   const rules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
   const context = [];
-  let autoContext, index, explicitSeeds = [], indexOptions = options;
+  let autoContext, index, verifyDependencies, explicitSeeds = [], indexOptions = options;
   if (options.autoContext === true && type==='git') {
     const chain=await captureDependencyChain(snapshot.root,snapshot.files,options);
     explicitSeeds=chain.explicitSeeds;context.push(...chain.context);autoContext=chain.autoContext;index=chain.index;indexOptions=chain.indexOptions;
   } else if (options.autoContext === true) {
-    if(type==='git'){const probes=new Set();contextCandidates(snapshot.files,[],{onProbe:paths=>{for(const p of paths)probes.add(p);if(probes.size>512)throw new Error('Git context lookup limit exceeded');}});indexOptions={...options,probePaths:[...probes]};}
-    index = await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, indexOptions);
-    const plan = contextCandidates(snapshot.files, index.paths);
-    autoContext = { ...plan, candidates: plan.candidates.filter(c => !contextPaths.includes(c.path) && !rulePaths.includes(c.path)), capturedPaths: [] };
-    for (const candidate of autoContext.candidates) {
-      if (context.length + new Set(contextPaths).size >= maxContextFiles) { candidate.status = 'blocked'; candidate.reason = 'Context file limit exceeded'; continue; }
-      try {
-        context.push({ path: candidate.path, ...await readLocal(snapshot.root, candidate.path, options) });
-        candidate.status = 'captured'; autoContext.capturedPaths.push(candidate.path);
-      } catch (error) { options.signal?.throwIfAborted(); candidate.status = 'blocked'; candidate.reason = error.message; }
-    }
+    const chain=await captureSvnDependencyChain(snapshot.root,snapshot.files,options);
+    explicitSeeds=chain.explicitSeeds;context.push(...chain.context);autoContext=chain.autoContext;indexOptions=chain.indexOptions;verifyDependencies=chain.verify;
   }
   for (const name of [...new Set(contextPaths)].sort()) {
     const changed = snapshot.files.find(f => f.path === name);
@@ -103,6 +94,7 @@ export async function captureSnapshot(cwd, options = {}) {
   if (index && (await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, indexOptions)).fingerprint !== index.fingerprint) throw new Error('Tracked context index changed during capture');
   const verifiedRules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
   if (JSON.stringify(verifiedRules) !== JSON.stringify(rules)) throw new Error('Rules changed during capture');
+  if (verifyDependencies) await verifyDependencies();
   if (verifyCallers) await verifyCallers();
   const result = { ...snapshot, context, ...(callerDiscovery ? {callerDiscovery} : {}), ...(autoContext ? { autoContext } : {}), ...(rules.length ? { rules } : {}) };
   delete result.id;

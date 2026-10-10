@@ -58,7 +58,7 @@ DSH 的只读代码审查插件。它比较 Git 或 SVN 中的代码变更，使
 | selectedPaths | 只审查选中的变更文件 | ["src/api.ts"] |
 | repositoryPath | 指定工作区内的子仓库 | "project-a" |
 | contextPaths | 手动加入理解代码所需的文件 | ["src/types.ts"] |
-| autoContext | 从变更及手动上下文寻找依赖；Git 工作区最多沿三层依赖链读取 | true |
+| autoContext | 从变更及手动上下文寻找依赖；Git 和 SVN 最多沿三层依赖链读取 | true |
 | callerScopePaths | 在指定目录中寻找引用变更文件的代码 | ["src/clients"] |
 | oldContextPaths | Git 历史审查中，只加入旧版本的上下文 | ["src/removed-helper.ts"] |
 | rulePaths | 加入项目审查规则，最多四个 UTF-8 Markdown 或文本文件 | ["review-rules.md"] |
@@ -67,7 +67,7 @@ DSH 的只读代码审查插件。它比较 Git 或 SVN 中的代码变更，使
 
 commit 与 baseRevision/targetRevision 不能同时使用。oldContextPaths 只能用于 Git 历史审查。
 
-自动上下文和引用方发现是保守的文本导航，不是编译器分析。动态导入、宏、重载、继承和实例方法可能无法解析；找到引用不等于证明函数实际被调用。Git 历史可沿修改前后两侧分别捕获最多三层依赖；SVN 目前仍限直接依赖。
+自动上下文和引用方发现是保守的文本导航，不是编译器分析。动态导入、宏、重载、继承和实例方法可能无法解析；找到引用不等于证明函数实际被调用。Git 历史可沿修改前后两侧分别捕获最多三层依赖；SVN 可沿安全的当前工作副本节点取得最多三层依赖，不读取 SVN 历史。
 
 ## 如何读报告
 
