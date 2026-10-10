@@ -80,6 +80,33 @@ test('named definition hints stay on the supplied side and omit ambiguous names'
  assert.equal(edge.definitionHints[0].declarationKind, 'const');
  assert.ok(!JSON.stringify(edge.definitionHints).includes('function'));
 });
+test('named declaration navigation refuses default exports same-line competitors and continued strings', () => {
+ const imp = 'import { Gate } from "./target.js";';
+ for (const text of ['export default class Gate {}','export class Gate extends Gate {}','export class Gate {} export class Gate {}','"text' + String.fromCharCode(92,10) + 'export class Gate {}' + String.fromCharCode(92,10) + '";']) {
+  assert.deepEqual(namedImportDefinitions(imp,text),[]);
+ }
+ assert.deepEqual(namedImportDefinitions('import { run } from "./target.js";', 'export function run(run) {}'),[]);
+ assert.deepEqual(uniqueApprovedDeclarations(['/*','export class Gate {}','*/'],'Gate'),[]);
+ assert.deepEqual(namedImportDefinitions('import { Gate, Other as Gate } from "./target.js";', 'export class Gate {}'),[]);
+ assert.deepEqual(namedImportDefinitions('import { Gate } from "./target.js";', 'export class GateExtra {}'),[]);
+});
+test('historical approved context definition hints reach model with separate sides and no target fallback', async () => {
+ const imp='import { Gate } from "./target.js";';
+ const file={id:'a',path:'a.js',eligibility:'reviewable',properties:[],left:{text:imp},right:{text:imp+'\n// changed'}};
+ const input={id:'history-definitions',vcs:'git',history:{base:'before',target:'after'},files:[file],context:[{path:'target.js',oldText:'export const Gate = 1;',text:'// target\nexport class Gate {}'}]};
+ const before=structuredClone(input);let sends=0;
+ await reviewSnapshot(input,async request=>{const p=JSON.parse(request.input);const old=p.contextRelations.find(r=>r.side==='old'),fresh=p.contextRelations.find(r=>r.side==='new');assert.equal(old.definitionHints[0].declarationKind,'const');assert.equal(old.definitionHints[0].declarationLine,1);assert.equal(fresh.definitionHints[0].declarationKind,'class');assert.equal(fresh.definitionHints[0].declarationLine,2);assert.equal(old.contextVersion,'before');assert.equal(fresh.contextVersion,'after');sends++;return {findings:[],limitations:[]};});
+ assert.equal(sends,1);assert.deepEqual(input,before);
+ delete input.context[0].oldText;assert.ok(!inferContextRelations(input,file).some(r=>r.side==='old'&&r.definitionHints.length));
+});
+test('definition hint caps and unsafe sources do not grant reads or binding proof',()=>{
+ const names=Array.from({length:21},(_,i)=>'n'+i),text=names.map(n=>'export const '+n+' = 1;').join('\n');
+ const hints=namedImportDefinitions('import { '+names.join(',')+' } from "./target.js";',text);assert.equal(hints.length,20);assert.ok(hints.every(h=>h.confidence==='approved-unique-syntax-only'));
+ assert.deepEqual(namedImportDefinitions('import { Gate } from "./target.js";', 'export class Gate {}'+' '.repeat(256*1024)),[]);
+ assert.deepEqual(namedImportDefinitions('import type { Gate } from "./target.js";', 'export class Gate {}'),[]);
+ assert.deepEqual(namedImportDefinitions('import * as Gate from "./target.js";', 'export class Gate {}'),[]);
+ assert.deepEqual(namedImportDefinitions('import Gate from "./target.js";', 'export class Gate {}'),[]);
+});
 test('shadowing assignment escapes ambiguous exports and reexports fail closed', () => {
  for (const extra of ['function outer(execute) {', 'const execute = local;', 'execute = local;', 'consume(execute);']) assert.deepEqual(resolve([...lines, extra]), []);
  for (const text of [target + String.fromCharCode(10) + target, "export { run } from './other.js';", '/* comment */' + target]) assert.deepEqual(resolve(lines, text), []);
