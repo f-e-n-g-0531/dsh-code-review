@@ -19,6 +19,17 @@ test('approved caller and target bodies bind call line to unique declaration wit
  assert.equal(callerCandidates([escaped],[{path:'app/a.ts',text:"import { x as alias } from '../src/dep';" + String.fromCharCode(10) + 'consume(alias);'}],['src/dep.ts']).candidates[0].bindings,undefined);
  assert.match(callerCandidates([target],scanned,['src/dep.ts']).notice,/not function calls/);
 });
+test('each import resolves uniquely even when another explicit import admits the target',()=>{
+ const target=file('src/dep.ts',{right:{text:'export function x() {}'}});
+ const scanned=[{path:'app/a.ts',text:"import { x as alias } from '../src/dep';\nimport { y } from '../src/dep.ts';\nalias();"}];
+ for(const competitor of ['src/dep.js','src/dep','src/dep/index.ts']){
+  const result=callerCandidates([target],scanned,['src/dep.ts',competitor]);
+  assert.equal(result.candidates.length,1);
+  assert.equal(result.candidates[0].bindings,undefined);
+ }
+ assert.equal(callerCandidates([target],scanned,['src/dep.ts']).candidates[0].bindings[0].callLine,3);
+ assert.equal(callerCandidates([target],scanned,['src/dep.ts'],{includeBindings:false}).candidates[0].bindings,undefined);
+});
 test('all resolution competitors suppress ambiguous references including directories',()=>{
  for(const competing of ['src/dep.js','src/dep','src/dep/index.ts']) assert.equal(callerCandidates([file('src/dep.ts')],[{path:'a.ts',text:"import x from './src/dep';"}],['src/dep.ts',competing]).candidates.length,0);
 });
