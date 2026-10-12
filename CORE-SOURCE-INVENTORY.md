@@ -38,7 +38,7 @@
 - PO/POT、MyBatis 映射：文本身份、复数、占位符、绑定值与动态 SQL 提示。
 - JS/TS/React：hook、异步清理与渲染副作用提示。
 
-Protobuf、Thrift、Cap’n Proto、GraphQL、Prisma 的专用指导已交付；Go/Python/Rust 的版本前提与调用契约提示、ArkTS 提示、Objective-C/Swift/Kotlin/Java/C/C++ 的生命周期与并发细化提示也已交付。以下仍以通用指导为主：模板、依赖清单与基础设施的引擎版本和消费者约束，按“不按文件名推定行为”保留通用提示。全部提示不是语义解析、迁移执行结果或缺陷证据。
+Protobuf、Thrift、Cap’n Proto、GraphQL、Prisma 的专用指导已交付；Go/Python/Rust 的版本前提与调用契约提示、ArkTS 提示、Objective-C/Swift/Kotlin/Java/C/C++ 的生命周期与并发细化提示也已交付；模板引擎（Freemarker、Handlebars/Mustache、Jinja、Pug、Astro）与基础设施即代码（Terraform、Bicep）的转义边界、模板注入、硬编码凭据与生命周期保守提示也已交付。以下仍以通用指导为主：依赖清单与配置（Cargo.toml、composer.json、package.json、pom.xml、build.gradle、GitHub 工作流、yaml、properties、json）的引擎版本和消费者约束，按“不按文件名推定行为”保留通用提示。全部提示不是语义解析、迁移执行结果或缺陷证据。
 
 ## 固定参考文件索引
 
