@@ -4,7 +4,7 @@
 
 ## 0.48.0 — 剩余语言与格式的保守缺陷提示
 
-为 F#/R/Elm/Haskell/Julia/Nim/OCaml、Rego/Jsonnet/Nix、Solidity/Vyper、Verilog/SystemVerilog/VHDL、Zig、PO/POT、MyBatis 映射和 JS/TS/React 补充证据门控提示；关注资源求值、重入、位宽、分配器、占位符和渲染副作用，不照搬风格或错误绝对规则。有歧义后缀（裸 .v、.pot）不分类；.sol 与 F# 仅在命中语言签名时提示。
+为 F#/R/Elm/Haskell/Julia/Nim/OCaml、Rego/Jsonnet/Nix、Solidity/Vyper、Verilog/SystemVerilog/VHDL、Zig、PO/POT、MyBatis 映射和 JS/TS/React 补充证据门控提示；关注资源求值、重入、位宽、分配器、占位符和渲染副作用，不照搬风格或错误绝对规则。有歧义后缀（裸 .v、.pot）不分类；.sol 与 F# 仅在命中语言签名时提示。429 项完整回归、实际宿主、10 项独立安装专项与四组 CI 通过；npm、Release 与原产物 101,539 字节一致，双哈希和清单通过。
 
 ## 0.47.0 — 命名空间成员调用导航
 
