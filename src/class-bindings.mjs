@@ -76,8 +76,13 @@ export function instanceMethodBindings(lines, importLine, targetText) {
     const occ = [];
     let m; while ((m = token.exec(body)) !== null) occ.push(m.index);
     if (occ.length !== 1) continue;
-    const before = body.slice(0, d.i).trimEnd();
-    if (/(static|get|set|\*|#|\.|\[|\])$/.test(before)) continue;
+    const before = body.slice(0, d.i);
+    const spanStart = Math.max(before.lastIndexOf('}'), before.lastIndexOf(';'), before.lastIndexOf('{'));
+    const span = before.slice(spanStart + 1);
+    if (/\b(?:static|get|set|abstract)\b/.test(span)) continue;
+    if (/=\s*$/.test(span)) continue;
+    const seg = span.slice(span.lastIndexOf(NL) + 1);
+    if (/[=,:.*#\[\]()]|\b(?:new|function|return|yield|case|throw|typeof|void|delete|instanceof)\b/.test(seg)) continue;
     let assign = null, inst = null;
     for (let i = 0; i < lines.length; i++) {
       const a = /^\s*(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*new\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.exec(lines[i]);
@@ -91,7 +96,8 @@ export function instanceMethodBindings(lines, importLine, targetText) {
     for (let i = 0; i < lines.length; i++) { const o = [...lines[i].matchAll(instToken)]; if (o.length) { if (o.length !== 1) return []; instLines.push(i + 1); } }
     if (instLines.length !== 2 || !instLines.includes(assign)) continue;
     const callLine = instLines.find(l => l !== assign);
-    const call = /^\s*(?:await\s+)?[A-Za-z_$][A-Za-z0-9_$]*\.([A-Za-z_$][A-Za-z0-9_$]*)\s*\([^();"']*\)\s*;?\s*$/.exec(lines[callLine - 1]);
+    const callRe = new RegExp('^\\s*(?:await\\s+)?' + inst.replaceAll('$', '\\$') + '\\.([A-Za-z_$][A-Za-z0-9_$]*)\\s*\\([^();"\x27/]*\\)\\s*;?\\s*$');
+    const call = callRe.exec(lines[callLine - 1]);
     if (!call || call[1] !== member) continue;
     const methodLine = classLine + (body.slice(0, d.i).split(NL).length - 1);
     result.push({ imported: klass, local, instance: inst, member, newLine: assign, callLine, methodLine, declarationKind: 'instance-method', confidence: 'instance-method-syntax-only' });

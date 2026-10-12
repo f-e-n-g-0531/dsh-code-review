@@ -34,7 +34,7 @@ test('interaction namespace metadata retries without dropping sources or other r
  const envelope=JSON.parse(full.payload);envelope.contextRelations.forEach(e=>e.bindingHints=[]);
  const limit=Buffer.byteLength(JSON.stringify(envelope));assert.ok(full.budget.bytes>limit);
  const retry=prepareInteractionInput(s,group,p=>({fits:Buffer.byteLength(p)<=limit,bytes:Buffer.byteLength(p)}));
- assert.equal(retry.status,'ready');assert.equal(retry.namespaceBindingFallback,'input-budget');assert.equal(retry.omittedNamespaceBindingCount,2);assert.equal(retry.payload,JSON.stringify(envelope));assert.equal(JSON.parse(retry.payload).context[0].text,target);
+ assert.equal(retry.status,'ready');assert.equal(retry.optionalBindingFallback,'input-budget');assert.equal(retry.omittedOptionalBindingCount,2);assert.equal(retry.payload,JSON.stringify(envelope));assert.equal(JSON.parse(retry.payload).context[0].text,target);
 });
 test('grouped namespace metadata retries before dropping related files',()=>{
  const files=[{id:'a',path:'main.ts',eligibility:'reviewable',properties:[],left:{text:source},right:{text:source+'\n// changed'}},{id:'b',path:'dep.ts',eligibility:'reviewable',properties:[],left:{text:target},right:{text:target+'\n// changed'}}];
@@ -42,7 +42,7 @@ test('grouped namespace metadata retries before dropping related files',()=>{
  const options=b=>({instructions:'review',scope:createRetrievalScope(s),grouping,maxInputBytes:b});
  const full=preparePrimaryInput(s,files[0],options(1<<20));assert.deepEqual(full.metadata.relatedFileIds,['b']);
  const retry=preparePrimaryInput(s,files[0],options(full.metadata.initialInputBytes-1));
- assert.deepEqual(retry.metadata.relatedFileIds,['b']);assert.equal(retry.metadata.namespaceBindingFallback,'input-budget');assert.ok(retry.metadata.omittedNamespaceBindingCount>0);assert.equal(retry.budget.fits,true);
+ assert.deepEqual(retry.metadata.relatedFileIds,['b']);assert.equal(retry.metadata.optionalBindingFallback,'input-budget');assert.ok(retry.metadata.omittedOptionalBindingCount>0);assert.equal(retry.budget.fits,true);
  assert.ok(retry.payload.includes('"path":"dep.ts"'));assert.ok(!retry.payload.includes('namespace-member-syntax-only'));
 });
 test('per-import path ambiguity cannot be rescued by an explicit second namespace import',()=>{
@@ -56,7 +56,7 @@ test('optional namespace hints fall back without discarding approved source',()=
  const f={id:'f',path:'main.ts',eligibility:'reviewable',properties:[],left:{text:old},right:{text:old+'\n// changed'}};
  const s={id:'s',vcs:'git',files:[f],context:[{path:'dep.ts',text:target}]};
  const p=preparePrimaryInput(s,f,{instructions:'review',scope:createRetrievalScope(s),maxInputBytes:12000});
- assert.equal(p.budget.fits,true);assert.equal(p.metadata.namespaceBindingFallback,'input-budget');assert.ok(p.metadata.omittedNamespaceBindingCount>0);
+ assert.equal(p.budget.fits,true);assert.equal(p.metadata.optionalBindingFallback,'input-budget');assert.ok(p.metadata.omittedOptionalBindingCount>0);
  assert.ok(JSON.parse(p.payload).contextRelations.every(e=>e.bindingHints.every(h=>h.confidence!=='namespace-member-syntax-only')));
  assert.equal(s.context[0].text,target);
 });

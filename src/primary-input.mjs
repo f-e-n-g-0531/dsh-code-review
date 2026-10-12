@@ -34,11 +34,12 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
   let payload = JSON.stringify(base);
   const measure = value => initialInputBudget({ instructions, input: value }, scope, maxInputBytes);
   const metadata = {};
-  // Newly added member navigation is optional, like caller annotations.
-  if (base.contextRelations?.some(e=>e.bindingHints?.some(h=>h.confidence==='namespace-member-syntax-only')) && !measure(payload).fits) {
-    metadata.namespaceBindingFallback = 'input-budget';
-    metadata.omittedNamespaceBindingCount = base.contextRelations.reduce((n,e)=>n+(e.bindingHints??[]).filter(h=>h.confidence==='namespace-member-syntax-only').length,0);
-    base.contextRelations = base.contextRelations.map(e=>({...e,bindingHints:(e.bindingHints??[]).filter(h=>h.confidence!=='namespace-member-syntax-only')}));
+  const optional = h => h.confidence === 'namespace-member-syntax-only' || h.confidence === 'instance-method-syntax-only';
+  // Optional member navigation must not block source review or force extra windows.
+  if (base.contextRelations?.some(e=>e.bindingHints?.some(optional)) && !measure(payload).fits) {
+    metadata.optionalBindingFallback = 'input-budget';
+    metadata.omittedOptionalBindingCount = base.contextRelations.reduce((n,e)=>n+(e.bindingHints??[]).filter(optional).length,0);
+    base.contextRelations = base.contextRelations.map(e=>({...e,bindingHints:(e.bindingHints??[]).filter(h=>!optional(h))}));
     payload = JSON.stringify(base);
   }
   // Optional navigation must not block source review or force extra windows.
@@ -60,10 +61,10 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
       if (measure(grouped).fits) { payload = grouped; metadata.relatedFileIds = relatedFiles.map(f => f.id); }
       else {
         // Optional member hints must not cost the grouped related sources either.
-        const groupedOmitted = bindingRelations.reduce((n, e) => n + (e.bindingHints ?? []).filter(h => h.confidence === 'namespace-member-syntax-only').length, 0);
-        const trimmedRelations = bindingRelations.map(e => ({ ...e, bindingHints: (e.bindingHints ?? []).filter(h => h.confidence !== 'namespace-member-syntax-only') })).filter(e => e.bindingHints.length || e.definitionHints?.length);
+        const groupedOmitted = bindingRelations.reduce((n, e) => n + (e.bindingHints ?? []).filter(optional).length, 0);
+        const trimmedRelations = bindingRelations.map(e => ({ ...e, bindingHints: (e.bindingHints ?? []).filter(h => !optional(h)) })).filter(e => e.bindingHints.length || e.definitionHints?.length);
         const trimmed = JSON.stringify({ ...base, relatedFiles, relations, bindingRelations: trimmedRelations, relationNotice: '命名和相对导入关系仅为源码线索，可能被同名局部变量遮蔽，不证明绑定、调用可达或因果；只报告主file的问题，不为relatedFiles重复生成发现。' });
-        if (groupedOmitted && measure(trimmed).fits) { payload = trimmed; metadata.relatedFileIds = relatedFiles.map(f => f.id); metadata.namespaceBindingFallback = 'input-budget'; metadata.omittedNamespaceBindingCount = (metadata.omittedNamespaceBindingCount ?? 0) + groupedOmitted; }
+        if (groupedOmitted && measure(trimmed).fits) { payload = trimmed; metadata.relatedFileIds = relatedFiles.map(f => f.id); metadata.optionalBindingFallback = 'input-budget'; metadata.omittedOptionalBindingCount = (metadata.omittedOptionalBindingCount ?? 0) + groupedOmitted; }
         else metadata.groupFallback = 'input-budget';
       }
     }
