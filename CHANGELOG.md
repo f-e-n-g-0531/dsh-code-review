@@ -4,7 +4,7 @@
 
 ## 0.49.0 — Go/Python/Rust 运行时提示细化与 ArkTS
 
-Go 关注构建标签/版本与 GC 假设；Python 关注版本语法与调用契约；Rust 关注 edition/MSRV、cfg/宏展开与 panic 模式；新增 ArkTS（.ets）UI 线程/生命周期与受限边界提示。仍为证据门控提示，不是语义解析。
+Go 关注构建标签/版本与 GC 假设；Python 关注版本语法与调用契约；Rust 关注 edition/MSRV、cfg/宏展开与 panic 模式；新增 ArkTS（.ets）UI 线程/生命周期与受限边界提示。仍为证据门控提示，不是语义解析。430 项完整回归、实际宿主、11 项独立安装专项与四组 CI 通过；npm、Release 与原产物 101,770 字节一致，双哈希和清单通过。
 
 ## 0.48.0 — 剩余语言与格式的保守缺陷提示
 
