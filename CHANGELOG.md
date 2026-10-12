@@ -2,6 +2,10 @@
 
 本文件介绍对使用者有意义的变化。安装与参数见 [README](README.md)，本次发布正文见 [发布说明](RELEASE-NOTES.md)。历史提交和安装包保留在 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-review/releases)；本文不把开发日志当作功能介绍。
 
+## 0.56.0 — 依赖清单与配置文件专用指导
+
+为 Cargo.toml、composer.json、package.json、pom.xml、build.gradle 等依赖清单补充版本可复现、依赖声明约束与发布元数据的保守缺陷提示；为 GitHub 工作流/配置、yaml、properties、json 等配置文件补充最小权限、模板字段与键名拼写的保守缺陷提示。按具体路径与后缀选择，仍为证据门控提示，不是解析或格式校验结果。只读批准快照，不改变审查行为或参数。
+
 ## 0.55.0 — 模板引擎与基础设施即代码专用指导
 
 为 Freemarker、Handlebars/Mustache、Jinja、Pug、Astro 等模板引擎补充转义边界、模板注入、缺失值与部分/继承的保守缺陷提示；为 Terraform、Bicep 补充硬编码凭据、过度授权访问、状态/生命周期与版本可复现的保守缺陷提示。按具体引擎后缀选择，仍为证据门控提示，不是语义解析或渲染执行结果。只读批准快照，不改变审查行为或参数。446 项完整回归、实际宿主、隔离安装与四组 CI 通过；npm、Release 与原产物 106,969 字节一致，双哈希和清单通过。
