@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { namespaceImportBindings } from './namespace-bindings.mjs';
+import { instanceMethodBindings } from './class-bindings.mjs';
 import { directImportBindings, namedImportDefinitions, defaultImportDefinition } from './import-bindings.mjs';
 import { importedCallSites, indexStandaloneCalls } from './import-call-sites.mjs';
 
@@ -39,7 +40,7 @@ export function inferImportRelations(files) {
         if (matches.length !== 1 || matches[0].eligibility !== 'reviewable' || matches[0].id === file.id) continue;
         const callSites = importedCallSites(lines, i + 1, callIndex);
         const targetText = (side === 'old' ? matches[0].left : matches[0].right)?.text;
-        const bindingHints = [...directImportBindings(lines, i + 1, callSites, targetText), ...namespaceImportBindings(lines, i + 1, targetText)].slice(0,20);
+        const bindingHints = [...directImportBindings(lines, i + 1, callSites, targetText), ...namespaceImportBindings(lines, i + 1, targetText), ...instanceMethodBindings(lines, i + 1, targetText)].slice(0,20);
         const definitionHints = [...namedImportDefinitions(lines[i], targetText), ...defaultImportDefinition(lines[i], targetText)];
         edges.push({ from: file.id, to: matches[0].id, reason: 'relative-import:' + side + ':L' + (i + 1), side, line: i + 1, specifier: match[2], callSites, bindingHints, definitionHints });
         if (callSites.length && edges.length < 2000) edges.push({ from: file.id, to: matches[0].id, reason: 'imported-call-syntax:' + side + ':L' + callSites.map(c => c.line).join(','), side, callSites });
