@@ -1,12 +1,12 @@
-# v0.49.0 发布说明
+# v0.50.0 发布说明
 
-## Go/Python/Rust 运行时提示细化与 ArkTS 支持
+## Objective-C/Swift/Java/Kotlin/C# 生命周期与并发提示细化
 
-为 Go、Python、Rust 补充版本与运行环境前提提示：Go 关注构建标签、go.mod/runtime 版本和 GC/finalizer 假设；Python 关注版本相关语法与关键字/位置调用契约；Rust 关注 edition/MSRV、cfg 与 proc-macro 展开及 panic 模式。新增 ArkTS（.ets）指导，关注 UI 线程/组件生命周期、状态不可变规则与受限 ArkTS/动态执行边界。
+为这些语言补充证据门控的运行时前提提示：Objective-C 关注数据/网络/通知清理与队列/主线程约束；Swift 关注 @MainActor/@preconcurrency 隔离与严格并发诊断；Java 关注虚拟线程绑定、并行流线程池假设与版本门控 API；Kotlin 关注 expect/actual、多平台与 @Volatile/@Synchronized 互操作；C# 关注 ValueTask 重复等待、ConfigureAwait 调度与 .NET 版本可空性。
 
 ## 限制
 
-- 提示仍只针对具体缺陷和反证，不是语义解析、迁移执行结果或缺陷证据，不授予读取权限。
-- .ts/.tsx 仍按 JavaScript/TypeScript 提示，不自动转为 ArkTS；仅 .ets 命中 ArkTS 指导。
+- 提示仍只针对具体缺陷和反证，不照搬风格偏好或错误绝对规则，不授予读取权限。
+- 全部以实际运行环境为证据前提，不推断线程亲和、调度或内存保证。
 
 使用方法见 [README](README.md)。

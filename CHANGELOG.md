@@ -2,6 +2,10 @@
 
 本文件介绍对使用者有意义的变化。安装与参数见 [README](README.md)，本次发布正文见 [发布说明](RELEASE-NOTES.md)。历史提交和安装包保留在 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-review/releases)；本文不把开发日志当作功能介绍。
 
+## 0.50.0 — 生命周期与并发提示细化
+
+Objective-C、Swift、Java、Kotlin、C# 补充线程/队列约束、并发隔离、版本门控 API 与生命周期清理提示；均以实际运行环境为证据前提，不推断线程亲和或内存保证。
+
 ## 0.49.0 — Go/Python/Rust 运行时提示细化与 ArkTS
 
 Go 关注构建标签/版本与 GC 假设；Python 关注版本语法与调用契约；Rust 关注 edition/MSRV、cfg/宏展开与 panic 模式；新增 ArkTS（.ets）UI 线程/生命周期与受限边界提示。仍为证据门控提示，不是语义解析。430 项完整回归、实际宿主、11 项独立安装专项与四组 CI 通过；npm、Release 与原产物 101,770 字节一致，双哈希和清单通过。

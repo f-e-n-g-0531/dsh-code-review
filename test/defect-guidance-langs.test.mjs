@@ -29,6 +29,10 @@ test('arkts and refined runtime guidance keep evidence gates',()=>{
  for(const [p,term] of [['a.go','runtime version'],['a.py','runtime version'],['a.rs','edition/MSRV']])assert.match(defectGuidance(p).checks.join(' '),new RegExp(term));
  assert.ok(!defectGuidance('a.ets').checks.some(c=>c.includes('garbage collected')||c.includes('edition/MSRV')));
 });
+test('lifecycle and concurrency refinements stay evidence-gated',()=>{
+ for(const [p,term] of [['a.mm','main/queue'],['a.swift','@MainActor/@preconcurrency'],['a.java','virtual-thread'],['a.kt','expect/actual'],['a.cs','ValueTask double-await']])assert.match(defectGuidance(p).checks.join(' '),new RegExp(term));
+ assert.match(defectGuidance('a.java').checks.join(' '),/actual JDK/);assert.match(defectGuidance('a.cs').checks.join(' '),/actual runtime/);
+});
 test('new guidance reaches primary pipeline without extra calls',async()=>{
  for(const [path,src,lang] of [['a.vhdl','','hdl'],['a.rego','','rego'],['a.nix','','nix'],['a.ets','','arkts'],['a.jsx','','javascript'],['a.sol','pragma solidity ^0.8; contract A {}','solidity']]){let calls=0;const r=await reviewSnapshot({id:'s',vcs:'git',files:[{id:'f',path,eligibility:'reviewable',properties:[],left:{text:'old'},right:{text:src||'new'}}],context:[]},async request=>{calls++;assert.equal(JSON.parse(request.input).defectGuidance.language,lang);return {findings:[],limitations:[]};});assert.equal(calls,1);assert.equal(r.status,'completed');}
 });
