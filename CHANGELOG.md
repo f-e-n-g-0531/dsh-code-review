@@ -2,6 +2,10 @@
 
 本文件介绍对使用者有意义的变化。安装与参数见 [README](README.md)，本次发布正文见 [发布说明](RELEASE-NOTES.md)。历史提交和安装包保留在 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-review/releases)；本文不把开发日志当作功能介绍。
 
+## 0.48.0 — 剩余语言与格式的保守缺陷提示
+
+为 F#/R/Elm/Haskell/Julia/Nim/OCaml、Rego/Jsonnet/Nix、Solidity/Vyper、Verilog/SystemVerilog/VHDL、Zig、PO/POT、MyBatis 映射和 JS/TS/React 补充证据门控提示；关注资源求值、重入、位宽、分配器、占位符和渲染副作用，不照搬风格或错误绝对规则。有歧义后缀（裸 .v、.pot）不分类；.sol 与 F# 仅在命中语言签名时提示。
+
 ## 0.47.0 — 命名空间成员调用导航
 
 批准的 JS/TS 命名空间导入可把独立成员调用指向唯一命名声明；历史逐侧隔离。写入、遮蔽、逃逸、间接调用与歧义拒绝提示；不是实例推导或完整调用图。不新增读取，超预算省略可选线索。424 项完整回归、实际宿主、17 项独立安装专项与四组 CI 通过；npm、Release 与原产物 98,883 字节一致，双哈希和清单通过。

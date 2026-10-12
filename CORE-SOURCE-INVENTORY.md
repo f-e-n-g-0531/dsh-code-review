@@ -26,22 +26,19 @@
 - 历史重命名按删除和新增表达；区间比较使用明确端点，不自动计算合并基点。
 - 参考中的风格偏好、无条件性能建议和错误绝对规则不作为缺陷标准。
 
-## 语言指导的剩余工作
+## 语言指导的现状与剩余细化
 
-| 类型 | 剩余重点 |
-|---|---|
-| F#、R、Elm、Haskell、Julia、Nim、OCaml | 仍以通用指导为主；需处理各语言的资源、求值、数据与运行契约 |
-| Rego、Jsonnet、Nix | 策略未定义值、对象合并、构建依赖和具体运行版本 |
-| Solidity、Vyper | 部署版本、存储布局、重入、外部调用与实际消费者 |
-| Verilog/SystemVerilog、VHDL | 调度、位宽、有符号值、时钟跨域和目标工具支持 |
-| Zig | 分配器、异常清理、借用寿命和构建模式 |
-| PO/POT、MyBatis 映射文件 | 文本身份、占位符、复数规则、绑定值与动态 SQL |
-| JS/TS/React | hook、异步清理、渲染副作用的实际缺陷与反证 |
-| Go、Python、Rust | 版本前提、并发、宏求值和调用契约细化 |
-| Objective-C、Swift、MATLAB、ArkTS、PHP、Kotlin、Java、C/C++ | 大类指导已有；部分生命周期、并发、版本和调用场景需具体测试 |
-| 模板、依赖清单、基础设施 | 转义方式、引擎版本、消费者与部署约束，不按文件名推定行为 |
+已加入保守缺陷提示（只提示具体缺陷和反证，不照搬风格偏好、无条件性能建议或错误绝对规则）：
 
-Protobuf、Thrift、Cap’n Proto、GraphQL、Prisma 的专用指导已交付。不把协议检查提示当作解析器、迁移执行结果或缺陷证据。
+- F#、R、Elm、Haskell、Julia、Nim、OCaml：资源、求值、数据与运行契约提示。
+- Rego、Jsonnet、Nix：未定义值、合并、构建依赖与版本提示。
+- Solidity、Vyper：重入、外部调用、存储布局与部署版本提示。
+- Verilog/SystemVerilog、VHDL：调度、位宽、有符号、跨时钟域与工具支持提示。
+- Zig：分配器、错误清理、溢出/对齐与构建模式提示。
+- PO/POT、MyBatis 映射：文本身份、复数、占位符、绑定值与动态 SQL 提示。
+- JS/TS/React：hook、异步清理与渲染副作用提示。
+
+Protobuf、Thrift、Cap’n Proto、GraphQL、Prisma 的专用指导已交付。以下仍以通用或大类指导为主，需进一步细化：Go/Python/Rust 的版本前提与调用契约，Objective-C/Swift/Kotlin/Java/C/C++ 的具体生命周期与并发场景，以及模板、依赖清单与基础设施的引擎版本和消费者约束。全部提示不是语义解析、迁移执行结果或缺陷证据。
 
 ## 固定参考文件索引
 
