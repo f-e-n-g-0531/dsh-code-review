@@ -34,6 +34,13 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
   let payload = JSON.stringify(base);
   const measure = value => initialInputBudget({ instructions, input: value }, scope, maxInputBytes);
   const metadata = {};
+  // Newly added member navigation is optional, like caller annotations.
+  if (base.contextRelations?.some(e=>e.bindingHints?.some(h=>h.confidence==='namespace-member-syntax-only')) && !measure(payload).fits) {
+    metadata.namespaceBindingFallback = 'input-budget';
+    metadata.omittedNamespaceBindingCount = base.contextRelations.reduce((n,e)=>n+(e.bindingHints??[]).filter(h=>h.confidence==='namespace-member-syntax-only').length,0);
+    base.contextRelations = base.contextRelations.map(e=>({...e,bindingHints:(e.bindingHints??[]).filter(h=>h.confidence!=='namespace-member-syntax-only')}));
+    payload = JSON.stringify(base);
+  }
   // Optional navigation must not block source review or force extra windows.
   if (base.callerBindings?.length && !measure(payload).fits) {
     metadata.callerBindingFallback = 'input-budget';
@@ -51,7 +58,14 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
       const bindingRelations = inferImportRelations(input.files).filter(edge => (edge.bindingHints?.length || edge.definitionHints?.length) && (edge.from === file.id || edge.to === file.id) && group.fileIds.includes(edge.from) && group.fileIds.includes(edge.to)).map(({ from, to, side, bindingHints, definitionHints }) => ({ from, to, side, bindingHints, ...(definitionHints?.length ? { definitionHints } : {}) }));
       const grouped = JSON.stringify({ ...base, relatedFiles, relations, bindingRelations, relationNotice: '命名和相对导入关系仅为源码线索，可能被同名局部变量遮蔽，不证明绑定、调用可达或因果；只报告主file的问题，不为relatedFiles重复生成发现。' });
       if (measure(grouped).fits) { payload = grouped; metadata.relatedFileIds = relatedFiles.map(f => f.id); }
-      else metadata.groupFallback = 'input-budget';
+      else {
+        // Optional member hints must not cost the grouped related sources either.
+        const groupedOmitted = bindingRelations.reduce((n, e) => n + (e.bindingHints ?? []).filter(h => h.confidence === 'namespace-member-syntax-only').length, 0);
+        const trimmedRelations = bindingRelations.map(e => ({ ...e, bindingHints: (e.bindingHints ?? []).filter(h => h.confidence !== 'namespace-member-syntax-only') })).filter(e => e.bindingHints.length || e.definitionHints?.length);
+        const trimmed = JSON.stringify({ ...base, relatedFiles, relations, bindingRelations: trimmedRelations, relationNotice: '命名和相对导入关系仅为源码线索，可能被同名局部变量遮蔽，不证明绑定、调用可达或因果；只报告主file的问题，不为relatedFiles重复生成发现。' });
+        if (groupedOmitted && measure(trimmed).fits) { payload = trimmed; metadata.relatedFileIds = relatedFiles.map(f => f.id); metadata.namespaceBindingFallback = 'input-budget'; metadata.omittedNamespaceBindingCount = (metadata.omittedNamespaceBindingCount ?? 0) + groupedOmitted; }
+        else metadata.groupFallback = 'input-budget';
+      }
     }
   }
   if (!measure(payload).fits && scope) {

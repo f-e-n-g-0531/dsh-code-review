@@ -1,5 +1,6 @@
 import { contextCandidates } from './context-candidates.mjs';
 import { directImportBindings } from './import-bindings.mjs';
+import { namespaceImportBindings } from './namespace-bindings.mjs';
 import { importedCallSites, indexStandaloneCalls } from './import-call-sites.mjs';
 import { relativePath } from './content.mjs';
 import { isSecretPath } from './secret-path.mjs';
@@ -17,7 +18,7 @@ function callerBindings(fromPath, targetPath, scannedText, targetText, resolutio
   const candidates = path.posix.extname(target) ? [target] : [target, ...importExtensions.map(ext => target + ext), ...importExtensions.map(ext => target + '/index' + ext)];
   const matches = candidates.filter(candidate => resolutionPaths.has(candidate));
   if (matches.length !== 1 || matches[0] !== targetPath) continue;
-  result.push(...directImportBindings(lines, i + 1, importedCallSites(lines, i + 1, callIndex), targetText));
+  result.push(...directImportBindings(lines, i + 1, importedCallSites(lines, i + 1, callIndex), targetText), ...namespaceImportBindings(lines, i + 1, targetText));
  }
  return result.slice(0, 20);
 }
