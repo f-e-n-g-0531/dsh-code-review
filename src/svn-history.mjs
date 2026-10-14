@@ -4,6 +4,7 @@ import {xml} from './svn.mjs';
 import {hash,decode,relativePath} from './content.mjs';
 import {isSecretPath,assertNonSecretPath} from './secret-path.mjs';
 import {captureProjectRules} from './project-rules.mjs';
+import {mergeinfoNavigation} from './svn-mergeinfo.mjs';
 
 const revision = value => {
   if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value) || !Number.isSafeInteger(Number(value))) throw new Error('SVN revision must be a fixed nonnegative decimal string');
@@ -131,6 +132,7 @@ export async function captureSvnHistory(cwd,options={}) {
   for(const item of files.filter(f=>(f.oldKind==='dir'||f.newKind==='dir')&&['added','deleted','replaced'].includes(f.rawStatus)&&f.eligibility==='reviewable').sort((a,b)=>b.path.length-a.path.length)){
     if(files.some(child=>child.path.startsWith(item.path==='.'?'':item.path+'/')&&child!==item&&child.eligibility!=='reviewable')){item.eligibility='blocked';item.reason='Historical directory descendant coverage incomplete';delete item.left;delete item.right;}
   }
+  const mergeSources=files.filter(file=>file.eligibility==='reviewable').flatMap(file=>file.properties.filter(prop=>prop.name==='svn:mergeinfo').map(prop=>({path:file.path,old:mergeinfoNavigation(prop.old),new:mergeinfoNavigation(prop.new)})));
   const context=[];
   const targetContent=async(name)=>{
     const changed=files.find(file=>file.path===name);
@@ -169,7 +171,7 @@ export async function captureSvnHistory(cwd,options={}) {
   const after=await run(['diff','--summarize','--xml','--notice-ancestry','-r',range.base+':'+range.target,'--',at('.',range.target)]);
   if(!isDeepSummary(summary,after))throw new Error('SVN historical summary changed during capture');
   await identity('.',range.base);await identity('.',range.target);
-  const snapshot={schemaVersion:1,vcs:'svn',root,repositoryUuid:local.repository.uuid,context,...(rules.length?{rules}:{}),history:{...range,vcs:'svn',url,repositoryUuid:local.repository.uuid,pegRevision:range.target,networkAccess,semantics:'fixed revision tree endpoints; no merge attribution or working text'},files};
+  const snapshot={schemaVersion:1,vcs:'svn',root,repositoryUuid:local.repository.uuid,context,...(rules.length?{rules}:{}),history:{...range,vcs:'svn',url,repositoryUuid:local.repository.uuid,pegRevision:range.target,networkAccess,...(mergeSources.length?{mergeSources}:{}),semantics:'fixed revision tree endpoints; no merge attribution or working text'},files};
   const serialized=JSON.stringify(snapshot);if(Buffer.byteLength(serialized)>maxSnapshotBytes)throw new Error('SVN historical snapshot limit exceeded');
   return {...snapshot,id:hash(serialized)};
 }
