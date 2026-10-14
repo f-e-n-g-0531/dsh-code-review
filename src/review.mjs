@@ -105,6 +105,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     if (input.autoContext.truncated || input.autoContext.candidates.some(c => c.status === 'blocked')) report.limitations.push({ text: '自动上下文未完全捕获：存在截断或阻塞，仅实际捕获路径可用于证据。' });
   }
   if (input.history) report.history = structuredClone(input.history);
+  if (input.mergeSources) report.mergeSources = structuredClone(input.mergeSources);
   report.rules = (input.rules ?? []).map(({ path, hash }) => ({ path, hash }));
   if (options.enableGrouping === true) report.grouping = buildReviewGroups(input.files, inferFileRelations(input.files));
   report.interactions = [];

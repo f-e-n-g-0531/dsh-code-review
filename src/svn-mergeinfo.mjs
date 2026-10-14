@@ -1,5 +1,9 @@
 import {hash} from './content.mjs';
 
+export function snapshotMergeSources(files) {
+  return files.filter(file=>file.eligibility==='reviewable').flatMap(file=>file.properties.filter(prop=>prop.name==='svn:mergeinfo').map(prop=>({path:file.path,old:mergeinfoNavigation(prop.old),new:mergeinfoNavigation(prop.new)})));
+}
+
 // Navigation over an already approved property. Never expands revisions or reads URLs.
 export function mergeinfoNavigation(text) {
   if(text===null || text==='')return {status:'parsed',sources:[],hash:hash(text??'')};

@@ -4,7 +4,7 @@ import {xml} from './svn.mjs';
 import {hash,decode,relativePath} from './content.mjs';
 import {isSecretPath,assertNonSecretPath} from './secret-path.mjs';
 import {captureProjectRules} from './project-rules.mjs';
-import {mergeinfoNavigation} from './svn-mergeinfo.mjs';
+import {snapshotMergeSources} from './svn-mergeinfo.mjs';
 
 const revision = value => {
   if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value) || !Number.isSafeInteger(Number(value))) throw new Error('SVN revision must be a fixed nonnegative decimal string');
@@ -132,7 +132,7 @@ export async function captureSvnHistory(cwd,options={}) {
   for(const item of files.filter(f=>(f.oldKind==='dir'||f.newKind==='dir')&&['added','deleted','replaced'].includes(f.rawStatus)&&f.eligibility==='reviewable').sort((a,b)=>b.path.length-a.path.length)){
     if(files.some(child=>child.path.startsWith(item.path==='.'?'':item.path+'/')&&child!==item&&child.eligibility!=='reviewable')){item.eligibility='blocked';item.reason='Historical directory descendant coverage incomplete';delete item.left;delete item.right;}
   }
-  const mergeSources=files.filter(file=>file.eligibility==='reviewable').flatMap(file=>file.properties.filter(prop=>prop.name==='svn:mergeinfo').map(prop=>({path:file.path,old:mergeinfoNavigation(prop.old),new:mergeinfoNavigation(prop.new)})));
+  const mergeSources=snapshotMergeSources(files);
   const context=[];
   const targetContent=async(name)=>{
     const changed=files.find(file=>file.path===name);

@@ -1,5 +1,6 @@
 import { isSecretPath } from './secret-path.mjs';
 import { svnStateIssue } from './svn-state.mjs';
+import { snapshotMergeSources } from './svn-mergeinfo.mjs';
 import { realpath, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -152,6 +153,7 @@ export async function captureSvn(cwd, options = {}) {
     const right = ['deleted', 'unversioned'].includes(item.rawStatus) ? {} : await properties(root, item.path, false, options);
     if (hash(JSON.stringify([left, right])) !== item.propertyIdentity) throw new Error('Properties changed during capture');
   }
-  const snapshot = { schemaVersion: 1, vcs: 'svn', root, repositoryUuid: info.repository.uuid, files };
+  const mergeSources = snapshotMergeSources(files);
+  const snapshot = { schemaVersion: 1, vcs: 'svn', root, repositoryUuid: info.repository.uuid, ...(mergeSources.length ? {mergeSources} : {}), files };
   return { ...snapshot, id: hash(JSON.stringify(snapshot)) };
 }
