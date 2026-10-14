@@ -33,8 +33,9 @@ export function svnHistoryDestination(value, allowNetwork) {
 export function mergeSvnHistoryRecord(previous, item) {
   if(!['added','deleted','modified','none'].includes(item?.['@_item'])||!['file','dir'].includes(item?.['@_kind']))throw new Error('Ambiguous or unsupported SVN history summary');
   if(!previous)return item;
-  if(previous['@_kind']!==item['@_kind']||!['added','deleted'].includes(previous['@_item'])||!['added','deleted'].includes(item['@_item'])||previous['@_item']===item['@_item'])throw new Error('Ambiguous or unsupported SVN history summary');
-  return {...item,'@_item':'replaced'};
+  if(!['added','deleted'].includes(previous['@_item'])||!['added','deleted'].includes(item['@_item'])||previous['@_item']===item['@_item'])throw new Error('Ambiguous or unsupported SVN history summary');
+  const old=previous['@_item']==='deleted'?previous:item,target=previous['@_item']==='added'?previous:item;
+  return {...target,'@_item':'replaced',oldKind:old['@_kind'],newKind:target['@_kind']};
 }
 
 // Fixed URL objects only. No checkout, update, merge, working body or lazy HEAD read.
@@ -101,23 +102,24 @@ export async function captureSvnHistory(cwd,options={}) {
     const node=await identity(name,rev),props=await properties(name,rev);
     if(Object.hasOwn(props,'svn:special'))throw new Error('Historical SVN special node excluded');
     const content=node['@_kind']==='dir'?decode(Buffer.alloc(0)):decode(await run(['cat','--ignore-keywords','-r',rev,'--',at(name,rev)],true));
-    return {content,props,kind:node['@_kind'],source:{repositoryUuid:local.repository.uuid,url:at(name,rev).slice(0,-rev.length-1),pegRevision:rev,operativeRevision:rev,hash:content.hash,textHash:hash(content.text)}};
+    return {content,props,kind:node['@_kind'],source:{repositoryUuid:local.repository.uuid,url:at(name,rev).slice(0,-rev.length-1),pegRevision:rev,operativeRevision:rev,kind:node['@_kind'],hash:content.hash,textHash:hash(content.text)}};
   };
   const files=[];
   for(const [name,record]of [...records].sort(([a],[b])=>a<b?-1:a>b?1:0)){
     signal.throwIfAborted();
-    const status=record['@_item'],item={id:hash(name),path:name,kind:record['@_kind'],rawStatus:status,eligibility:'reviewable',properties:[],rightExists:status!=='deleted'};
+    const status=record['@_item'],item={id:hash(name),path:name,kind:record['@_kind'],oldKind:status==='added'?null:record.oldKind??record['@_kind'],newKind:status==='deleted'?null:record.newKind??record['@_kind'],rawStatus:status,eligibility:'reviewable',properties:[],rightExists:status!=='deleted'};
     files.push(item);
     if(isSecretPath(name)){item.eligibility='excluded';item.reason='Credential path excluded';continue;}
     if(selectedPaths&&!selectedPaths.includes(name)){item.eligibility='excluded';item.reason='Not explicitly selected';continue;}
     try{
-      const readSide=async(rev,exists)=>{
+      const readSide=async(rev,exists,kind)=>{
         if(!exists)return {content:decode(Buffer.alloc(0)),props:{}};
         const result=await readSource(name,rev);
-        if(result.kind!==item.kind)throw new Error('Historical node kind differs');
+        if(result.kind!==kind)throw new Error('Historical node kind differs');
         return result;
       };
-      const left=await readSide(range.base,status!=='added'),right=await readSide(range.target,status!=='deleted');
+      const left=await readSide(range.base,status!=='added',item.oldKind),right=await readSide(range.target,status!=='deleted',item.newKind);
+       if(status==='replaced')item.nodeNotice='Fixed historical replacement; each side has its own node kind. Directory content is not file text; descendant changes require separate coverage.';
       item.left=left.content;item.right=right.content;
       item.svnSources={...(left.source?{old:left.source}:{}),...(right.source?{new:right.source}:{})};
       for(const key of [...new Set([...Object.keys(left.props),...Object.keys(right.props)])].sort())if(left.props[key]!==right.props[key])item.properties.push({name:key,old:left.props[key]??null,new:right.props[key]??null});
@@ -126,7 +128,7 @@ export async function captureSvnHistory(cwd,options={}) {
     }catch(error){signal.throwIfAborted();if(error.code==='SVN_HISTORY_BUDGET')throw error;item.eligibility='blocked';item.reason=error.message;delete item.left;delete item.right;}
     if(Buffer.byteLength(JSON.stringify(files))>maxSnapshotBytes)throw new Error('SVN historical snapshot limit exceeded');
   }
-  for(const item of files.filter(f=>f.kind==='dir'&&['added','deleted','replaced'].includes(f.rawStatus)&&f.eligibility==='reviewable')){
+  for(const item of files.filter(f=>(f.oldKind==='dir'||f.newKind==='dir')&&['added','deleted','replaced'].includes(f.rawStatus)&&f.eligibility==='reviewable').sort((a,b)=>b.path.length-a.path.length)){
     if(files.some(child=>child.path.startsWith(item.path==='.'?'':item.path+'/')&&child!==item&&child.eligibility!=='reviewable')){item.eligibility='blocked';item.reason='Historical directory descendant coverage incomplete';delete item.left;delete item.right;}
   }
   const context=[];
@@ -141,7 +143,7 @@ export async function captureSvnHistory(cwd,options={}) {
   for(const name of [...contextPaths].sort()){
     const target=await targetContent(name),record=records.get(name),changed=files.find(file=>file.path===name);
     const item={path:name,...target.content,revision:range.target,svnSource:target.source};
-    if(changed){if(record['@_item']!=='added'){item.oldText=changed.left.text;item.oldRevision=range.base;item.oldSvnSource=changed.svnSources.old;}}
+    if(changed){if(changed.oldKind==='file'){item.oldText=changed.left.text;item.oldRevision=range.base;item.oldSvnSource=changed.svnSources.old;}}
     else{
       // No change record means both fixed sides are present and equal. Read and verify
       // rather than inferring baseline content from target or from the working tree.
@@ -153,7 +155,7 @@ export async function captureSvnHistory(cwd,options={}) {
   for(const name of [...oldContextPaths].sort()){
     const changed=files.find(file=>file.path===name);
     if(changed){
-      if(changed.eligibility!=='reviewable'||changed.kind!=='file'||!changed.svnSources?.old)throw new Error('Old SVN context conflicts with excluded blocked or absent baseline change');
+      if(changed.eligibility!=='reviewable'||changed.oldKind!=='file'||!changed.svnSources?.old)throw new Error('Old SVN context conflicts with excluded blocked or absent baseline change');
       // The original changed-file old identity already authorizes this side.
       continue;
     }
