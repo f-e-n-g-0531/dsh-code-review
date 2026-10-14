@@ -47,14 +47,22 @@ export async function captureSvn(cwd, options = {}) {
     try {
       if (name !== '.') relativePath(name);
       if (!['modified', 'added', 'deleted', 'normal', 'unversioned'].includes(status) || state['@_props'] === 'conflicted' || state['@_tree-conflicted'] === 'true') throw new Error('Unsupported or conflicted SVN state: ' + status);
-      if (state['@_copied'] === 'true' || state['@_switched'] === 'true' || state['@_file-external'] === 'true') throw new Error('Copy, switched or external node requires explicit historical support');
+      if (state['@_switched'] === 'true' || state['@_file-external'] === 'true') throw new Error('Switched or external node requires explicit historical support');
+      if (state['@_copied'] === 'true' && status !== 'added') throw new Error('Copied replacement requires verified target baseline');
       const hasBase = !['added', 'unversioned'].includes(status);
       let kind;
       if (status === 'unversioned') kind = (await lstat(path.join(root, name))).isDirectory() ? 'dir' : 'file';
       else {
         const node = xml(await svn(root, ['info', '--xml', '--', target(name)], options)).info.entry[0];
         kind = node['@_kind'];
-        if (node['wc-info']?.['copy-from-url']) throw new Error('Copied node baseline is not supported');
+        if (state['@_copied'] === 'true' || node['wc-info']?.['copy-from-url']) {
+          const source = node['wc-info']?.['copy-from-url'], revision = node['wc-info']?.['copy-from-rev'];
+          if (status !== 'added' || kind !== 'file' || typeof source !== 'string' || !source || !/^[0-9]+$/.test(String(revision)) || node.repository?.uuid !== info.repository.uuid || node.repository?.root !== info.repository.root) throw new Error('Copied node requires a same-repository added file with fixed copy source');
+          if (isSecretPath(decodeURIComponent(new URL(source).pathname))) throw new Error('Credential copy source excluded');
+          item.copySource = { url: source, revision: String(revision), repositoryUuid: node.repository.uuid };
+          item.copyNotice = 'Target addition is reviewed against an empty target baseline; copy source is provenance only, not an approved source body or verified rename.';
+          item.copyNodeIdentity = hash(JSON.stringify([node.url, node['@_kind'], node['@_revision'], node['wc-info']?.schedule, node['wc-info']?.['wcroot-abspath'], source, String(revision), node.repository]));
+        }
       }
       item.kind = kind;
       item.rightExists = status !== 'deleted';
@@ -82,6 +90,11 @@ export async function captureSvn(cwd, options = {}) {
   const after = await svn(root, statusArgs, options);
   if (!isDeepStrictEqual(xml(after), xml(before))) throw new Error('Working copy changed during capture');
   for (const item of files.filter(f => f.eligibility === 'reviewable')) {
+    if (item.copySource) {
+      const node = xml(await svn(root, ['info', '--xml', '--', target(item.path)], options)).info.entry[0];
+      const identity = hash(JSON.stringify([node.url, node['@_kind'], node['@_revision'], node['wc-info']?.schedule, node['wc-info']?.['wcroot-abspath'], node['wc-info']?.['copy-from-url'], String(node['wc-info']?.['copy-from-rev']), node.repository]));
+      if (identity !== item.copyNodeIdentity) throw new Error('Copy source identity changed during capture');
+    }
     if (item.kind === 'file' && item.rawStatus !== 'deleted' && (await readLocal(root, item.path, options)).hash !== item.right.hash) throw new Error('Content changed during capture');
     const left = !['added', 'unversioned'].includes(item.rawStatus) ? await properties(root, item.path, true, options) : {};
     const right = ['deleted', 'unversioned'].includes(item.rawStatus) ? {} : await properties(root, item.path, false, options);
