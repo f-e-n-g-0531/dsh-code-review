@@ -51,6 +51,12 @@ test('SVN old-only context reads baseline only and reuses selected deletion with
  await assert.rejects(captureSnapshot(root,{...options,contextPaths:['dep.js']}),/selection/);
  const service=createReviewService({stream:async function*(){throw Error('No sends');}});try{const p=await service.preview(options,{agent:{session:{header:{cwd:root}},options:{provider:'offline',model:'none'}}});assert.equal(p.oldContextSources.length,1);assert.equal(p.oldContextSources[0].svnSource.pegRevision,'1');}finally{service.dispose();}
 });
+test('real SVN historical automatic context follows separate revision chains and never dirty worktree content',async t=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dsh-svn-auto-hist-'));t.after(async()=>{assert.ok(path.basename(dir).startsWith('dsh-svn-auto-hist-'));await rm(dir,{recursive:true,force:true});});const repo=path.join(dir,'repo'),root=path.join(dir,'wc');await checked('svnadmin',['create',repo]);await checked('svn',['checkout',pathToFileURL(repo).href,root]);const svn=(...args)=>checked('svn',['--non-interactive',...args],{cwd:root});
+ for(const [name,text]of [['main.cpp','#include "old.h"\n'],['old.h','#include "third.h"\n'],['new.h','#include "third.h"\n'],['third.h','FIXED DEFINITION\n']])await writeFile(path.join(root,name),text);await svn('add','main.cpp','old.h','new.h','third.h');await svn('commit','-m','base');await writeFile(path.join(root,'main.cpp'),'#include "new.h"\n');await svn('commit','-m','target');for(const name of ['old.h','new.h','third.h'])await writeFile(path.join(root,name),'DIRTY SECRET\n');
+ const options={svnRevision:'2',autoContext:true};const s=await captureSnapshot(root,options);assert.equal(s.context.length,3);assert.equal(s.context.find(c=>c.path==='old.h').text,undefined);assert.equal(s.context.find(c=>c.path==='new.h').oldText,undefined);const third=s.context.find(c=>c.path==='third.h');assert.equal(third.text,'FIXED DEFINITION\n');assert.equal(third.oldText,'FIXED DEFINITION\n');assert.ok(!JSON.stringify(s).includes('DIRTY SECRET'));assert.equal(s.autoContext.maxDepth,3);assert.equal(s.id,(await captureSnapshot(root,options)).id);createRetrievalScope(s);
+ const service=createReviewService({stream:async function*(){throw Error('No preview sends');}});try{const p=await service.preview(options,{agent:{session:{header:{cwd:root}},options:{provider:'offline',model:'none'}}});assert.equal(p.autoContext.capturedPaths.length,3);}finally{service.dispose();}
+});
 test('SVN fixed history captures revision content properties and directories without dirty working text or model sends',async t=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dsh-fixed-svn-history-'));t.after(async()=>{assert.ok(path.basename(dir).startsWith('dsh-fixed-svn-history-'));await rm(dir,{recursive:true,force:true});});
  const repo=path.join(dir,'repo'),root=path.join(dir,'wc');await checked('svnadmin',['create',repo]);await checked('svn',['checkout',pathToFileURL(repo).href,root]);const svn=(...args)=>checked('svn',['--non-interactive',...args],{cwd:root});
@@ -64,7 +70,7 @@ test('SVN fixed history captures revision content properties and directories wit
  assert.equal(s.files.find(f=>f.path==='old/sub/a.js').rightExists,false);assert.equal(s.files.find(f=>f.path==='new/sub/b.js').left.text,'');assert.ok(!JSON.stringify(s).includes('DIRTY SECRET'));
  assert.equal(s.id,(await captureSnapshot(root,{svnRevision:'2'})).id);
  const selected=await captureSnapshot(root,{svnBaseRevision:'1',svnTargetRevision:'2',selectedPaths:['old']});assert.equal(selected.files.find(f=>f.path==='old').eligibility,'blocked');
- await assert.rejects(captureSnapshot(root,{svnRevision:'2',autoContext:true}),/not supported/);
+ await assert.rejects(captureSnapshot(root,{svnRevision:'2',callerScopePaths:['clients']}),/not supported/);
  let sends=0;
  const service=createReviewService({stream:async function*(){sends++;yield {type:'text-delta',text:JSON.stringify({findings:[],limitations:[]})};yield {type:'finish',reason:{kind:'stop'}};}},{allowModelSending:true,authorize:async()=>true});try{
   const exec={agent:{session:{header:{cwd:root}},options:{provider:'offline',model:'none'}}};
