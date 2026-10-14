@@ -2,6 +2,10 @@
 
 本文件介绍对使用者有意义的变化。安装与参数见 [README](README.md)，本次发布正文见 [发布说明](RELEASE-NOTES.md)。历史提交和安装包保留在 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-review/releases)；本文不把开发日志当作功能介绍。
 
+## 0.66.1 — SVN 合并记录变化下的工作副本导航修复
+
+修复根目录 mergeinfo 条目在自动依赖和反向调用方候选中被当作非法源码路径的失败；仅目录身份根节点可跳过源码候选。祖先属性 modified 仅在双侧属性比较确认只改变 svn:mergeinfo 时允许导航，旧/新属性仍入身份指纹；其他属性变化、externals/special、switched 或冲突继续拒绝。离线依赖和限定调用方集成验证通过，不扩展历史自动导航。
+
 ## 0.66.0 — SVN 历史显式 mergeinfo 来源导航
 
 对已批准历史变更的 svn:mergeinfo 属性增加有界来源路径/区间导航，保留非继承标记，不展开 revision、不读取分支源码。预览和报告 history 保留旧/新导航；无效或超限元数据明确标记且不输出部分导航，不阻断原属性审查。不是有效继承 mergeinfo、源码归属或已审查提交证明；跨 URL 比较仍待实现。485 项串行回归、宿主、隔离安装及四矩阵 CI 通过；原产物/npm/Release 129,866 字节逐字节一致，双哈希、清单与冻结发布说明通过。

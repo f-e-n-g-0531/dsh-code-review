@@ -7,6 +7,7 @@ export function contextCandidates(files, trackedPaths, {maxCandidates=20,onProbe
  const changed=new Set(files.flatMap(f=>[f.path,...(f.oldPath?[f.oldPath]:[])]));
  const found=new Map();const add=(p,from,reason)=>{if(!tracked.has(p)||(!includeChanged&&changed.has(p)))return;if(!found.has(p))found.set(p,{path:p,fromPaths:[],reasons:[],confidence:'navigation-only'});const v=found.get(p);if(!v.fromPaths.includes(from))v.fromPaths.push(from);if(!v.reasons.includes(reason))v.reasons.push(reason);};
  for(const f of files){
+  if(f.path==='.'&&f.kind==='dir')continue; // Root properties have no source dependency syntax.
   relativePath(f.path);if(f.eligibility!=='reviewable'||f.rightExists===false)continue;
   const text=f.right?.text;if(typeof text!=='string'||Buffer.byteLength(text)>256*1024)continue;
   if(text.includes('/*')||text.includes(String.fromCharCode(96))||text.includes('R"')||/\\\r?\n/.test(text))continue;
