@@ -128,6 +128,33 @@ test('SVN copy from credential path does not acquire content authority', async t
   const item=(await captureSvn(root)).files.find(f=>f.path==='public.js');
   assert.equal(item.eligibility,'blocked');assert.equal(item.right,undefined);
 });
+test('SVN structural directories enumerate deleted descendants offline and preserve explicit selection', async t=>{
+  const {root,svn,put,repository}=await fixture(t);
+  await mkdir(path.join(root,'old/sub'),{recursive:true});await put('old/sub/a.js','OLD\n');
+  await svn('add','old');await svn('commit','-m','base');await svn('delete','old');
+  await mkdir(path.join(root,'new/sub'),{recursive:true});await put('new/sub/b.js','NEW\n');await svn('add','new');
+  const before=xml(await svn('status','--xml'));await rename(repository,repository+'-offline');
+  const s=await captureSnapshot(root);
+  assert.equal(s.files.length,6);assert.ok(s.files.every(f=>f.eligibility==='reviewable'),JSON.stringify(s.files.map(f=>[f.path,f.reason])));
+  assert.equal(s.files.find(f=>f.path==='old/sub/a.js').left.text,'OLD\n');
+  assert.equal(s.files.find(f=>f.path==='old/sub/a.js').rightExists,false);
+  assert.deepEqual(s.files.find(f=>f.path==='old').structuralDescendants,['old/sub','old/sub/a.js']);
+  const service=createReviewService({stream:async function*(){throw new Error('Preview must not send');}});
+  try {
+    const preview=await service.preview({}, {agent:{session:{header:{cwd:root}},options:{provider:'offline',model:'none'}}});
+    assert.equal(preview.files.length,6);assert.ok(preview.files.every(f=>f.eligibility==='reviewable'));
+  } finally {service.dispose();}
+  const selected=await captureSnapshot(root,{selectedPaths:['old']});
+  assert.equal(selected.files.find(f=>f.path==='old').eligibility,'blocked');
+  assert.equal(selected.files.find(f=>f.path==='old/sub/a.js').eligibility,'excluded');
+  await assert.rejects(captureSvn(root,{maxFiles:5}),/Change count limit/);
+  assert.deepEqual(xml(await svn('status','--xml')),before);
+  assert.equal(s.id,(await captureSnapshot(root)).id);
+});
+test('SVN structural directory stays incomplete when a credential descendant is excluded',async t=>{
+  const {root,svn,put}=await fixture(t);await mkdir(path.join(root,'new'));await put('new/.env','SECRET');await svn('add','new');
+  const s=await captureSvn(root);assert.equal(s.files.find(f=>f.path==='new').eligibility,'blocked');assert.equal(s.files.find(f=>f.path==='new/.env').eligibility,'excluded');assert.ok(!JSON.stringify(s).includes('SECRET'));
+});
 test('SVN BASE capture works with repository offline', async t => {
   const { root, svn, put, repository } = await fixture(t);
   await put('file', 'base'); await svn('add', 'file'); await svn('commit', '-m', 'fixture');

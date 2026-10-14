@@ -22,6 +22,31 @@ async function properties(root, name, baseline, options) {
   }
   return Object.fromEntries(Object.entries(result).sort(([a], [b]) => a.localeCompare(b)));
 }
+// Default status hides deleted directory descendants. Expand only explicit deleted
+// versioned roots, sharing one metadata cap and the original change-count limit.
+async function deletedEntries(root, entries, options, limit) {
+  const byPath = new Map(entries.map(entry => [entry['@_path'].replaceAll('\\', '/'), entry]));
+  const roots = entries.filter(entry => entry['wc-status']?.['@_item'] === 'deleted').map(entry => entry['@_path'].replaceAll('\\', '/')).sort();
+  const visited = [];
+  let bytes = 0;
+  for (const name of roots) {
+    relativePath(name);
+    if (visited.some(parent => name.startsWith(parent + '/'))) continue;
+    visited.push(name);
+    const data = await svn(root, ['status', '--xml', '--verbose', '--ignore-externals', '--depth', 'infinity', '--', target(name)], { ...options, maxBytes: Math.min(options.maxBytes ?? 1024 * 1024, 1024 * 1024) });
+    bytes += data.length;
+    if (bytes > 1024 * 1024) throw new Error('SVN deleted descendant metadata limit exceeded');
+    for (const entry of xml(data).status?.target?.flatMap(t => t.entry ?? []) ?? []) {
+      const child = entry['@_path'].replaceAll('\\', '/');
+      relativePath(child);
+      if (child !== name && !child.startsWith(name + '/')) throw new Error('SVN deleted descendant escaped scope');
+      if (entry['wc-status']?.['@_item'] !== 'deleted') throw new Error('Unexpected SVN deleted descendant state');
+      if (!byPath.has(child)) byPath.set(child, entry);
+      if (byPath.size > limit) throw new Error('Change count limit exceeded');
+    }
+  }
+  return [...byPath.values()].sort((a,b) => a['@_path'] < b['@_path'] ? -1 : a['@_path'] > b['@_path'] ? 1 : 0);
+}
 export async function captureSvn(cwd, options = {}) {
   const { signal, selectedPaths, maxFiles = 200, maxFileBytes = 256 * 1024 } = options;
   if (selectedPaths) for (const name of selectedPaths) if (name !== '.') relativePath(name);
@@ -29,8 +54,9 @@ export async function captureSvn(cwd, options = {}) {
   const root = await realpath(info['wc-info']['wcroot-abspath']);
   const statusArgs = ['status', '--xml', '--ignore-externals', '--', '.@'];
   const before = await svn(root, statusArgs, options);
-  const entries = xml(before).status.target.flatMap(t => t.entry ?? []);
-  if (entries.length > maxFiles) throw new Error('Change count limit exceeded');
+  const originalEntries = xml(before).status.target.flatMap(t => t.entry ?? []);
+  if (originalEntries.length > maxFiles) throw new Error('Change count limit exceeded');
+  const entries = await deletedEntries(root, originalEntries, options, maxFiles);
   const known = new Set(entries.map(e => e['@_path'].replaceAll('\\', '/')));
   if (selectedPaths?.some(p => !known.has(p))) throw new Error('Selected path is not a current change');
   const files = [];
@@ -76,7 +102,13 @@ export async function captureSvn(cwd, options = {}) {
       }
       item.propertyIdentity = hash(JSON.stringify([leftProps, rightProps]));
       if (kind === 'dir') {
-        if (status === 'unversioned' || status === 'deleted' || status === 'added') throw new Error('Directory structural changes require descendant coverage');
+        if (status === 'unversioned') throw new Error('Unversioned directory requires explicit descendant tracking');
+        if (status === 'deleted' || status === 'added') {
+          const descendants = entries.filter(entry => entry['@_path'].replaceAll('\\', '/').startsWith(name + '/')).map(entry => entry['@_path'].replaceAll('\\', '/'));
+          if (selectedPaths && descendants.some(child => !selectedPaths.includes(child))) throw new Error('Directory descendants are not all explicitly selected');
+          item.structuralDescendants = descendants;
+          item.structuralNotice = 'Directory node coverage is separate from each descendant; no implicit descendant approval.';
+        }
         item.left = decode(Buffer.alloc(0)); item.right = decode(Buffer.alloc(0));
       } else {
         item.left = decode(hasBase ? await svn(root, ['cat', '-r', 'BASE', '--', target(name)], { ...options, maxBytes: maxFileBytes }) : Buffer.alloc(0));
@@ -89,6 +121,14 @@ export async function captureSvn(cwd, options = {}) {
   }
   const after = await svn(root, statusArgs, options);
   if (!isDeepStrictEqual(xml(after), xml(before))) throw new Error('Working copy changed during capture');
+  if (!isDeepStrictEqual(await deletedEntries(root, xml(after).status.target.flatMap(t => t.entry ?? []), options, maxFiles), entries)) throw new Error('Deleted descendants changed during capture');
+  // A directory must not look complete when any descendant was blocked/excluded.
+  for (const item of files.filter(f => f.structuralDescendants).sort((a,b) => b.path.length - a.path.length)) {
+    if (item.structuralDescendants.some(name => files.find(f => f.path === name)?.eligibility !== 'reviewable')) {
+      item.eligibility = 'blocked'; item.reason = 'Directory descendant coverage incomplete';
+      delete item.left; delete item.right;
+    }
+  }
   for (const item of files.filter(f => f.eligibility === 'reviewable')) {
     if (item.copySource) {
       const node = xml(await svn(root, ['info', '--xml', '--', target(item.path)], options)).info.entry[0];
