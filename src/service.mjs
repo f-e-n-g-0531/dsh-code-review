@@ -30,7 +30,7 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
       exec = bind(exec);
       exec.signal.throwIfAborted();
       if (busy) throw new Error('Review service busy');
-      if (!args || Object.keys(args).some(k => !['repositoryPath', 'selectedPaths', 'contextPaths', 'rulePaths', 'autoContext', 'commit', 'baseRevision', 'targetRevision','businessRequirement','callerScopePaths','oldContextPaths','reviewRounds'].includes(k))) throw new Error('Unknown preview argument');
+      if (!args || Object.keys(args).some(k => !['repositoryPath', 'selectedPaths', 'contextPaths', 'rulePaths', 'autoContext', 'commit', 'baseRevision', 'targetRevision','businessRequirement','callerScopePaths','oldContextPaths','reviewRounds','svnRevision','svnBaseRevision','svnTargetRevision','svnAllowNetwork'].includes(k))) throw new Error('Unknown preview argument');
       if (args.autoContext !== undefined && typeof args.autoContext !== 'boolean') throw new Error('Invalid autoContext option');
       for (const key of ['selectedPaths', 'contextPaths', 'rulePaths', 'oldContextPaths']) if (args[key] !== undefined && (!Array.isArray(args[key]) || args[key].length > (key === 'rulePaths' ? 4 : key === 'oldContextPaths' ? 20 : 200) || args[key].some(p => typeof p !== 'string'))) throw new Error('Invalid path list');
       const rounds=validateReviewRounds(args.reviewRounds === undefined ? reviewRounds : args.reviewRounds);

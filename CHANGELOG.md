@@ -2,6 +2,10 @@
 
 本文件介绍对使用者有意义的变化。安装与参数见 [README](README.md)，本次发布正文见 [发布说明](RELEASE-NOTES.md)。历史提交和安装包保留在 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-review/releases)；本文不把开发日志当作功能介绍。
 
+## 0.62.0 — SVN 原生固定 revision 历史审查初始模式
+
+新增 svnRevision 与 svnBaseRevision/svnTargetRevision，读取工作副本根仓库 URL 的固定版本对象与双侧属性，不读脏工作树、不重建临时业务工作副本。来源绑定 UUID/URL/peg/operative revision/hash；远端含 UNC 文件共享必须显式 svnAllowNetwork。目录后代逐项覆盖、关键词用仓库未展开正文，保持原数量/源码/调用预算与预览确认链。初始模式不支持历史上下文、规则、调用方与跨 URL 分支比较。替换 diff 重建仅候选组件，未开放工作副本替换。
+
 ## 0.61.0 — SVN 目录复制后代覆盖
 
 显式展开默认 status 隐藏的复制目录后代，冻结继承 copyfrom 来源；copied 的 normal/modified 后代按空目标旧侧新增审查，不把来源 BASE 误作目标旧侧。目录及后代分别覆盖，未全选、凭据或阻断子项使父目录覆盖不足。离线且共享原数量/字节预算，不新增来源正文读取或联网；复制替换仍阻断。465 项串行回归、宿主、隔离安装和四矩阵 CI 通过；原产物/npm/Release 120,159 字节逐字节一致，双哈希、清单与冻结发布说明通过。

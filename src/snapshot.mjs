@@ -11,6 +11,7 @@ import { captureGitHistory } from './git-history.mjs';
 import { captureGit } from './git.mjs';
 import { captureProjectRules } from './project-rules.mjs';
 import { captureSvn } from './svn.mjs';
+import { captureSvnHistory } from './svn-history.mjs';
 import { readLocal, relativePath, hash } from './content.mjs';
 
 export async function detectVcs(cwd) {
@@ -39,6 +40,10 @@ export async function captureSnapshot(cwd, options = {}) {
   if (options.oldContextPaths !== undefined && (!Array.isArray(options.oldContextPaths) || options.oldContextPaths.length > 20 || new Set(options.oldContextPaths).size !== options.oldContextPaths.length)) throw new Error('Invalid old context paths');
   for (const name of options.oldContextPaths ?? []) relativePath(name);
   const type = await detectVcs(cwd);
+  if (['svnRevision','svnBaseRevision','svnTargetRevision','svnAllowNetwork'].some(key=>options[key]!==undefined)) {
+    if (type!=='svn') throw new Error('SVN revision parameters require SVN working copy');
+    return bindBusinessRequirement(await captureSvnHistory(cwd,options),options.businessRequirement);
+  }
   if (options.oldContextPaths !== undefined && (type !== 'git' || !['commit','baseRevision','targetRevision'].some(k => options[k] !== undefined))) throw new Error('Old context requires Git historical review');
   if (['commit','baseRevision','targetRevision'].some(k => options[k] !== undefined)) {
     if (type !== 'git') throw new Error('Git revision review is unsupported on SVN');
