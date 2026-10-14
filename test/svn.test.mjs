@@ -83,6 +83,7 @@ test('SVN missing source stays blocked while copied addition has empty target ba
   const result = await captureSvn(root);
   assert.equal(result.files.length, 2);
   assert.equal(result.files.find(f => f.path === 'file').eligibility, 'blocked');
+  assert.equal(result.files.find(f => f.path === 'file').blockCode, 'SVN_MISSING_NODE');
   const copy = result.files.find(f => f.path === 'copied');
   assert.equal(copy.eligibility, 'reviewable', copy.reason);
   assert.equal(copy.left.text, ''); assert.equal(copy.right.text, 'base');
@@ -120,7 +121,7 @@ test('SVN copied replacement never uses copy-source BASE as target old text', as
   await put('source','SOURCE');await put('target','TARGET');await svn('add','source','target');await svn('commit','-m','base');
   await svn('delete','target');await svn('copy','source','target');
   const item=(await captureSvn(root)).files.find(f=>f.path==='target');
-  assert.equal(item.eligibility,'blocked');assert.equal(item.left,undefined);assert.equal(item.right,undefined);
+  assert.equal(item.eligibility,'blocked');assert.equal(item.blockCode,'SVN_COPIED_REPLACEMENT');assert.equal(item.left,undefined);assert.equal(item.right,undefined);
 });
 test('SVN copy from credential path does not acquire content authority', async t=>{
   const {root,svn,put}=await fixture(t);
@@ -154,6 +155,17 @@ test('SVN structural directories enumerate deleted descendants offline and prese
 test('SVN structural directory stays incomplete when a credential descendant is excluded',async t=>{
   const {root,svn,put}=await fixture(t);await mkdir(path.join(root,'new'));await put('new/.env','SECRET');await svn('add','new');
   const s=await captureSvn(root);assert.equal(s.files.find(f=>f.path==='new').eligibility,'blocked');assert.equal(s.files.find(f=>f.path==='new/.env').eligibility,'excluded');assert.ok(!JSON.stringify(s).includes('SECRET'));
+});
+test('SVN ordinary replacement reports absent target baseline without inventing an addition',async t=>{
+ const {root,svn,put}=await fixture(t);await put('a.js','OLD');await svn('add','a.js');await svn('commit','-m','base');
+ await svn('delete','a.js');await put('a.js','NEW');await svn('add','a.js');
+ const before=xml(await svn('status','--xml'));const snapshot=await captureSnapshot(root);
+ const item=snapshot.files.find(f=>f.path==='a.js');assert.equal(item.blockCode,'SVN_REPLACEMENT');assert.equal(item.left,undefined);assert.equal(item.right,undefined);
+ const service=createReviewService({stream:async function*(){throw Error('No model send');}});
+ try{const p=await service.preview({}, {agent:{session:{header:{cwd:root}},options:{provider:'offline',model:'none'}}});assert.equal(p.files[0].blockCode,'SVN_REPLACEMENT');}
+ finally{service.dispose();}
+ const report=await reviewSnapshot(snapshot,async()=>{throw Error('Blocked source sent');});assert.equal(report.files[0].blockCode,'SVN_REPLACEMENT');assert.equal(report.coverage.blocked,1);assert.notEqual(report.status,'completed');
+ assert.deepEqual(xml(await svn('status','--xml')),before);
 });
 test('SVN BASE capture works with repository offline', async t => {
   const { root, svn, put, repository } = await fixture(t);

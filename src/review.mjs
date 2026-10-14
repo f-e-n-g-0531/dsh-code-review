@@ -111,7 +111,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   const interactionPlans = scope && report.grouping ? report.grouping.groups.filter(g => g.fileIds.length > 1).map(group => ({ group, prepared: prepareInteractionInput(input, group, payload => initialInputBudget({ instructions: REVIEW_INSTRUCTIONS, input: payload }, scope, maxInputBytes)) })) : [];
   for (const plan of interactionPlans.filter(p => p.prepared.status !== 'not-applicable')) report.interactions.push({ groupId: plan.group.id, fileIds: plan.prepared.fileIds, status: plan.prepared.status === 'ready' ? 'pending' : 'blocked', reason: plan.prepared.reason, lifecycle: 'shares-last-primary-timeout' });
   for (const file of input.files) {
-    const state = { fileId: file.id, path: file.path, status: file.eligibility === 'reviewable' ? 'pending' : file.eligibility, reason: file.reason };
+    const state = { fileId: file.id, path: file.path, status: file.eligibility === 'reviewable' ? 'pending' : file.eligibility, reason: file.reason, ...(file.blockCode ? {blockCode:file.blockCode} : {}) };
     report.files.push(state);
     if (state.status !== 'pending') continue;
     if (signal?.aborted) { state.status = 'cancelled'; state.reason = '用户取消'; continue; }

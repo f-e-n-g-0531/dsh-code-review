@@ -1,4 +1,5 @@
 import { isSecretPath } from './secret-path.mjs';
+import { svnStateIssue } from './svn-state.mjs';
 import { realpath, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -72,9 +73,8 @@ export async function captureSvn(cwd, options = {}) {
     }
     try {
       if (name !== '.') relativePath(name);
-      if (!['modified', 'added', 'deleted', 'normal', 'unversioned'].includes(status) || state['@_props'] === 'conflicted' || state['@_tree-conflicted'] === 'true') throw new Error('Unsupported or conflicted SVN state: ' + status);
-      if (state['@_switched'] === 'true' || state['@_file-external'] === 'true') throw new Error('Switched or external node requires explicit historical support');
-      if (state['@_copied'] === 'true' && status !== 'added') throw new Error('Copied replacement requires verified target baseline');
+      const issue = svnStateIssue(state);
+      if (issue) { item.blockCode = issue.code; throw new Error(issue.reason); }
       const hasBase = !['added', 'unversioned'].includes(status);
       let kind;
       if (status === 'unversioned') kind = (await lstat(path.join(root, name))).isDirectory() ? 'dir' : 'file';
