@@ -20,7 +20,7 @@
 | 复制/移动、copyfrom 及目录结构变更 | v0.59.0 已发布同仓库复制新增文件及文件移动的新增/删除独立覆盖：新增目标旧侧为空，copyfrom 只作来源信息，预览披露并冻结身份；离线与凭据来源拒绝测试通过。459 项串行回归、宿主、隔离安装、四矩阵 CI 通过；原产物/npm/Release 117,098 字节逐字节一致，双哈希/清单/冻结发布说明通过。复制目录及后代覆盖仍未实现 | 第二批：明确旧侧来源和后代覆盖 |
 | 普通新增/删除目录及后代 | v0.60.0 已发布：补齐默认 status 隐藏的删除后代，离线递归枚举与末尾清单复核；普通结构目录只在后代全选且可审查时开放，凭据/阻断子项导致目录覆盖不足。461 项串行回归、宿主、隔离安装与四矩阵 CI 通过；原产物/npm/Release 118,284 字节逐字节一致，双哈希/清单/冻结发布说明通过 | 第二批普通目录子批 |
 | 替换、删除再新增、文件/目录类型变化 | 普通与复制替换分别用 SVN_REPLACEMENT/SVN_COPIED_REPLACEMENT 诊断；离线探测确认前者 BASE 无 pristine，后者可能返回复制来源，禁止伪造旧侧。真实双侧替换仍未支持 | 第二批：区分 BASE 旧节点与目标节点 |
-| 缺失、文本/属性/树冲突、阻塞 | 本地新增稳定状态诊断：SVN_MISSING_NODE/OBSTRUCTED_NODE/INCOMPLETE_NODE/TEXT_CONFLICT/PROPERTY_CONFLICT/TREE_CONFLICT 等；预览与报告透传 blockCode。诊断不算真实双侧审查支持，仍需后续场景实现，待本批发布核验 | 第三批：明确状态诊断；不能合成不存在的工作侧或声称审核通过 |
+| 缺失、文本/属性/树冲突、阻塞 | v0.60.1 已发布稳定状态诊断：SVN_MISSING_NODE/OBSTRUCTED_NODE/INCOMPLETE_NODE/TEXT_CONFLICT/PROPERTY_CONFLICT/TREE_CONFLICT 等，预览与报告透传 blockCode。463 项串行回归、宿主、隔离安装、四矩阵 CI 与原包/npm/Release 119,462 字节、双哈希/清单/发布说明通过。诊断不算真实双侧支持，仍需后续实现 | 第三批：明确状态诊断；不能合成不存在的工作侧或声称审核通过 |
 | svn:keywords、svn:eol-style | keywords 当前阻断；换行保留原文但无规范化映射 | 第三批：双侧可验证映射，保留原字节和定位 |
 | svn:special/链接 | 当前阻断，不跟随链接取正文 | 第三批：如支持只审链接目标数据；不沿链接读取文件 |
 | switched、externals、稀疏/混合 revision | 多数拒绝；调用方/依赖链要求祖先 normal | 第四批：明确仓库边界与独立来源，禁止隐式跨仓读取 |
