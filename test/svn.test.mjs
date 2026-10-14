@@ -198,7 +198,7 @@ test('SVN BASE capture works with repository offline', async t => {
   assert.equal(result.files[0].left.text, 'base');
 });
 
-test('SVN keyword expansion is explicitly blocked; CRLF working text is preserved', async t => {
+test('SVN standard keyword mapping preserves raw evidence and CRLF working text', async t => {
   const { root, svn, put } = await fixture(t);
   await put('keywords', '$Id$'); await put('eol', 'old\n');
   await svn('add', 'keywords', 'eol'); await svn('propset', 'svn:keywords', 'Id', 'keywords');
@@ -206,7 +206,7 @@ test('SVN keyword expansion is explicitly blocked; CRLF working text is preserve
   await put('keywords', '$Id$ changed'); await put('eol', 'new\r\n');
   const result = await captureSvn(root);
   const keywords = result.files.find(f => f.path === 'keywords');
-  assert.equal(keywords.eligibility, 'blocked'); assert.match(keywords.reason, /keyword/);
+  assert.equal(keywords.eligibility,'reviewable',keywords.reason);assert.equal(keywords.right.text,'$Id$ changed');assert.equal(keywords.keywordMapping.old.lineMapping,'identity');assert.match(keywords.textNotice,/raw expanded source/);
   const eol = result.files.find(f => f.path === 'eol');
   assert.equal(eol.eligibility, 'reviewable', eol.reason); assert.equal(eol.right.text, 'new\r\n');
 });

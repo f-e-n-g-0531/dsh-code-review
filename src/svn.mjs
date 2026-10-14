@@ -1,6 +1,7 @@
 import { isSecretPath } from './secret-path.mjs';
 import { svnStateIssue } from './svn-state.mjs';
 import { snapshotMergeSources } from './svn-mergeinfo.mjs';
+import { svnKeywordMapping } from './svn-keyword-mapping.mjs';
 import { realpath, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -108,7 +109,8 @@ export async function captureSvn(cwd, options = {}) {
       const leftProps = hasBase ? await properties(root, name, true, options) : {};
       const rightProps = status === 'deleted' || status === 'unversioned' ? {} : await properties(root, name, false, options);
       if ('svn:special' in leftProps || 'svn:special' in rightProps) throw new Error('SVN special nodes are excluded');
-      if (leftProps['svn:keywords'] || rightProps['svn:keywords']) throw new Error('SVN keyword expansion requires a verified text mapping; currently blocked');
+      const keywordText=!!(leftProps['svn:keywords']||rightProps['svn:keywords']);
+      if(keywordText&&kind!=='file')throw new Error('SVN keyword mapping requires regular file');
       item.textNotice = 'Text preserves SVN cat output and working bytes. CRLF/LF differences alone are not code defects.';
       for (const key of [...new Set([...Object.keys(leftProps), ...Object.keys(rightProps)])].sort()) {
         if (leftProps[key] !== rightProps[key]) item.properties.push({ name: key, old: leftProps[key] ?? null, new: rightProps[key] ?? null });
@@ -126,6 +128,16 @@ export async function captureSvn(cwd, options = {}) {
       } else {
         item.left = decode(hasBase ? await svn(root, ['cat', '-r', 'BASE', '--', target(name)], { ...options, maxBytes: maxFileBytes }) : Buffer.alloc(0));
         item.right = status === 'deleted' ? decode(Buffer.alloc(0)) : await readLocal(root, name, options);
+        if(keywordText){
+          const old=svnKeywordMapping(item.left.text,leftProps['svn:keywords']??''),current=svnKeywordMapping(item.right.text,rightProps['svn:keywords']??'');
+          if(hasBase){
+            const repository=decode(await svn(root,['cat','--ignore-keywords','-r','BASE','--',target(name)],{...options,maxBytes:maxFileBytes}));
+            if(old.text!==repository.text)throw new Error('SVN BASE keyword mapping differs from repository text');
+          }
+          const summary=({text,...metadata})=>({...metadata,status:'verified-line-view'});
+          item.keywordMapping={old:summary(old),new:summary(current)};
+          item.textNotice+=' Standard keyword mapping verified line identity; raw expanded source remains the only evidence. Keyword value changes alone are not code defects; normalization does not prove runtime equivalence.';
+        }
       }
     } catch (error) {
       signal?.throwIfAborted(); item.eligibility = 'blocked'; item.reason = error.message;
