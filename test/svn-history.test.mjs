@@ -70,7 +70,7 @@ test('SVN fixed history captures revision content properties and directories wit
  assert.equal(s.files.find(f=>f.path==='old/sub/a.js').rightExists,false);assert.equal(s.files.find(f=>f.path==='new/sub/b.js').left.text,'');assert.ok(!JSON.stringify(s).includes('DIRTY SECRET'));
  assert.equal(s.id,(await captureSnapshot(root,{svnRevision:'2'})).id);
  const selected=await captureSnapshot(root,{svnBaseRevision:'1',svnTargetRevision:'2',selectedPaths:['old']});assert.equal(selected.files.find(f=>f.path==='old').eligibility,'blocked');
- await assert.rejects(captureSnapshot(root,{svnRevision:'2',callerScopePaths:['clients']}),/not supported/);
+ assert.equal((await captureSnapshot(root,{svnRevision:'2',callerScopePaths:['clients']})).callerDiscovery.candidates.length,0);
  let sends=0;
  const service=createReviewService({stream:async function*(){sends++;yield {type:'text-delta',text:JSON.stringify({findings:[],limitations:[]})};yield {type:'finish',reason:{kind:'stop'}};}},{allowModelSending:true,authorize:async()=>true});try{
   const exec={agent:{session:{header:{cwd:root}},options:{provider:'offline',model:'none'}}};

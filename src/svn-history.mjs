@@ -7,6 +7,8 @@ import {captureProjectRules} from './project-rules.mjs';
 import {snapshotMergeSources} from './svn-mergeinfo.mjs';
 import {fixedSvnLookup} from './svn-history-lookup.mjs';
 import {svnHistoryDependencies} from './svn-history-dependencies.mjs';
+import {svnHistoryCallers} from './svn-history-callers.mjs';
+import {validateCallerScopes} from './caller-index.mjs';
 
 const revision = value => {
   if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value) || !Number.isSafeInteger(Number(value))) throw new Error('SVN revision must be a fixed nonnegative decimal string');
@@ -45,7 +47,7 @@ export function mergeSvnHistoryRecord(previous, item) {
 export async function captureSvnHistory(cwd,options={}) {
   const range=svnHistoryRange(options);
   if (options.svnAllowNetwork!==undefined && typeof options.svnAllowNetwork!=='boolean') throw new Error('Invalid SVN network opt-in');
-  if (options.callerScopePaths!==undefined) throw new Error('SVN historical callers are not supported yet');
+  if (options.callerScopePaths!==undefined) validateCallerScopes(options.callerScopePaths);
   const contextPaths=options.contextPaths??[],oldContextPaths=options.oldContextPaths??[],rulePaths=options.rulePaths??[],maxContextFiles=options.maxContextFiles??20;
   if(!Number.isSafeInteger(maxContextFiles)||maxContextFiles<1||maxContextFiles>20||!Array.isArray(contextPaths)||contextPaths.length>maxContextFiles||new Set(contextPaths).size!==contextPaths.length||!Array.isArray(rulePaths)||rulePaths.length>4||new Set(rulePaths).size!==rulePaths.length||rulePaths.some(name=>contextPaths.includes(name)))throw new Error('Invalid SVN historical context or rule selection');
   if(!Array.isArray(oldContextPaths)||oldContextPaths.length>20||new Set(oldContextPaths).size!==oldContextPaths.length||contextPaths.length+oldContextPaths.length>maxContextFiles||oldContextPaths.some(name=>contextPaths.includes(name)||rulePaths.includes(name)))throw new Error('Invalid SVN old context selection');
@@ -169,8 +171,8 @@ export async function captureSvnHistory(cwd,options={}) {
   const rules=await captureProjectRules(root,rulePaths,{signal,files,read:async(_root,name)=>{
     const value=await targetContent(name);if(value.content.bytes>16*1024)throw new Error('Rule file size limit exceeded');return value.content;
   }});
-  let autoContext;
-  if(options.autoContext===true){
+  let autoContext,callerDiscovery;
+  if(options.autoContext===true||options.callerScopePaths!==undefined){
     const probes=fixedSvnLookup({signal,list:async(name,rev)=>{
       const directory=await identity(name,rev);if(directory['@_kind']!=='dir')throw new Error('Historical lookup parent is not directory');
       const data=xml(await run(['list','--xml','--depth','immediates','-r',rev,'--',at(name,rev)]));
@@ -179,14 +181,52 @@ export async function captureSvnHistory(cwd,options={}) {
       if(one.length!==1||!one[0]||one[0]['@_path']!==at(name,rev).slice(0,-rev.length-1))throw new Error('Historical directory listing identity mismatch');
       return (one[0].entry??[]).map(entry=>({name:entry.name,kind:entry['@_kind']}));
     }});
-    autoContext=await svnHistoryDependencies(files,range,context,{lookup:probes.lookup,read:readSource,signal,maxContextFiles,rulePaths});
-    autoContext.directoryEntries=probes.usage().entries;
+    const exactProbes=new Map();
+    const lookup=async(name,rev)=>{
+      const key=JSON.stringify([rev,name]);
+      if(!exactProbes.has(key)){
+        if(exactProbes.size>=512)throw new Error('SVN historical shared navigation probe limit exceeded');
+        exactProbes.set(key,await probes.lookup(name,rev));
+      }
+      return exactProbes.get(key);
+    };
+    let navigationBytes=context.reduce((sum,item)=>sum+Buffer.byteLength(item.text??'')+Buffer.byteLength(item.oldText??''),0);
+    const navigationRead=async(name,rev)=>{
+      const value=await readSource(name,rev);navigationBytes+=value.content.bytes;
+      if(navigationBytes>1024*1024)throw new Error('SVN historical shared navigation source limit exceeded');
+      return value;
+    };
+    if(navigationBytes>1024*1024)throw new Error('SVN historical shared navigation source limit exceeded');
+    if(options.callerScopePaths!==undefined){
+      let indexRecords=0;
+      const index=async(scopes,rev)=>{
+        const entries=[];
+        for(const scope of scopes){
+          const node=await lookup(scope,rev);if(!node)continue;if(node.kind!=='dir')throw new Error('Historical caller scope is not directory');
+          await identity(scope,rev);
+          const data=xml(await run(['list','--xml','--depth','infinity','-r',rev,'--',at(scope,rev)]));
+          const lists=data.lists?.list,one=Array.isArray(lists)?lists:[lists];
+          if(one.length!==1||!one[0]||one[0]['@_path']!==at(scope,rev).slice(0,-rev.length-1))throw new Error('Historical caller listing identity mismatch');
+          for(const entry of one[0].entry??[]){
+            if(++indexRecords>256)throw new Error('Historical caller shared index limit exceeded');
+            const name=relativePath(entry.name);entries.push({path:scope+'/'+name,kind:entry['@_kind']});
+          }
+        }
+        return entries;
+      };
+      callerDiscovery=await svnHistoryCallers(files,range,options.callerScopePaths,context,{index,lookup,read:navigationRead,signal,maxContextFiles,rulePaths});
+    }
+    if(options.autoContext===true){
+      autoContext=await svnHistoryDependencies(files,range,context,{lookup,read:navigationRead,signal,maxContextFiles,rulePaths});
+      autoContext.directoryEntries=probes.usage().entries;
+    }
+    if(callerDiscovery)callerDiscovery.navigationSourceBytes=navigationBytes;
   }
   // Read the same fixed summary and repository identity again; never use HEAD.
   const after=await run(['diff','--summarize','--xml','--notice-ancestry','-r',range.base+':'+range.target,'--',at('.',range.target)]);
   if(!isDeepSummary(summary,after))throw new Error('SVN historical summary changed during capture');
   await identity('.',range.base);await identity('.',range.target);
-  const snapshot={schemaVersion:1,vcs:'svn',root,repositoryUuid:local.repository.uuid,context,...(rules.length?{rules}:{}),...(autoContext?{autoContext}:{}),history:{...range,vcs:'svn',url,repositoryUuid:local.repository.uuid,pegRevision:range.target,networkAccess,...(mergeSources.length?{mergeSources}:{}),semantics:'fixed revision tree endpoints; no merge attribution or working text'},files};
+  const snapshot={schemaVersion:1,vcs:'svn',root,repositoryUuid:local.repository.uuid,context,...(rules.length?{rules}:{}),...(autoContext?{autoContext}:{}),...(callerDiscovery?{callerDiscovery}:{}),history:{...range,vcs:'svn',url,repositoryUuid:local.repository.uuid,pegRevision:range.target,networkAccess,...(mergeSources.length?{mergeSources}:{}),semantics:'fixed revision tree endpoints; no merge attribution or working text'},files};
   const serialized=JSON.stringify(snapshot);if(Buffer.byteLength(serialized)>maxSnapshotBytes)throw new Error('SVN historical snapshot limit exceeded');
   return {...snapshot,id:hash(serialized)};
 }
