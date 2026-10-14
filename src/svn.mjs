@@ -23,11 +23,11 @@ async function properties(root, name, baseline, options) {
   }
   return Object.fromEntries(Object.entries(result).sort(([a], [b]) => a.localeCompare(b)));
 }
-// Default status hides deleted directory descendants. Expand only explicit deleted
-// versioned roots, sharing one metadata cap and the original change-count limit.
-async function deletedEntries(root, entries, options, limit) {
+// Default status hides deleted and copied directory descendants. Expand only
+// explicit structural roots under the shared metadata and change-count caps.
+async function structuralEntries(root, entries, options, limit) {
   const byPath = new Map(entries.map(entry => [entry['@_path'].replaceAll('\\', '/'), entry]));
-  const roots = entries.filter(entry => entry['wc-status']?.['@_item'] === 'deleted').map(entry => entry['@_path'].replaceAll('\\', '/')).sort();
+  const roots = entries.filter(entry => entry['wc-status']?.['@_item'] === 'deleted' || (entry['wc-status']?.['@_item'] === 'added' && entry['wc-status']?.['@_copied'] === 'true')).map(entry => entry['@_path'].replaceAll('\\', '/')).sort();
   const visited = [];
   let bytes = 0;
   for (const name of roots) {
@@ -41,8 +41,11 @@ async function deletedEntries(root, entries, options, limit) {
       const child = entry['@_path'].replaceAll('\\', '/');
       relativePath(child);
       if (child !== name && !child.startsWith(name + '/')) throw new Error('SVN deleted descendant escaped scope');
-      if (entry['wc-status']?.['@_item'] !== 'deleted') throw new Error('Unexpected SVN deleted descendant state');
-      if (!byPath.has(child)) byPath.set(child, entry);
+      const parentState = byPath.get(name)['wc-status'];
+      if (parentState['@_item'] === 'deleted' && entry['wc-status']?.['@_item'] !== 'deleted') throw new Error('Unexpected SVN deleted descendant state');
+      const item = structuredClone(entry);
+      if (parentState['@_item'] === 'added' && child !== name && item['wc-status']?.['@_copied'] === 'true') item.copyRoot = name;
+      if (!byPath.has(child) || item.copyRoot) byPath.set(child, item);
       if (byPath.size > limit) throw new Error('Change count limit exceeded');
     }
   }
@@ -57,7 +60,7 @@ export async function captureSvn(cwd, options = {}) {
   const before = await svn(root, statusArgs, options);
   const originalEntries = xml(before).status.target.flatMap(t => t.entry ?? []);
   if (originalEntries.length > maxFiles) throw new Error('Change count limit exceeded');
-  const entries = await deletedEntries(root, originalEntries, options, maxFiles);
+  const entries = await structuralEntries(root, originalEntries, options, maxFiles);
   const known = new Set(entries.map(e => e['@_path'].replaceAll('\\', '/')));
   if (selectedPaths?.some(p => !known.has(p))) throw new Error('Selected path is not a current change');
   const files = [];
@@ -73,24 +76,33 @@ export async function captureSvn(cwd, options = {}) {
     }
     try {
       if (name !== '.') relativePath(name);
-      const issue = svnStateIssue(state);
+      const copiedDescendant = !!entry.copyRoot && ['normal', 'modified', 'added'].includes(status) && state['@_copied'] === 'true';
+      const issue = svnStateIssue(copiedDescendant ? {...state, '@_item':'added'} : state);
       if (issue) { item.blockCode = issue.code; throw new Error(issue.reason); }
-      const hasBase = !['added', 'unversioned'].includes(status);
+      const hasBase = !copiedDescendant && !['added', 'unversioned'].includes(status);
       let kind;
       if (status === 'unversioned') kind = (await lstat(path.join(root, name))).isDirectory() ? 'dir' : 'file';
       else {
         const node = xml(await svn(root, ['info', '--xml', '--', target(name)], options)).info.entry[0];
         kind = node['@_kind'];
         if (state['@_copied'] === 'true' || node['wc-info']?.['copy-from-url']) {
-          const source = node['wc-info']?.['copy-from-url'], revision = node['wc-info']?.['copy-from-rev'];
-          if (status !== 'added' || kind !== 'file' || typeof source !== 'string' || !source || !/^[0-9]+$/.test(String(revision)) || node.repository?.uuid !== info.repository.uuid || node.repository?.root !== info.repository.root) throw new Error('Copied node requires a same-repository added file with fixed copy source');
+          let source = node['wc-info']?.['copy-from-url'], revision = node['wc-info']?.['copy-from-rev'];
+          if (!source && copiedDescendant) {
+            const parent = files.find(file => file.path === entry.copyRoot);
+            if (!parent?.copySource || parent.eligibility !== 'reviewable') throw new Error('Copied ancestor identity unavailable');
+            source = parent.copySource.url.replace(/\/$/,'') + '/' + name.slice(entry.copyRoot.length+1).split('/').map(encodeURIComponent).join('/');
+            revision = parent.copySource.revision;
+            item.copyAncestor = entry.copyRoot;
+          }
+          if ((!copiedDescendant && status !== 'added') || !['file','dir'].includes(kind) || typeof source !== 'string' || !source || !/^[0-9]+$/.test(String(revision)) || node.repository?.uuid !== info.repository.uuid || node.repository?.root !== info.repository.root) throw new Error('Copied node requires a same-repository added target with fixed copy source');
           if (isSecretPath(decodeURIComponent(new URL(source).pathname))) throw new Error('Credential copy source excluded');
           item.copySource = { url: source, revision: String(revision), repositoryUuid: node.repository.uuid };
           item.copyNotice = 'Target addition is reviewed against an empty target baseline; copy source is provenance only, not an approved source body or verified rename.';
-          item.copyNodeIdentity = hash(JSON.stringify([node.url, node['@_kind'], node['@_revision'], node['wc-info']?.schedule, node['wc-info']?.['wcroot-abspath'], source, String(revision), node.repository]));
+          item.copyNodeIdentity = hash(JSON.stringify([node.url, node['@_kind'], node['@_revision'], node['wc-info']?.schedule, node['wc-info']?.['wcroot-abspath'], node['wc-info']?.['copy-from-url'] ?? null, node['wc-info']?.['copy-from-rev'] ?? null, node.repository]));
         }
       }
       item.kind = kind;
+      if (copiedDescendant) item.targetAddition = true;
       item.rightExists = status !== 'deleted';
       const leftProps = hasBase ? await properties(root, name, true, options) : {};
       const rightProps = status === 'deleted' || status === 'unversioned' ? {} : await properties(root, name, false, options);
@@ -103,7 +115,7 @@ export async function captureSvn(cwd, options = {}) {
       item.propertyIdentity = hash(JSON.stringify([leftProps, rightProps]));
       if (kind === 'dir') {
         if (status === 'unversioned') throw new Error('Unversioned directory requires explicit descendant tracking');
-        if (status === 'deleted' || status === 'added') {
+        if (status === 'deleted' || status === 'added' || copiedDescendant) {
           const descendants = entries.filter(entry => entry['@_path'].replaceAll('\\', '/').startsWith(name + '/')).map(entry => entry['@_path'].replaceAll('\\', '/'));
           if (selectedPaths && descendants.some(child => !selectedPaths.includes(child))) throw new Error('Directory descendants are not all explicitly selected');
           item.structuralDescendants = descendants;
@@ -121,7 +133,7 @@ export async function captureSvn(cwd, options = {}) {
   }
   const after = await svn(root, statusArgs, options);
   if (!isDeepStrictEqual(xml(after), xml(before))) throw new Error('Working copy changed during capture');
-  if (!isDeepStrictEqual(await deletedEntries(root, xml(after).status.target.flatMap(t => t.entry ?? []), options, maxFiles), entries)) throw new Error('Deleted descendants changed during capture');
+  if (!isDeepStrictEqual(await structuralEntries(root, xml(after).status.target.flatMap(t => t.entry ?? []), options, maxFiles), entries)) throw new Error('Deleted descendants changed during capture');
   // A directory must not look complete when any descendant was blocked/excluded.
   for (const item of files.filter(f => f.structuralDescendants).sort((a,b) => b.path.length - a.path.length)) {
     if (item.structuralDescendants.some(name => files.find(f => f.path === name)?.eligibility !== 'reviewable')) {
@@ -132,11 +144,11 @@ export async function captureSvn(cwd, options = {}) {
   for (const item of files.filter(f => f.eligibility === 'reviewable')) {
     if (item.copySource) {
       const node = xml(await svn(root, ['info', '--xml', '--', target(item.path)], options)).info.entry[0];
-      const identity = hash(JSON.stringify([node.url, node['@_kind'], node['@_revision'], node['wc-info']?.schedule, node['wc-info']?.['wcroot-abspath'], node['wc-info']?.['copy-from-url'], String(node['wc-info']?.['copy-from-rev']), node.repository]));
+      const identity = hash(JSON.stringify([node.url, node['@_kind'], node['@_revision'], node['wc-info']?.schedule, node['wc-info']?.['wcroot-abspath'], node['wc-info']?.['copy-from-url'] ?? null, node['wc-info']?.['copy-from-rev'] ?? null, node.repository]));
       if (identity !== item.copyNodeIdentity) throw new Error('Copy source identity changed during capture');
     }
     if (item.kind === 'file' && item.rawStatus !== 'deleted' && (await readLocal(root, item.path, options)).hash !== item.right.hash) throw new Error('Content changed during capture');
-    const left = !['added', 'unversioned'].includes(item.rawStatus) ? await properties(root, item.path, true, options) : {};
+    const left = !item.targetAddition && !['added', 'unversioned'].includes(item.rawStatus) ? await properties(root, item.path, true, options) : {};
     const right = ['deleted', 'unversioned'].includes(item.rawStatus) ? {} : await properties(root, item.path, false, options);
     if (hash(JSON.stringify([left, right])) !== item.propertyIdentity) throw new Error('Properties changed during capture');
   }

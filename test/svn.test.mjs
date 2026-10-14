@@ -167,6 +167,25 @@ test('SVN ordinary replacement reports absent target baseline without inventing 
  const report=await reviewSnapshot(snapshot,async()=>{throw Error('Blocked source sent');});assert.equal(report.files[0].blockCode,'SVN_REPLACEMENT');assert.equal(report.coverage.blocked,1);assert.notEqual(report.status,'completed');
  assert.deepEqual(xml(await svn('status','--xml')),before);
 });
+test('SVN copied directory expands inherited descendants as target additions offline',async t=>{
+ const {root,svn,put,repository}=await fixture(t);
+ await mkdir(path.join(root,'source/sub'),{recursive:true});await put('source/sub/a.js','SOURCE\n');await put('source/b.js','B\n');await svn('add','source');await svn('commit','-m','base');
+ await svn('copy','source','copied');await put('copied/sub/a.js','EDITED\n');
+ const before=xml(await svn('status','--xml'));await rename(repository,repository+'-offline');
+ const s=await captureSnapshot(root);
+ assert.equal(s.files.length,4);assert.ok(s.files.every(f=>f.eligibility==='reviewable'),JSON.stringify(s.files.map(f=>[f.path,f.reason])));
+ for(const item of s.files){assert.equal(item.left.text,'');assert.equal(item.copySource.revision,'1');}
+ const child=s.files.find(f=>f.path==='copied/sub/a.js');assert.equal(child.right.text,'EDITED\n');assert.equal(child.targetAddition,true);assert.ok(child.copySource.url.endsWith('/source/sub/a.js'));
+ assert.equal(s.id,(await captureSnapshot(root)).id);
+ const selected=await captureSnapshot(root,{selectedPaths:['copied']});assert.equal(selected.files.find(f=>f.path==='copied').eligibility,'blocked');assert.ok(selected.files.filter(f=>f.path!=='copied').every(f=>f.eligibility==='excluded'));
+ await assert.rejects(captureSvn(root,{maxFiles:3}),/Change count limit/);
+ const service=createReviewService({stream:async function*(){throw Error('No sends');}});try{const p=await service.preview({}, {agent:{session:{header:{cwd:root}},options:{provider:'offline',model:'none'}}});assert.equal(p.files.length,4);}finally{service.dispose();}
+ assert.deepEqual(xml(await svn('status','--xml')),before);
+});
+test('SVN copied directory with a credential descendant never reports complete parent coverage',async t=>{
+ const {root,svn,put}=await fixture(t);await mkdir(path.join(root,'source'));await put('source/.env','SECRET');await svn('add','source');await svn('commit','-m','base');await svn('copy','source','copied');
+ const s=await captureSvn(root);assert.equal(s.files.find(f=>f.path==='copied').eligibility,'blocked');assert.equal(s.files.find(f=>f.path==='copied/.env').eligibility,'excluded');assert.ok(!JSON.stringify(s).includes('SECRET'));
+});
 test('SVN BASE capture works with repository offline', async t => {
   const { root, svn, put, repository } = await fixture(t);
   await put('file', 'base'); await svn('add', 'file'); await svn('commit', '-m', 'fixture');
