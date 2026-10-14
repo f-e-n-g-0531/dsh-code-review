@@ -12,6 +12,18 @@ export function contextSources(item, history) {
   if (!history || !history.base || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(history.base) || item.oldRevision !== history.base || typeof item.oldText !== 'string' || item.text !== undefined || item.revision !== undefined || item.hash !== undefined || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(item.oldBlobOid ?? '') || item.oldHash !== hash(item.oldText)) throw new Error('Invalid old-only historical context provenance');
   return [{side:'context-old',text:item.oldText,revision:item.oldRevision,blobOid:item.oldBlobOid,hash:item.oldHash}];
  }
+ if (history?.vcs === 'svn') {
+  const verify = (source, revision, text) => {
+   const expected = history.url?.replace(/\/$/, '') + '/' + item.path.split('/').map(encodeURIComponent).join('/');
+   if (!source || source.repositoryUuid !== history.repositoryUuid || source.url !== expected || source.pegRevision !== revision || source.operativeRevision !== revision || !/^[0-9a-f]{64}$/.test(source.hash ?? '') || source.textHash !== hash(text)) throw new Error('Invalid SVN historical context provenance');
+  };
+  if (item.revision !== history.target || typeof item.text !== 'string') throw new Error('Invalid SVN historical context provenance');
+  verify(item.svnSource, history.target, item.text);
+  if (item.oldText !== undefined) {
+   if (item.oldRevision !== history.base || typeof item.oldText !== 'string') throw new Error('Invalid SVN historical context provenance');
+   verify(item.oldSvnSource, history.base, item.oldText);
+  }
+ }
  if (typeof item.text !== 'string') throw new Error('Missing current context text');
  const sources=[{side:'context',text:item.text,...(item.revision ? {revision:item.revision} : {})}];
  if (item.oldText !== undefined) {

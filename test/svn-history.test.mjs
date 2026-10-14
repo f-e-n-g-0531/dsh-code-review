@@ -23,6 +23,20 @@ test('SVN history copied files and keywords use target objects, not source or ex
  await assert.rejects(captureSnapshot(root,{svnRevision:'2',selectedPaths:['absent.js']}),/not an SVN historical change/);
  const blocked=await captureSnapshot(root,{svnRevision:'2',maxFileBytes:2});assert.equal(blocked.files.find(f=>f.path==='copied.js').eligibility,'blocked');
 });
+test('SVN historical explicit context and rules read fixed revisions, not dirty local files',async t=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dsh-svn-hist-context-'));t.after(async()=>{assert.ok(path.basename(dir).startsWith('dsh-svn-hist-context-'));await rm(dir,{recursive:true,force:true});});
+ const repo=path.join(dir,'repo'),root=path.join(dir,'wc');await checked('svnadmin',['create',repo]);await checked('svn',['checkout',pathToFileURL(repo).href,root]);const svn=(...args)=>checked('svn',['--non-interactive',...args],{cwd:root});
+ for(const [name,text]of [['main.js','ONE\n'],['dep.js','DEP\n'],['rules.md','OLD RULE\n']])await writeFile(path.join(root,name),text);
+ await svn('add','main.js','dep.js','rules.md');await svn('commit','-m','base');await writeFile(path.join(root,'main.js'),'TWO\n');await writeFile(path.join(root,'rules.md'),'TARGET RULE\n');await svn('commit','-m','target');
+ for(const name of ['dep.js','rules.md'])await writeFile(path.join(root,name),'LOCAL SECRET\n');
+ const options={svnRevision:'2',selectedPaths:['main.js','rules.md'],contextPaths:['dep.js'],rulePaths:['rules.md']};
+ const s=await captureSnapshot(root,options);assert.equal(s.context[0].text,'DEP\n');assert.equal(s.context[0].oldText,'DEP\n');assert.equal(s.context[0].revision,'2');assert.equal(s.context[0].oldRevision,'1');assert.equal(s.rules[0].text,'TARGET RULE\n');assert.ok(!JSON.stringify(s).includes('LOCAL SECRET'));
+ assert.equal(s.id,(await captureSnapshot(root,options)).id);
+ const report=await reviewSnapshot(s,async request=>{const payload=JSON.parse(request.input);assert.ok(!request.input.includes('LOCAL SECRET'));assert.equal(payload.context[0].revision,'2');assert.equal(payload.context[0].oldRevision,'1');assert.equal(payload.rules[0].text,'TARGET RULE\n');return {findings:[],limitations:[]};},{enableRetrieval:true});assert.equal(report.status,'completed');
+ await assert.rejects(captureSnapshot(root,{...options,selectedPaths:['main.js']}),/excluded.*blocked.*deleted/);
+ await assert.rejects(captureSnapshot(root,{...options,contextPaths:['.env']}),/Credential/);
+ let sends=0;const service=createReviewService({stream:async function*(){sends++;}});try{const p=await service.preview(options,{agent:{session:{header:{cwd:root}},options:{provider:'offline',model:'none'}}});assert.deepEqual(p.contextPaths,['dep.js']);assert.equal(p.rules[0].path,'rules.md');assert.equal(sends,0);}finally{service.dispose();}
+});
 test('SVN fixed history captures revision content properties and directories without dirty working text or model sends',async t=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dsh-fixed-svn-history-'));t.after(async()=>{assert.ok(path.basename(dir).startsWith('dsh-fixed-svn-history-'));await rm(dir,{recursive:true,force:true});});
  const repo=path.join(dir,'repo'),root=path.join(dir,'wc');await checked('svnadmin',['create',repo]);await checked('svn',['checkout',pathToFileURL(repo).href,root]);const svn=(...args)=>checked('svn',['--non-interactive',...args],{cwd:root});

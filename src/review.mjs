@@ -269,7 +269,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       state.status = signal?.aborted ? 'cancelled' : 'failed';
       state.reason = error?.message ?? String(error);
       for(const pass of state.reviewPasses??[])if(pass.status==='running')pass.status=signal?.aborted?'cancelled':'failed';
-      state.failureCode = signal?.aborted ? 'CANCELLED' : ['MODEL_INVALID_JSON','MODEL_TIMEOUT'].includes(error?.code) ? error.code : 'REVIEW_EXECUTION_FAILED';
+      state.failureCode = signal?.aborted ? 'CANCELLED' : ['MODEL_INVALID_JSON','MODEL_TIMEOUT','MODEL_INVALID_READ_REQUEST'].includes(error?.code) ? error.code : 'REVIEW_EXECUTION_FAILED';
     }
   }
   for (const interaction of report.interactions) if (interaction.status !== 'completed') report.limitations.push({ text: '跨文件综合未完成：' + interaction.groupId + ' (' + interaction.status + ')' });

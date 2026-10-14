@@ -2,7 +2,8 @@ import {realpath} from 'node:fs/promises';
 import {checked} from './process.mjs';
 import {xml} from './svn.mjs';
 import {hash,decode,relativePath} from './content.mjs';
-import {isSecretPath} from './secret-path.mjs';
+import {isSecretPath,assertNonSecretPath} from './secret-path.mjs';
+import {captureProjectRules} from './project-rules.mjs';
 
 const revision = value => {
   if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value) || !Number.isSafeInteger(Number(value))) throw new Error('SVN revision must be a fixed nonnegative decimal string');
@@ -33,7 +34,10 @@ export function svnHistoryDestination(value, allowNetwork) {
 export async function captureSvnHistory(cwd,options={}) {
   const range=svnHistoryRange(options);
   if (options.svnAllowNetwork!==undefined && typeof options.svnAllowNetwork!=='boolean') throw new Error('Invalid SVN network opt-in');
-  if (options.autoContext===true || options.callerScopePaths!==undefined || ['contextPaths','oldContextPaths','rulePaths'].some(key=>options[key]!==undefined && (!Array.isArray(options[key]) || options[key].length))) throw new Error('SVN historical context, rules and callers are not supported in this initial mode');
+  if (options.autoContext===true || options.callerScopePaths!==undefined || options.oldContextPaths!==undefined) throw new Error('SVN historical automatic context, old-only context and callers are not supported yet');
+  const contextPaths=options.contextPaths??[],rulePaths=options.rulePaths??[],maxContextFiles=options.maxContextFiles??20;
+  if(!Number.isSafeInteger(maxContextFiles)||maxContextFiles<1||maxContextFiles>20||!Array.isArray(contextPaths)||contextPaths.length>maxContextFiles||new Set(contextPaths).size!==contextPaths.length||!Array.isArray(rulePaths)||rulePaths.length>4||new Set(rulePaths).size!==rulePaths.length||rulePaths.some(name=>contextPaths.includes(name)))throw new Error('Invalid SVN historical context or rule selection');
+  for(const name of [...contextPaths,...rulePaths]){relativePath(name);assertNonSecretPath(name);}
   const {maxFiles=200,maxFileBytes=256*1024,maxSnapshotBytes=4*1024*1024,selectedPaths}=options;
   for(const [value,cap]of [[maxFiles,200],[maxFileBytes,256*1024],[maxSnapshotBytes,4*1024*1024]])if(!Number.isSafeInteger(value)||value<1||value>cap)throw new Error('Invalid SVN history limit');
   if(selectedPaths!==undefined && (!Array.isArray(selectedPaths)||selectedPaths.length>200||new Set(selectedPaths).size!==selectedPaths.length))throw new Error('Invalid SVN history selection');
@@ -86,6 +90,12 @@ export async function captureSvnHistory(cwd,options={}) {
     }
     return Object.fromEntries(Object.entries(result).sort(([a],[b])=>a.localeCompare(b)));
   };
+  const readSource=async(name,rev)=>{
+    const node=await identity(name,rev),props=await properties(name,rev);
+    if(Object.hasOwn(props,'svn:special'))throw new Error('Historical SVN special node excluded');
+    const content=node['@_kind']==='dir'?decode(Buffer.alloc(0)):decode(await run(['cat','--ignore-keywords','-r',rev,'--',at(name,rev)],true));
+    return {content,props,kind:node['@_kind'],source:{repositoryUuid:local.repository.uuid,url:at(name,rev).slice(0,-rev.length-1),pegRevision:rev,operativeRevision:rev,hash:content.hash,textHash:hash(content.text)}};
+  };
   const files=[];
   for(const [name,record]of [...records].sort(([a],[b])=>a<b?-1:a>b?1:0)){
     signal.throwIfAborted();
@@ -96,11 +106,9 @@ export async function captureSvnHistory(cwd,options={}) {
     try{
       const readSide=async(rev,exists)=>{
         if(!exists)return {content:decode(Buffer.alloc(0)),props:{}};
-        const node=await identity(name,rev),props=await properties(name,rev);
-        if(node['@_kind']!==item.kind)throw new Error('Historical node kind differs');
-        if(Object.hasOwn(props,'svn:special'))throw new Error('Historical SVN special node excluded');
-        const content=node['@_kind']==='dir'?decode(Buffer.alloc(0)):decode(await run(['cat','--ignore-keywords','-r',rev,'--',at(name,rev)],true));
-        return {content,props,source:{repositoryUuid:local.repository.uuid,url:at(name,rev).slice(0,-rev.length-1),pegRevision:rev,operativeRevision:rev,hash:content.hash}};
+        const result=await readSource(name,rev);
+        if(result.kind!==item.kind)throw new Error('Historical node kind differs');
+        return result;
       };
       const left=await readSide(range.base,status!=='added'),right=await readSide(range.target,status!=='deleted');
       item.left=left.content;item.right=right.content;
@@ -114,11 +122,35 @@ export async function captureSvnHistory(cwd,options={}) {
   for(const item of files.filter(f=>f.kind==='dir'&&['added','deleted'].includes(f.rawStatus)&&f.eligibility==='reviewable')){
     if(files.some(child=>child.path.startsWith(item.path==='.'?'':item.path+'/')&&child!==item&&child.eligibility!=='reviewable')){item.eligibility='blocked';item.reason='Historical directory descendant coverage incomplete';delete item.left;delete item.right;}
   }
+  const context=[];
+  const targetContent=async(name)=>{
+    const changed=files.find(file=>file.path===name);
+    if(changed){
+      if(changed.eligibility!=='reviewable'||changed.rightExists===false||changed.kind!=='file')throw new Error('Historical context or rule is excluded blocked deleted or not a file');
+      return {content:changed.right,source:changed.svnSources.new};
+    }
+    const result=await readSource(name,range.target);if(result.kind!=='file')throw new Error('Historical context or rule requires a file');return result;
+  };
+  for(const name of [...contextPaths].sort()){
+    const target=await targetContent(name),record=records.get(name),changed=files.find(file=>file.path===name);
+    const item={path:name,...target.content,revision:range.target,svnSource:target.source};
+    if(changed){if(record['@_item']!=='added'){item.oldText=changed.left.text;item.oldRevision=range.base;item.oldSvnSource=changed.svnSources.old;}}
+    else{
+      // No change record means both fixed sides are present and equal. Read and verify
+      // rather than inferring baseline content from target or from the working tree.
+      const old=await readSource(name,range.base);if(old.kind!=='file'||old.content.hash!==target.content.hash||JSON.stringify(old.props)!==JSON.stringify(target.props))throw new Error('Unchanged historical context identity mismatch');
+      item.oldText=old.content.text;item.oldRevision=range.base;item.oldSvnSource=old.source;
+    }
+    context.push(item);
+  }
+  const rules=await captureProjectRules(root,rulePaths,{signal,files,read:async(_root,name)=>{
+    const value=await targetContent(name);if(value.content.bytes>16*1024)throw new Error('Rule file size limit exceeded');return value.content;
+  }});
   // Read the same fixed summary and repository identity again; never use HEAD.
   const after=await run(['diff','--summarize','--xml','--notice-ancestry','-r',range.base+':'+range.target,'--',at('.',range.target)]);
   if(!isDeepSummary(summary,after))throw new Error('SVN historical summary changed during capture');
   await identity('.',range.base);await identity('.',range.target);
-  const snapshot={schemaVersion:1,vcs:'svn',root,repositoryUuid:local.repository.uuid,context:[],history:{...range,vcs:'svn',url,repositoryUuid:local.repository.uuid,pegRevision:range.target,networkAccess,semantics:'fixed revision tree endpoints; no merge attribution or working text'},files};
+  const snapshot={schemaVersion:1,vcs:'svn',root,repositoryUuid:local.repository.uuid,context,...(rules.length?{rules}:{}),history:{...range,vcs:'svn',url,repositoryUuid:local.repository.uuid,pegRevision:range.target,networkAccess,semantics:'fixed revision tree endpoints; no merge attribution or working text'},files};
   const serialized=JSON.stringify(snapshot);if(Buffer.byteLength(serialized)>maxSnapshotBytes)throw new Error('SVN historical snapshot limit exceeded');
   return {...snapshot,id:hash(serialized)};
 }

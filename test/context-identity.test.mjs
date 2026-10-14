@@ -16,6 +16,14 @@ test('old-only rejects forged provenance root baseline current fields unsafe pat
  for(const h of [undefined,{...history,base:null},{...history,base:'invalid'}])assert.throws(()=>contextSources(old(),h),/provenance/);
  for(const path of ['../escape.ts','.env','lib/.ssh/key.ts'])assert.throws(()=>contextSources({...old(),path},history));
 });
+test('SVN paired context binds UUID URL peg operative revision and text hashes independently',()=>{
+ const h={vcs:'svn',base:'1',target:'2',url:'https://example.test/repo',repositoryUuid:'uuid'};
+ const source=(revision,text)=>({repositoryUuid:'uuid',url:'https://example.test/repo/lib/a.ts',pegRevision:revision,operativeRevision:revision,hash:'a'.repeat(64),textHash:hash(text)});
+ const item={path:'lib/a.ts',text:'NEW',oldText:'OLD',revision:'2',oldRevision:'1',svnSource:source('2','NEW'),oldSvnSource:source('1','OLD')};
+ assert.deepEqual(contextSources(item,h).map(s=>s.side),['context','context-old']);
+ for(const change of [{repositoryUuid:'wrong'},{url:'https://example.test/other/lib/a.ts'},{pegRevision:'1'},{operativeRevision:'1'},{textHash:hash('OTHER')}])assert.throws(()=>contextSources({...item,svnSource:{...item.svnSource,...change}},h),/provenance/);
+ assert.throws(()=>contextSources({...item,oldSvnSource:source('2','OLD')},h),/provenance/);
+});
 test('existing current and paired historical context identities remain explicit and do not synthesize old text',()=>{
  assert.deepEqual(contextSources({path:'lib/a.ts',text:''}).map(s=>s.side),['context']);
  const both={path:'lib/a.ts',text:'new',oldText:'old',revision:history.target,oldRevision:history.base};
