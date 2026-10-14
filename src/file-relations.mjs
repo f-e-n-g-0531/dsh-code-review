@@ -11,7 +11,7 @@ export function inferTestRelations(files) {
   if (!Array.isArray(files) || files.length > 200) throw new Error('Invalid relation input');
   const paths = new Set(), ids = new Set(), implementations = new Map(), tests = [];
   for (const file of files) {
-    if (!file || typeof file.id !== 'string' || !file.id || ids.has(file.id) || typeof file.path !== 'string' || !file.path || file.path.includes('\\') || file.path.split('/').some(p => !p || p === '.' || p === '..') || paths.has(file.path) || !['reviewable', 'blocked', 'excluded'].includes(file.eligibility)) throw new Error('Invalid relation file');
+    if (!file || typeof file.id !== 'string' || !file.id || ids.has(file.id) || typeof file.path !== 'string' || !file.path || file.path.includes('\\') || (!(file.path === '.' && file.kind === 'dir') && file.path.split('/').some(p => !p || p === '.' || p === '..')) || paths.has(file.path) || !['reviewable', 'blocked', 'excluded'].includes(file.eligibility)) throw new Error('Invalid relation file');
     ids.add(file.id); paths.add(file.path);
     if (file.eligibility !== 'reviewable') continue;
     const match = /^(.*)\.(mjs|cjs|js|jsx|ts|tsx)$/.exec(file.path);

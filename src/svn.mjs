@@ -38,7 +38,7 @@ export async function captureSvn(cwd, options = {}) {
     signal?.throwIfAborted();
     const name = entry['@_path'].replaceAll('\\', '/');
     const state = entry['wc-status'], status = state['@_item'];
-    const item = { id: hash(name), path: name, rawStatus: status, baseRevision: state['@_revision'], eligibility: 'reviewable', properties: [] };
+    const item = { id: hash(name), path: name, ...(name === '.' ? {kind: 'dir'} : {}), rawStatus: status, baseRevision: state['@_revision'], eligibility: 'reviewable', properties: [] };
     files.push(item);
     if (isSecretPath(name)) { item.eligibility='excluded'; item.reason='Credential path excluded'; continue; }
     if ((selectedPaths && !selectedPaths.includes(name)) || (status === 'unversioned' && !selectedPaths?.includes(name))) {

@@ -5,7 +5,7 @@ export function inferCppRelations(files) {
  if (!Array.isArray(files) || files.length > 200) throw new Error('Invalid C++ relation input');
  const byPath = new Map(), ids = new Set();
  for (const file of files) {
-  if (!file || typeof file.id !== 'string' || !file.id || ids.has(file.id) || typeof file.path !== 'string' || !file.path || file.path.includes('\\') || file.path.includes(':') || file.path.startsWith('/') || file.path.split('/').some(s => !s || s === '.' || s === '..') || byPath.has(file.path) || !['reviewable','excluded','blocked'].includes(file.eligibility)) throw new Error('Invalid C++ relation file');
+  if (!file || typeof file.id !== 'string' || !file.id || ids.has(file.id) || typeof file.path !== 'string' || !file.path || file.path.includes('\\') || file.path.includes(':') || file.path.startsWith('/') || (!(file.path === '.' && file.kind === 'dir') && file.path.split('/').some(s => !s || s === '.' || s === '..')) || byPath.has(file.path) || !['reviewable','excluded','blocked'].includes(file.eligibility)) throw new Error('Invalid C++ relation file');
   ids.add(file.id); byPath.set(file.path,file);
  }
  const edges = [];

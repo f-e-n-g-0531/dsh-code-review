@@ -12,7 +12,7 @@ export function inferImportRelations(files) {
   if (!Array.isArray(files) || files.length > 200) throw new Error('Invalid import relation input');
   const byPath = new Map(), ids = new Set();
   for (const file of files) {
-    if (!file || typeof file.id !== 'string' || !file.id || ids.has(file.id) || typeof file.path !== 'string' || !file.path || file.path.includes('\\') || file.path.startsWith('/') || file.path.includes(':') || file.path.split('/').some(p => !p || p === '.' || p === '..') || byPath.has(file.path) || !['reviewable', 'blocked', 'excluded'].includes(file.eligibility)) throw new Error('Invalid import relation file');
+    if (!file || typeof file.id !== 'string' || !file.id || ids.has(file.id) || typeof file.path !== 'string' || !file.path || file.path.includes('\\') || file.path.startsWith('/') || file.path.includes(':') || (!(file.path === '.' && file.kind === 'dir') && file.path.split('/').some(p => !p || p === '.' || p === '..')) || byPath.has(file.path) || !['reviewable', 'blocked', 'excluded'].includes(file.eligibility)) throw new Error('Invalid import relation file');
     ids.add(file.id); byPath.set(file.path, file);
   }
   const edges = [];

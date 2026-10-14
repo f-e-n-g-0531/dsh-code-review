@@ -22,7 +22,7 @@ export function inferContextRelations(input, file) {
   const primary = { ...file, id: 'primary' };
   const entries = contexts.map((c, i) => ({ id: 'context-' + i, path: c.path, eligibility: 'reviewable', left: { text: '' }, right: { text: c.text } }));
   // Other selected paths participate as opaque competitors, not context.
-  const competitors = input.files.filter(f => f.id !== file.id).map((f, i) => ({ id: 'selected-' + i, path: f.path, eligibility: 'blocked' }));
+  const competitors = input.files.filter(f => f.id !== file.id).map((f, i) => ({ id: 'selected-' + i, path: f.path, ...(f.kind === 'dir' ? {kind: 'dir'} : {}), eligibility: 'blocked' }));
   const all = [primary, ...entries, ...competitors];
   if (all.length > 200) return [];
   const byId = new Map(all.map(f => [f.id, f.path]));
