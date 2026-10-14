@@ -30,6 +30,13 @@ export function svnHistoryDestination(value, allowNetwork) {
   return {url:scope.href.replace(/\/$/,''),networkAccess};
 }
 
+export function mergeSvnHistoryRecord(previous, item) {
+  if(!['added','deleted','modified','none'].includes(item?.['@_item'])||!['file','dir'].includes(item?.['@_kind']))throw new Error('Ambiguous or unsupported SVN history summary');
+  if(!previous)return item;
+  if(previous['@_kind']!==item['@_kind']||!['added','deleted'].includes(previous['@_item'])||!['added','deleted'].includes(item['@_item'])||previous['@_item']===item['@_item'])throw new Error('Ambiguous or unsupported SVN history summary');
+  return {...item,'@_item':'replaced'};
+}
+
 // Fixed URL objects only. No checkout, update, merge, working body or lazy HEAD read.
 export async function captureSvnHistory(cwd,options={}) {
   const range=svnHistoryRange(options);
@@ -78,8 +85,7 @@ export async function captureSvnHistory(cwd,options={}) {
       const decoded=decodeURIComponent(part);if(decoded.includes('/')||decoded.includes('\\'))throw new Error('Encoded SVN path separator');return decoded;
     }).join('/');
     if(name!=='.')relativePath(name);
-    if(records.has(name)||!['added','deleted','modified','none'].includes(item['@_item'])||!['file','dir'].includes(item['@_kind']))throw new Error('Ambiguous or unsupported SVN history summary');
-    records.set(name,item);
+    records.set(name,mergeSvnHistoryRecord(records.get(name),item));
   }
   if(selectedPaths?.some(name=>!records.has(name)))throw new Error('Selected path is not an SVN historical change');
   const properties=async(name,rev)=>{
@@ -120,7 +126,7 @@ export async function captureSvnHistory(cwd,options={}) {
     }catch(error){signal.throwIfAborted();if(error.code==='SVN_HISTORY_BUDGET')throw error;item.eligibility='blocked';item.reason=error.message;delete item.left;delete item.right;}
     if(Buffer.byteLength(JSON.stringify(files))>maxSnapshotBytes)throw new Error('SVN historical snapshot limit exceeded');
   }
-  for(const item of files.filter(f=>f.kind==='dir'&&['added','deleted'].includes(f.rawStatus)&&f.eligibility==='reviewable')){
+  for(const item of files.filter(f=>f.kind==='dir'&&['added','deleted','replaced'].includes(f.rawStatus)&&f.eligibility==='reviewable')){
     if(files.some(child=>child.path.startsWith(item.path==='.'?'':item.path+'/')&&child!==item&&child.eligibility!=='reviewable')){item.eligibility='blocked';item.reason='Historical directory descendant coverage incomplete';delete item.left;delete item.right;}
   }
   const context=[];

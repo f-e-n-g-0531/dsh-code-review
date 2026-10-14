@@ -2,6 +2,10 @@
 
 本文件介绍对使用者有意义的变化。安装与参数见 [README](README.md)，本次发布正文见 [发布说明](RELEASE-NOTES.md)。历史提交和安装包保留在 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-review/releases)；本文不把开发日志当作功能介绍。
 
+## 0.64.1 — SVN 已提交历史替换双侧采集修复
+
+固定 revision summary 中同一路径的同类型 deleted/added 两记录合并为 replaced，分别从目标旧/新 revision 读取正文及属性，避免此前将合法历史替换当作重复路径拒绝。只接受一对同类型增删，重复新增/删除、多记录或类型变化继续拒绝；目录替换仍检查子项覆盖。未提交工作副本替换不因此开放。
+
 ## 0.64.0 — SVN 历史旧侧独有上下文
 
 SVN 固定历史模式支持 oldContextPaths：只读取 baseline 的指定正文，保留 UUID/URL/peg/operative revision 和哈希，不创建目标正文或推断目标存在性。已选删除等旧变更复用原身份，排除/阻断/无旧侧变更拒绝回流；与目标上下文共享 20 名额和原历史读取预算。预览明确披露 SVN 来源，与 Git blob 校验分开。自动历史链与调用方仍待实现。479 项串行回归、宿主、隔离安装和四矩阵 CI 通过；原产物/npm/Release 127,879 字节逐字节一致，双哈希、清单与冻结发布说明通过。
