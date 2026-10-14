@@ -2,6 +2,10 @@
 
 本文件介绍对使用者有意义的变化。安装与参数见 [README](README.md)，本次发布正文见 [发布说明](RELEASE-NOTES.md)。历史提交和安装包保留在 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-review/releases)；本文不把开发日志当作功能介绍。
 
+## 0.64.0 — SVN 历史旧侧独有上下文
+
+SVN 固定历史模式支持 oldContextPaths：只读取 baseline 的指定正文，保留 UUID/URL/peg/operative revision 和哈希，不创建目标正文或推断目标存在性。已选删除等旧变更复用原身份，排除/阻断/无旧侧变更拒绝回流；与目标上下文共享 20 名额和原历史读取预算。预览明确披露 SVN 来源，与 Git blob 校验分开。自动历史链与调用方仍待实现。
+
 ## 0.63.0 — SVN 历史显式上下文与目标规则
 
 固定 revision 历史模式支持显式 contextPaths 和 rulePaths。上下文目标/旧侧独立读取与验证 UUID、URL、peg/operative revision 和原字节/正文哈希，规则只取目标版本；不读脏工作树，不让已排除或删除变更通过上下文重新进入。共享原名额、源码、命令和总采集预算；old-only、自动历史链与历史调用方继续待实现。同时增加模型 JSON 输出形状和无效 read 字段的安全诊断，明确读行协议，保留严格拒绝、失败分类与零自动重试；用户 loader 实际失败样本尚未验证。477 项串行回归、宿主、隔离安装与四矩阵 CI 通过；原产物/npm/Release 127,355 字节逐字节一致，双哈希、清单与冻结发布说明通过。

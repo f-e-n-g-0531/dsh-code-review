@@ -34,10 +34,11 @@ export function svnHistoryDestination(value, allowNetwork) {
 export async function captureSvnHistory(cwd,options={}) {
   const range=svnHistoryRange(options);
   if (options.svnAllowNetwork!==undefined && typeof options.svnAllowNetwork!=='boolean') throw new Error('Invalid SVN network opt-in');
-  if (options.autoContext===true || options.callerScopePaths!==undefined || options.oldContextPaths!==undefined) throw new Error('SVN historical automatic context, old-only context and callers are not supported yet');
-  const contextPaths=options.contextPaths??[],rulePaths=options.rulePaths??[],maxContextFiles=options.maxContextFiles??20;
+  if (options.autoContext===true || options.callerScopePaths!==undefined) throw new Error('SVN historical automatic context and callers are not supported yet');
+  const contextPaths=options.contextPaths??[],oldContextPaths=options.oldContextPaths??[],rulePaths=options.rulePaths??[],maxContextFiles=options.maxContextFiles??20;
   if(!Number.isSafeInteger(maxContextFiles)||maxContextFiles<1||maxContextFiles>20||!Array.isArray(contextPaths)||contextPaths.length>maxContextFiles||new Set(contextPaths).size!==contextPaths.length||!Array.isArray(rulePaths)||rulePaths.length>4||new Set(rulePaths).size!==rulePaths.length||rulePaths.some(name=>contextPaths.includes(name)))throw new Error('Invalid SVN historical context or rule selection');
-  for(const name of [...contextPaths,...rulePaths]){relativePath(name);assertNonSecretPath(name);}
+  if(!Array.isArray(oldContextPaths)||oldContextPaths.length>20||new Set(oldContextPaths).size!==oldContextPaths.length||contextPaths.length+oldContextPaths.length>maxContextFiles||oldContextPaths.some(name=>contextPaths.includes(name)||rulePaths.includes(name)))throw new Error('Invalid SVN old context selection');
+  for(const name of [...contextPaths,...oldContextPaths,...rulePaths]){relativePath(name);assertNonSecretPath(name);}
   const {maxFiles=200,maxFileBytes=256*1024,maxSnapshotBytes=4*1024*1024,selectedPaths}=options;
   for(const [value,cap]of [[maxFiles,200],[maxFileBytes,256*1024],[maxSnapshotBytes,4*1024*1024]])if(!Number.isSafeInteger(value)||value<1||value>cap)throw new Error('Invalid SVN history limit');
   if(selectedPaths!==undefined && (!Array.isArray(selectedPaths)||selectedPaths.length>200||new Set(selectedPaths).size!==selectedPaths.length))throw new Error('Invalid SVN history selection');
@@ -142,6 +143,16 @@ export async function captureSvnHistory(cwd,options={}) {
       item.oldText=old.content.text;item.oldRevision=range.base;item.oldSvnSource=old.source;
     }
     context.push(item);
+  }
+  for(const name of [...oldContextPaths].sort()){
+    const changed=files.find(file=>file.path===name);
+    if(changed){
+      if(changed.eligibility!=='reviewable'||changed.kind!=='file'||!changed.svnSources?.old)throw new Error('Old SVN context conflicts with excluded blocked or absent baseline change');
+      // The original changed-file old identity already authorizes this side.
+      continue;
+    }
+    const old=await readSource(name,range.base);if(old.kind!=='file')throw new Error('Old SVN context requires baseline file');
+    context.push({path:name,oldOnly:true,oldText:old.content.text,oldHash:hash(old.content.text),oldRevision:range.base,oldSvnSource:old.source});
   }
   const rules=await captureProjectRules(root,rulePaths,{signal,files,read:async(_root,name)=>{
     const value=await targetContent(name);if(value.content.bytes>16*1024)throw new Error('Rule file size limit exceeded');return value.content;

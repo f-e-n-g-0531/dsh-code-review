@@ -1,6 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,mkdir,writeFile,rm} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {pathToFileURL} from 'node:url';
 import {reviewSnapshot} from '../src/review.mjs';
+import {createRetrievalScope} from '../src/retrieval-scope.mjs';
 import {checked} from '../src/process.mjs';import {captureSnapshot} from '../src/snapshot.mjs';import {svnHistoryRange,svnHistoryDestination} from '../src/svn-history.mjs';import {xml} from '../src/svn.mjs';import {createReviewService} from '../src/service.mjs';
 
 test('SVN history parameters require explicit numeric endpoints and reject Git or context ambiguity',()=>{
@@ -36,6 +37,19 @@ test('SVN historical explicit context and rules read fixed revisions, not dirty 
  await assert.rejects(captureSnapshot(root,{...options,selectedPaths:['main.js']}),/excluded.*blocked.*deleted/);
  await assert.rejects(captureSnapshot(root,{...options,contextPaths:['.env']}),/Credential/);
  let sends=0;const service=createReviewService({stream:async function*(){sends++;}});try{const p=await service.preview(options,{agent:{session:{header:{cwd:root}},options:{provider:'offline',model:'none'}}});assert.deepEqual(p.contextPaths,['dep.js']);assert.equal(p.rules[0].path,'rules.md');assert.equal(sends,0);}finally{service.dispose();}
+});
+test('SVN old-only context reads baseline only and reuses selected deletion without restoring excluded changes',async t=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dsh-svn-old-context-'));t.after(async()=>{assert.ok(path.basename(dir).startsWith('dsh-svn-old-context-'));await rm(dir,{recursive:true,force:true});});
+ const repo=path.join(dir,'repo'),root=path.join(dir,'wc');await checked('svnadmin',['create',repo]);await checked('svn',['checkout',pathToFileURL(repo).href,root]);const svn=(...args)=>checked('svn',['--non-interactive',...args],{cwd:root});
+ for(const [name,text]of [['main.js','ONE\n'],['dep.js','BASE DEP\n'],['deleted.js','DELETED OLD\n']])await writeFile(path.join(root,name),text);await svn('add','main.js','dep.js','deleted.js');await svn('commit','-m','base');
+ await writeFile(path.join(root,'main.js'),'TWO\n');await svn('delete','deleted.js');await svn('commit','-m','target');await writeFile(path.join(root,'dep.js'),'DIRTY NEW SECRET\n');
+ const options={svnRevision:'2',oldContextPaths:['dep.js','deleted.js']};const s=await captureSnapshot(root,options);
+ assert.equal(s.context.length,1);const old=s.context[0];assert.equal(old.oldOnly,true);assert.equal(old.oldText,'BASE DEP\n');assert.equal(old.text,undefined);assert.equal(old.oldSvnSource.operativeRevision,'1');
+ const scope=createRetrievalScope(s),sources=scope.catalog().filter(c=>c.path==='dep.js');assert.equal(sources.length,1);assert.equal(sources[0].side,'context-old');assert.ok(!JSON.stringify(s).includes('DIRTY NEW SECRET'));
+ assert.ok(scope.catalog().some(c=>c.path==='deleted.js'&&c.side==='old'));assert.equal(s.id,(await captureSnapshot(root,options)).id);
+ await assert.rejects(captureSnapshot(root,{...options,selectedPaths:['main.js']}),/excluded blocked/);
+ await assert.rejects(captureSnapshot(root,{...options,contextPaths:['dep.js']}),/selection/);
+ const service=createReviewService({stream:async function*(){throw Error('No sends');}});try{const p=await service.preview(options,{agent:{session:{header:{cwd:root}},options:{provider:'offline',model:'none'}}});assert.equal(p.oldContextSources.length,1);assert.equal(p.oldContextSources[0].svnSource.pegRevision,'1');}finally{service.dispose();}
 });
 test('SVN fixed history captures revision content properties and directories without dirty working text or model sends',async t=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dsh-fixed-svn-history-'));t.after(async()=>{assert.ok(path.basename(dir).startsWith('dsh-fixed-svn-history-'));await rm(dir,{recursive:true,force:true});});

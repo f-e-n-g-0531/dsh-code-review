@@ -24,6 +24,13 @@ test('SVN paired context binds UUID URL peg operative revision and text hashes i
  for(const change of [{repositoryUuid:'wrong'},{url:'https://example.test/other/lib/a.ts'},{pegRevision:'1'},{operativeRevision:'1'},{textHash:hash('OTHER')}])assert.throws(()=>contextSources({...item,svnSource:{...item.svnSource,...change}},h),/provenance/);
  assert.throws(()=>contextSources({...item,oldSvnSource:source('2','OLD')},h),/provenance/);
 });
+test('SVN old-only context has no synthetic target or Git blob and rejects forged sources',()=>{
+ const h={vcs:'svn',base:'1',target:'2',url:'https://example.test/repo',repositoryUuid:'uuid'};
+ const source={repositoryUuid:'uuid',url:'https://example.test/repo/lib/a.ts',pegRevision:'1',operativeRevision:'1',hash:'a'.repeat(64),textHash:hash('OLD')};
+ const item={path:'lib/a.ts',oldOnly:true,oldText:'OLD',oldRevision:'1',oldHash:hash('OLD'),oldSvnSource:source};
+ assert.deepEqual(contextSources(item,h).map(s=>s.side),['context-old']);
+ for(const change of [{text:''},{revision:'2'},{hash:'x'},{oldBlobOid:'b'.repeat(40)},{oldRevision:'2'},{oldHash:'bad'},{oldSvnSource:{...source,operativeRevision:'2'}}])assert.throws(()=>contextSources({...item,...change},h),/provenance/);
+});
 test('existing current and paired historical context identities remain explicit and do not synthesize old text',()=>{
  assert.deepEqual(contextSources({path:'lib/a.ts',text:''}).map(s=>s.side),['context']);
  const both={path:'lib/a.ts',text:'new',oldText:'old',revision:history.target,oldRevision:history.base};

@@ -61,14 +61,14 @@ DSH 的只读代码审查插件。它比较 Git 或 SVN 中的代码变更，使
 | contextPaths | 手动加入理解代码所需的文件 | ["src/types.ts"] |
 | autoContext | 从变更及手动上下文寻找依赖；Git 和 SVN 最多沿三层依赖链读取 | true |
 | callerScopePaths | 在指定目录中寻找引用变更文件的代码；已捕获调用方会标出调用行与唯一声明行 | ["src/clients"] |
-| oldContextPaths | Git 历史审查中，只加入旧版本的上下文 | ["src/removed-helper.ts"] |
+| oldContextPaths | Git/SVN 固定历史审查中，只加入旧版本的上下文；共享上下文名额 | ["src/removed-helper.ts"] |
 | rulePaths | 加入项目审查规则，最多四个 UTF-8 Markdown 或文本文件 | ["review-rules.md"] |
 | businessRequirement | 提供业务要求；不是缺陷证据，也不会增加读取权限 | "请求失败时必须释放连接" |
 | reviewRounds | 独立审查次数，1～3，默认 1；会增加模型调用量 | 2 |
 
-commit 与 baseRevision/targetRevision 不能同时使用。oldContextPaths 只能用于 Git 历史审查。
+commit 与 baseRevision/targetRevision 不能同时使用。oldContextPaths 只能用于 Git/SVN 固定历史审查，不适用于工作副本模式。
 
-SVN 历史模式使用独立参数，不可与 Git 参数混用。示例：`{"svnRevision":"7315","svnAllowNetwork":true}`；或 `{"svnBaseRevision":"7314","svnTargetRevision":"7315","svnAllowNetwork":true}`。只接受固定十进制 revision，不接受 HEAD、日期或相对别名。仅选择工作副本根当前仓库 URL，不支持任意远端 URL；预览会读取明确端点的仓库元数据与源码（远端需显式许可），但不发送模型。历史模式支持显式 contextPaths 与 rulePaths：上下文按目标版和已核验的旧版正文分别保存，规则只读取目标版；共享 20 上下文名额与原采集预算。autoContext、oldContextPaths 和历史 callerScopePaths 仍未支持，不能回退到当前工作副本。目录新增/删除按后代逐项覆盖，凭据、链接/特殊节点与超限继续拒绝。
+SVN 历史模式使用独立参数，不可与 Git 参数混用。示例：`{"svnRevision":"7315","svnAllowNetwork":true}`；或 `{"svnBaseRevision":"7314","svnTargetRevision":"7315","svnAllowNetwork":true}`。只接受固定十进制 revision，不接受 HEAD、日期或相对别名。仅选择工作副本根当前仓库 URL，不支持任意远端 URL；预览会读取明确端点的仓库元数据与源码（远端需显式许可），但不发送模型。历史模式支持显式 contextPaths 与 rulePaths：上下文按目标版和已核验的旧版正文分别保存，规则只读取目标版；共享 20 上下文名额与原采集预算。oldContextPaths 可显式选择仅旧版正文，没有目标占位，选中旧变更复用原身份；不能恢复已排除/阻断/无旧侧的变更。autoContext 和历史 callerScopePaths 仍未支持，不能回退到当前工作副本。目录新增/删除按后代逐项覆盖，凭据、链接/特殊节点与超限继续拒绝。
 
 自动上下文和引用方发现是保守的文本导航，不是编译器分析。动态导入、宏、重载、继承和实例方法可能无法解析；找到引用不等于证明函数实际被调用。历史调用方的命名导入线索逐侧对应相同版本声明，标明 side/revision；缺少该版本的批准正文不回退另一侧。Git 历史可沿修改前后两侧分别捕获最多三层依赖；SVN 工作副本模式可沿安全的当前节点取得最多三层依赖；初始固定 revision 历史模式尚不支持历史依赖导航。已批准正文中的唯一命名声明和唯一 default 导出会标出位置；同名、重导出或跨侧内容不猜测。命名空间导入后的独立成员调用可导航至唯一命名声明；写入、逃逸或间接调用不推定绑定，不是实例类型分析。
 
