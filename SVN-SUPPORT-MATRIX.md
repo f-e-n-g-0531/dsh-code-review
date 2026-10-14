@@ -24,8 +24,8 @@
 | svn:keywords、svn:eol-style | keywords 当前阻断；换行保留原文但无规范化映射 | 第三批：双侧可验证映射，保留原字节和定位 |
 | svn:special/链接 | 当前阻断，不跟随链接取正文 | 第三批：如支持只审链接目标数据；不沿链接读取文件 |
 | switched、externals、稀疏/混合 revision | 多数拒绝；调用方/依赖链要求祖先 normal | 第四批：明确仓库边界与独立来源，禁止隐式跨仓读取 |
-| 固定 revision 单提交 | 本地开发新增 svnRevision：r-1/r 固定对象、UUID/URL/peg/operative revision 逐侧绑定，正文不读工作树；远端读取显式 svnAllowNetwork，初始无历史上下文/规则/调用方，待最终回归与发布 | 第五批：新增明确 SVN 参数与冻结身份 |
-| 固定 revision 区间 | 本地开发新增 svnBaseRevision/svnTargetRevision，固定树端点 summary+逐侧 cat/proplist，目录后代与属性纳入预算；不建临时工作树，待最终回归与发布。分支间不同 URL 和历史上下文尚未支持 | 第五批：固定树端点与逐路径差异 |
+| 固定 revision 单提交 | v0.62.0 已发布 svnRevision：r-1/r 固定对象、UUID/URL/peg/operative revision 逐侧绑定，正文不读工作树；远端显式 svnAllowNetwork。472 项串行回归、宿主、隔离安装、四矩阵 CI 及原包/npm/Release 125,486 字节、双哈希/清单/发布说明通过。历史上下文/规则/调用方尚未支持 | 第五批：新增明确 SVN 参数与冻结身份 |
+| 固定 revision 区间 | v0.62.0 已发布 svnBaseRevision/svnTargetRevision，固定树端点 summary+逐侧 cat/proplist，目录后代与属性纳入预算，不建临时工作树；同上述完整发布验证。分支间不同 URL 和历史上下文尚未支持 | 第五批：固定树端点与逐路径差异 |
 | 分支复制、分支间比较、合并来源 | mergeinfo 当前仅作为属性文本；不证明源码归属或被合并提交均已审查 | 第六批：URL/peg/operative revision 与 mergeinfo 导航披露 |
 | 当前三层依赖与限定目录调用方 | 已有安全 normal 节点的离线有界测试；根属性修改可能使祖先检查拒绝，需单独验证 | 第四批补祖先/混合状态组合 |
 | 历史两侧上下文与调用方 | 未实现 | 第六批：逐侧固定版本，不能回退至工作副本 |

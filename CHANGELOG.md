@@ -4,7 +4,7 @@
 
 ## 0.62.0 — SVN 原生固定 revision 历史审查初始模式
 
-新增 svnRevision 与 svnBaseRevision/svnTargetRevision，读取工作副本根仓库 URL 的固定版本对象与双侧属性，不读脏工作树、不重建临时业务工作副本。来源绑定 UUID/URL/peg/operative revision/hash；远端含 UNC 文件共享必须显式 svnAllowNetwork。目录后代逐项覆盖、关键词用仓库未展开正文，保持原数量/源码/调用预算与预览确认链。初始模式不支持历史上下文、规则、调用方与跨 URL 分支比较。替换 diff 重建仅候选组件，未开放工作副本替换。
+新增 svnRevision 与 svnBaseRevision/svnTargetRevision，读取工作副本根仓库 URL 的固定版本对象与双侧属性，不读脏工作树、不重建临时业务工作副本。来源绑定 UUID/URL/peg/operative revision/hash；远端含 UNC 文件共享必须显式 svnAllowNetwork。目录后代逐项覆盖、关键词用仓库未展开正文，保持原数量/源码/调用预算与预览确认链。初始模式不支持历史上下文、规则、调用方与跨 URL 分支比较。替换 diff 重建仅候选组件，未开放工作副本替换。472 项串行回归、宿主、隔离安装及四矩阵 CI 通过；原产物/npm/Release 125,486 字节逐字节一致，双哈希、清单与冻结发布说明通过。
 
 ## 0.61.0 — SVN 目录复制后代覆盖
 
