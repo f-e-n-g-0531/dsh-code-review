@@ -1,0 +1,8 @@
+import test from 'node:test';import assert from 'node:assert/strict';
+import {mkdtemp,writeFile,rename,rm} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {pathToFileURL} from 'node:url';
+import {checked} from '../src/process.mjs';import {svnCallerNode} from '../src/svn-caller-node.mjs';import {captureSvnExplicitContext} from '../src/svn-explicit-context.mjs';
+test('root-level SVN context must bind root ancestor properties offline',async t=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'dsh-root-context-safe-'));t.after(async()=>{assert.ok(path.basename(dir).startsWith('dsh-root-context-safe-'));await rm(dir,{recursive:true,force:true});});const repo=path.join(dir,'repo'),root=path.join(dir,'wc');await checked('svnadmin',['create',repo]);await checked('svn',['checkout',pathToFileURL(repo).href,root]);const svn=(...a)=>checked('svn',['--non-interactive',...a],{cwd:root});await writeFile(path.join(root,'dep.js'),'SOURCE');await svn('add','dep.js');await svn('commit','-m','base');await svn('update');await rename(repo,repo+'-offline');
+ const original=await svnCallerNode(root,'dep.js');const captured=await captureSvnExplicitContext(root,['dep.js']);await svn('propset','svn:mergeinfo','/branch:1','.');const changed=await svnCallerNode(root,'dep.js');assert.notEqual(original.fingerprint,changed.fingerprint);await assert.rejects(captured.verify(),/changed/);
+ await svn('propset','review:p','changed','.');await assert.rejects(svnCallerNode(root,'dep.js'),/property change/);await svn('propdel','review:p','.');await svn('propset','svn:externals','^/other ext','.');await assert.rejects(svnCallerNode(root,'dep.js'),/properties/);
+});
