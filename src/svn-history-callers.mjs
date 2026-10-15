@@ -10,7 +10,7 @@ export async function svnHistoryCallers(files,history,scopes,context,{index,look
  const changed=new Set(files.map(f=>f.path)),rules=new Set(rulePaths),candidates=[],scanned=[],allProbes=new Set();
  let records=0,scanBytes=0;
  for(const [side,revision]of [['old',history.base],['new',history.target]]){
-  signal?.throwIfAborted();const entries=await index(approved,revision);
+  signal?.throwIfAborted();const entries=await index(approved,revision,side);
   if(!Array.isArray(entries))throw new Error('Invalid SVN historical caller index');
   const seen=new Set(),sources=[];
   for(const entry of entries){
@@ -20,7 +20,7 @@ export async function svnHistoryCallers(files,history,scopes,context,{index,look
    seen.add(name);
    if(entry.kind!=='file'||changed.has(name)||rules.has(name)||isSecretPath(name)||!/\.(mjs|cjs|js|jsx|ts|tsx|c|cc|cpp|cxx|h|hh|hpp|hxx|shader|hlsl|glsl|cginc|hlsli|compute)$/i.test(name))continue;
    if(scanned.length>=128)throw new Error('SVN historical caller scan count exceeded');
-   const value=await read(name,revision);signal?.throwIfAborted();
+   const value=await read(name,revision,side);signal?.throwIfAborted();
    if(typeof value?.content?.text!=='string'||value.kind!=='file'||value.source?.operativeRevision!==revision)throw new Error('Invalid fixed SVN caller body');
    const bodyBytes=value.content.bytes??Buffer.byteLength(value.content.text);
    if(!Number.isSafeInteger(bodyBytes)||bodyBytes<0||bodyBytes>256*1024||Buffer.byteLength(value.content.text)>256*1024)throw new Error('Invalid fixed SVN caller size');
@@ -29,13 +29,13 @@ export async function svnHistoryCallers(files,history,scopes,context,{index,look
    const source={path:name,...value.content,svnSource:value.source,side,revision};sources.push(source);scanned.push(source);
   }
   const targets=files.map(file=>{
-   const kind=side==='old'?file.oldKind:file.newKind,body=side==='old'?file.left:file.right;
+   const kind=file.specialData?.[side]?'special':side==='old'?file.oldKind:file.newKind,body=side==='old'?file.left:file.right;
    return {...file,right:kind==='file'?body:undefined,rightExists:kind==='file'&&typeof body?.text==='string'};
   });
   const requested=callerCandidates(targets,sources,[]).probePaths,present=[];
   for(const name of requested){
-   signal?.throwIfAborted();allProbes.add(JSON.stringify([revision,name]));if(allProbes.size>512)throw new Error('SVN historical caller probe limit exceeded');
-   const node=await lookup(name,revision);
+   signal?.throwIfAborted();allProbes.add(JSON.stringify([side,revision,name]));if(allProbes.size>512)throw new Error('SVN historical caller probe limit exceeded');
+   const node=await lookup(name,revision,side);
    if(node!==null&&(!node||!['file','dir'].includes(node.kind)))throw new Error('Invalid fixed SVN caller probe');
    if(node)present.push(name); // Directories remain resolution competitors.
   }

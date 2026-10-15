@@ -1,0 +1,4 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {svnHistoryEndpoints} from '../src/svn-history-endpoints.mjs';import {svnHistoryDestination} from '../src/svn-history.mjs';
+// Deferred acceptance, authored only during consolidated implementation.
+const local={url:'file:///repo/trunk',repository:{root:'file:///repo',uuid:'u'}};
+test('cross URL endpoints remain inside one explicitly identified repository root',()=>{const e=svnHistoryEndpoints(local,{svnBasePath:'branches/old',svnTargetPath:'trunk'},svnHistoryDestination);assert.equal(e.baseUrl,'file:///repo/branches/old');assert.equal(e.targetUrl,'file:///repo/trunk');assert.equal(e.crossUrl,true);for(const options of [{svnBasePath:'trunk'},{svnBasePath:'../escape',svnTargetPath:'trunk'},{svnBasePath:'trunk',svnTargetPath:'trunk/sub'},{svnRevision:'2',svnBasePath:'a',svnTargetPath:'b'}])assert.throws(()=>svnHistoryEndpoints(local,options,svnHistoryDestination));});

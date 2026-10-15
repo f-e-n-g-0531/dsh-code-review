@@ -6,16 +6,16 @@ import {relativePath} from './content.mjs';
 export function fixedSvnLookup({list,signal,maxEntries=512}={}) {
  if(typeof list!=='function'||!Number.isSafeInteger(maxEntries)||maxEntries<1||maxEntries>512)throw new Error('Invalid SVN historical lookup capability');
  const directories=new Map();let entries=0;
- const lookup=async(name,revision)=>{
+ const lookup=async(name,revision,side)=>{
   relativePath(name);signal?.throwIfAborted();
   if(typeof revision!=='string'||!/^(0|[1-9][0-9]*)$/.test(revision)||!Number.isSafeInteger(Number(revision)))throw new Error('Invalid SVN lookup revision');
-  const parent=path.posix.dirname(name),key=JSON.stringify([revision,parent]);
+  const parent=path.posix.dirname(name),key=JSON.stringify([side??null,revision,parent]);
   if(!directories.has(key)){
    if(parent!=='.'){
-    const node=await lookup(parent,revision);
+    const node=await lookup(parent,revision,side);
     if(!node||node.kind!=='dir')return null;
    }
-   const records=await list(parent,revision);signal?.throwIfAborted();
+   const records=await list(parent,revision,side);signal?.throwIfAborted();
    if(!Array.isArray(records))throw new Error('Invalid fixed SVN directory listing');
    const children=new Map();
    for(const record of records){

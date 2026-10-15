@@ -34,7 +34,7 @@ export function callerCandidates(files, scanned, resolutionPaths, {includeBindin
     if(file.path==='.'&&file.kind==='dir'){changed.add(file.path);continue;}
     relativePath(file.path); changed.add(file.path);
     if (file.oldPath) { relativePath(file.oldPath); changed.add(file.oldPath); }
-    if (file.eligibility === 'reviewable' && file.rightExists !== false && !isSecretPath(file.path)) targets.add(file.path);
+    if (file.eligibility === 'reviewable' && !file.specialData && file.rightExists !== false && !isSecretPath(file.path)) targets.add(file.path);
   }
   const candidates = [], probes = new Set(), seen = new Set();
   for (const source of scanned) {

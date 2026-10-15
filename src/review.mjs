@@ -106,6 +106,8 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   }
   if (input.history) report.history = structuredClone(input.history);
   if (input.mergeSources) report.mergeSources = structuredClone(input.mergeSources);
+  if(input.workingScope)report.workingScope=structuredClone(input.workingScope);
+  if(input.effectiveMergeSources)report.effectiveMergeSources=structuredClone(input.effectiveMergeSources);
   report.rules = (input.rules ?? []).map(({ path, hash }) => ({ path, hash }));
   if (options.enableGrouping === true) report.grouping = buildReviewGroups(input.files, inferFileRelations(input.files));
   report.interactions = [];

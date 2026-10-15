@@ -21,7 +21,7 @@ export async function captureSvnDependencyChain(root,files,options={}){
   for(const plan of plans){truncated ||= plan.truncated;for(const entry of plan.candidates){if(visited.has(entry.path)||reserved.has(entry.path))continue;visited.add(entry.path);const c={...entry,depth};candidates.push(c);if(candidates.length>20)throw new Error('SVN dependency candidate limit exceeded');
    if(context.length+new Set(options.contextPaths??[]).size>=limit){c.status='blocked';c.reason='Context file limit exceeded';continue;}
    try{const {node,item}=await capture(entry.path);context.push(item);nodes.push({path:item.path,fingerprint:node.fingerprint});c.status='captured';next.push({path:item.path,eligibility:'reviewable',right:item});}
-   catch(error){signal.throwIfAborted();if(error.code==='SVN_NAVIGATION_BUDGET'||error.message==='SVN dependency source byte limit exceeded')throw error;c.status='blocked';c.reason=error.message;}
+   catch(error){signal.throwIfAborted();if(error.code==='SVN_CAPTURE_BUDGET'||error.code==='SVN_NAVIGATION_BUDGET'||error.message==='SVN dependency source byte limit exceeded')throw error;c.status='blocked';c.reason=error.message;}
   }}frontier=next;
  }if(frontier.length)truncated=true;
  const verify=async()=>{for(const node of nodes)if((await svnCallerNode(root,node.path,{...bounded,allowExplicitKeywords:true})).fingerprint!==node.fingerprint)throw new Error('SVN dependency node changed during capture');if(index&&(await svnCallerProbes(root,[...probes],bounded)).fingerprint!==index.fingerprint)throw new Error('SVN dependency resolution changed during capture');signal.throwIfAborted();};

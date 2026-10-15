@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {workingScopeEvidence} from '../src/svn-working-scope.mjs';
+// Deferred unified acceptance; observed state is never whole-tree coverage.
+test('mixed BASE revisions and sparse root remain explicit incomplete inventory',()=>{const value=workingScopeEvidence({kind:'dir',depth:'files',revision:'5'},[{path:'a.js',eligibility:'reviewable',workingSource:{kind:'file',revision:'2'}},{path:'b.js',eligibility:'reviewable',workingSource:{kind:'file',revision:'5'}}]);assert.equal(value.mixedObservedRevisions,true);assert.deepEqual(value.observedBaseRevisions,['2','5']);assert.equal(value.inventoryComplete,false);assert.deepEqual(value.sparseDirectories,[{path:'.',depth:'files'}]);});

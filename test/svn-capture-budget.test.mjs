@@ -1,0 +1,3 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {createSvnCaptureBudget} from '../src/svn-capture-budget.mjs';
+// Deferred unified acceptance; not run while functionality remains incomplete.
+test('working capture ledger cannot restart command or metadata budgets between phases',()=>{const b=createSvnCaptureBudget();for(let i=0;i<512;i++)b.reserve();assert.throws(()=>b.reserve(),e=>e.code==='SVN_CAPTURE_BUDGET');const m=createSvnCaptureBudget();m.charge(600000);m.charge(448576);assert.equal(m.usage().metadataBytes,1048576);assert.throws(()=>m.charge(1),e=>e.code==='SVN_CAPTURE_BUDGET');const stopped=createSvnCaptureBudget(AbortSignal.abort());assert.throws(()=>stopped.reserve());});

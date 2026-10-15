@@ -136,6 +136,32 @@ dsh plugin add https://github.com/f-e-n-g-0531/dsh-code-review.git
 
 `svnAllowNetwork:true` 只允许读取本次工作副本对应仓库的固定版本，不授权更新、合并或任意远端 URL。本地 `file:` 仓库通常无需此参数。
 
+### 比较 SVN 两个分支（v0.80.0）
+
+以下为v0.80.0集中更新的用法；安装旧版本时这些参数不可用，先确认当前加载版本。
+
+```json
+{"svnBaseRevision":"7315","svnTargetRevision":"7315","svnBasePath":"branches/release","svnTargetPath":"trunk","svnAllowNetwork":true,"autoContext":true}
+```
+
+分支路径相对于当前SVN仓库根，不是本地目录或任意URL。旧、新两侧分别固定URL、peg与operative revision；同revision可以比较不同分支。只能在同仓库UUID内比较；嵌套重叠根和不明确来源拒绝，不能推断merge提交归属。
+
+### 查看有效继承 mergeinfo（v0.80.0）
+
+```json
+{"svnRevision":"7315","svnAllowNetwork":true,"svnEffectiveMergeinfo":true}
+```
+
+显式允许读取选中节点及最近祖先的合并属性，额外读取受共享预算限制；工作副本模式也可使用该开关并保持离线。空属性屏蔽继承，祖先证据不完整、混合BASE或不安全来源显示unknown；结果仅为属性导航，不证明相关revision已经审核。
+
+### 审查未提交替换（v0.80.0）
+
+```json
+{"selectedPaths":["src/module","src/module/old.cpp","src/module/new.cpp"],"svnReplacementBaseRevision":"7314","svnReplacementAllowNetwork":true}
+```
+
+替换比较的旧侧是你显式选择的目标URL固定历史节点，不是本地BASE，也不证明它就是被删除节点的原始revision。目录后代必须独立选入；只选父目录不能算后代均已批准。远端读取使用独立许可，默认不访问。没有可确认旧来源时明确拒绝，不读取复制源冒充旧节点。
+
 ### 加入业务要求、规则和调用方
 
 ```text

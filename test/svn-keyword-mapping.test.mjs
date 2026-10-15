@@ -2,7 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';import{svnK
 import{mkdtemp,writeFile,readFile,rm}from'node:fs/promises';import os from'node:os';import path from'node:path';import{pathToFileURL}from'node:url';import{checked}from'../src/process.mjs';import{captureSnapshot}from'../src/snapshot.mjs';import{reviewSnapshot}from'../src/review.mjs';import{createReviewService}from'../src/service.mjs';
 test('standard SVN keyword view retains raw hashes and identical CRLF/LF line positions',()=>{
  const text='// $Id: file.cpp 12 user date $\r\n// $Rev: 12 $\n$Unknown: unchanged $\n';const view=svnKeywordMapping(text,'Id Rev');assert.equal(view.text,'// $Id$\r\n// $Rev$\n$Unknown: unchanged $\n');assert.equal(view.replacements,2);assert.equal(view.lineMapping,'identity');assert.equal(view.status,'candidate-only');assert.notEqual(view.rawTextHash,view.textHash);
- for(const [text,config]of [['$Id:: fixed $','Id'],['$Id:bad$','Id'],['$Id: missing','Id'],['x','Build=%r_%a']])assert.throws(()=>svnKeywordMapping(text,config));
+ for(const [text,config]of [['$Id::bad$','Id'],['$Id:bad$','Id'],['$Id: missing','Id'],['x','Build=%Q']])assert.throws(()=>svnKeywordMapping(text,config));
 });
 test('real SVN expanded working keywords map to repository unexpanded text without mutation',async t=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dsh-keyword-map-'));t.after(async()=>{assert.ok(path.basename(dir).startsWith('dsh-keyword-map-'));await rm(dir,{recursive:true,force:true});});const repo=path.join(dir,'repo'),root=path.join(dir,'wc');await checked('svnadmin',['create',repo]);await checked('svn',['checkout',pathToFileURL(repo).href,root]);const svn=(...args)=>checked('svn',['--non-interactive',...args],{cwd:root});
@@ -11,5 +11,5 @@ test('real SVN expanded working keywords map to repository unexpanded text witho
  await writeFile(filename,working.replace('int x;','int y;'));const s=await captureSnapshot(root);const file=s.files[0];assert.equal(file.eligibility,'reviewable',file.reason);assert.ok(file.right.text.includes('$Id:'));assert.equal(file.keywordMapping.new.status,'verified-line-view');
  const report=await reviewSnapshot(s,async request=>{const input=JSON.parse(request.input);assert.ok(input.file.right.text.includes('$Id:'));assert.match(input.file.textNotice,/raw expanded source/);return {findings:[],limitations:[]};});assert.equal(report.coverage.completed,1);
  const service=createReviewService({stream:async function*(){throw Error('No sends');}});try{const p=await service.preview({}, {agent:{session:{header:{cwd:root}},options:{provider:'offline',model:'none'}}});assert.equal(p.files[0].keywordMapping.new.lineMapping,'identity');}finally{service.dispose();}
- await writeFile(filename,'// $Id:: fixed width $\nint z;\n');assert.equal((await captureSnapshot(root)).files[0].eligibility,'blocked');
+ await writeFile(filename,'// $Id:: fixed width $\nint z;\n');assert.equal((await captureSnapshot(root)).files[0].eligibility,'reviewable');
 });

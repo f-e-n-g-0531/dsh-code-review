@@ -3,7 +3,8 @@ import { inferImportRelations } from './import-relations.mjs';
 
 export function inferFileRelations(files) {
   // Keep the existing group edge budget; naming hints have priority at the cap.
-  return [...inferTestRelations(files), ...inferImportRelations(files), ...inferCppRelations(files)].slice(0, 2000);
+  const sources=files.filter(file=>!file.specialData);
+  return [...inferTestRelations(sources), ...inferImportRelations(sources), ...inferCppRelations(sources)].slice(0, 2000);
 }
 
 // Conservative naming hints only. No filesystem access or dependency claims.

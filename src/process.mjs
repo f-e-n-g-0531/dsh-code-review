@@ -38,7 +38,11 @@ export function run(command, args, { cwd, signal, timeoutMs = 30_000, maxBytes =
 }
 
 export async function checked(command, args, options) {
-  const result = await run(command, args, options);
+  const budget=command==='svn'?options?.svnCaptureBudget:undefined;
+  budget?.reserve();
+  const signal=budget?(options?.signal?AbortSignal.any([options.signal,budget.signal]):budget.signal):options?.signal;
+  const result = await run(command, args, budget?{...options,signal}:options);
+  budget?.charge(result.stdout.length+result.stderr.length,args.includes('cat'));
   if (result.code !== 0) throw new Error(command + ' failed (' + result.code + '): ' + result.stderr.toString('utf8').slice(0, 2000));
   return result.stdout;
 }

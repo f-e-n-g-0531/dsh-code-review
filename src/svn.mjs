@@ -1,3 +1,9 @@
+import {captureReplacementTree} from './svn-replacement-tree.mjs';
+import {readReplacementSource} from './svn-replacement-source.mjs';
+import {workingScopeEvidence} from './svn-working-scope.mjs';
+import {workingEffectiveMergeinfo} from './svn-working-mergeinfo.mjs';
+import {svnSpecialData} from './svn-special.mjs';
+import {readWorkingSvnSpecial} from './svn-working-special.mjs';
 import {svnWorkingIdentity} from './svn-working-identity.mjs';
 import { isSecretPath } from './secret-path.mjs';
 import { svnStateIssue } from './svn-state.mjs';
@@ -67,14 +73,21 @@ export async function captureSvn(cwd, options = {}) {
   if (originalEntries.length > maxFiles) throw new Error('Change count limit exceeded');
   const entries = await structuralEntries(root, originalEntries, options, maxFiles);
   const known = new Set(entries.map(e => e['@_path'].replaceAll('\\', '/')));
-  if (selectedPaths?.some(p => !known.has(p))) throw new Error('Selected path is not a current change');
-  const files = [];
+  if (selectedPaths?.some(p => !known.has(p)&&!(options.svnReplacementBaseRevision!==undefined&&entries.some(e=>e['wc-status']?.['@_item']==='replaced'&&p.startsWith(e['@_path'].replaceAll('\\','/')+'/'))))) throw new Error('Selected path is not a current change');
+  const files = [],replacementTrees=[];
+  const replacementRoots=options.svnReplacementBaseRevision===undefined?[]:entries.filter(e=>e['wc-status']?.['@_item']==='replaced').map(e=>e['@_path'].replaceAll('\\','/')).sort().filter((p,i,all)=>!all.slice(0,i).some(parent=>p.startsWith(parent+'/')));
+  for(const name of replacementRoots){
+    if(isSecretPath(name))continue;
+    if(options.selectedPaths&&!options.selectedPaths.some(p=>p===name||p.startsWith(name+'/')))continue;
+    const tree=await captureReplacementTree(root,rootInfo,name,options);replacementTrees.push(tree);files.push(...tree.files);if(files.length>maxFiles)throw new Error('Combined replacement change count limit exceeded');
+  }
   for (const entry of entries) {
     signal?.throwIfAborted();
     const name = entry['@_path'].replaceAll('\\', '/');
+    if(replacementTrees.some(tree=>tree.files.some(f=>name===f.replacementTreeRoot||name.startsWith(f.replacementTreeRoot+'/'))))continue;
     const state = entry['wc-status'], status = state['@_item'];
     const item = { id: hash(name), path: name, ...(name === '.' ? {kind: 'dir'} : {}), rawStatus: status, baseRevision: state['@_revision'], eligibility: 'reviewable', properties: [] };
-    files.push(item);
+    files.push(item);if(files.length>maxFiles)throw new Error('Combined change count limit exceeded');
     if (isSecretPath(name)) { item.eligibility='excluded'; item.reason='Credential path excluded'; continue; }
     if ((selectedPaths && !selectedPaths.includes(name)) || (status === 'unversioned' && !selectedPaths?.includes(name))) {
       item.eligibility = 'excluded'; item.reason = 'Not explicitly selected'; continue;
@@ -82,7 +95,8 @@ export async function captureSvn(cwd, options = {}) {
     try {
       if (name !== '.') relativePath(name);
       const copiedDescendant = !!entry.copyRoot && ['normal', 'modified', 'added'].includes(status) && state['@_copied'] === 'true';
-      const issue = svnStateIssue(copiedDescendant ? {...state, '@_item':'added'} : state);
+      const independentReplacement=status==='replaced'&&options.svnReplacementBaseRevision!==undefined;
+      const issue = svnStateIssue(independentReplacement?{...state,'@_item':'modified','@_copied':'false'}:copiedDescendant ? {...state, '@_item':'added'} : state);
       if (issue) { item.blockCode = issue.code; throw new Error(issue.reason); }
       const hasBase = !copiedDescendant && !['added', 'unversioned'].includes(status);
       let kind;
@@ -92,7 +106,7 @@ export async function captureSvn(cwd, options = {}) {
         const identity=svnWorkingIdentity(node,rootInfo,name);
         item.workingSource=identity.source;item.workingIdentity=identity.fingerprint;
         kind = node['@_kind'];
-        if (state['@_copied'] === 'true' || node['wc-info']?.['copy-from-url']) {
+        if (!independentReplacement&&(state['@_copied'] === 'true' || node['wc-info']?.['copy-from-url'])) {
           let source = node['wc-info']?.['copy-from-url'], revision = node['wc-info']?.['copy-from-rev'];
           if (!source && copiedDescendant) {
             const parent = files.find(file => file.path === entry.copyRoot);
@@ -111,35 +125,48 @@ export async function captureSvn(cwd, options = {}) {
       item.kind = kind;
       if (copiedDescendant) item.targetAddition = true;
       item.rightExists = status !== 'deleted';
-      const leftProps = hasBase ? await properties(root, name, true, options) : {};
+      if(independentReplacement&&!['file','dir'].includes(kind))throw new Error('Unsupported replacement target kind');
+      const replacement=independentReplacement?await readReplacementSource(root,rootInfo,name,options.svnReplacementBaseRevision,options):null;
+      if(replacement?.descendants.length){item.blockCode='SVN_REPLACEMENT_OLD_DESCENDANTS';throw new Error('Replacement old directory descendants require separate dual-side tree capture; no implicit old child approval');}
+      if(replacement&&kind==='dir'){
+        const inventory=xml(await svn(root,['status','--xml','--verbose','--ignore-externals','--depth','infinity','--',target(name)],options)).status?.target?.flatMap(t=>t.entry??[])??[];
+        const descendants=inventory.filter(entry=>entry['@_path'].replaceAll('\\','/')!==name);
+        if(descendants.length||item.workingSource.depth!=='infinity'){item.blockCode='SVN_REPLACEMENT_NEW_DESCENDANTS';throw new Error('Replacement target directory is nonempty or sparse; descendants require separate node approval');}
+        item.replacementEmptyDirectory=true;
+      }
+      if(replacement){item.oldKind=replacement.kind;item.newKind=kind;item.nodeNotice='Independent fixed repository baseline and current target have separate node kinds; directories are not empty source files.';item.baseRevision=replacement.source.operativeRevision;item.replacementSource=replacement.source;item.contentNotice='Explicit repository revision baseline versus replacement working target; not local BASE, copy-source content, or proof that selected revision equals the removed node.';}
+      const leftProps = replacement?replacement.props:hasBase ? await properties(root, name, true, options) : {};
       const rightProps = status === 'deleted' || status === 'unversioned' ? {} : await properties(root, name, false, options);
-      if ('svn:special' in leftProps || 'svn:special' in rightProps) throw new Error('SVN special nodes are excluded');
+      if(kind!=='file'&&('svn:special' in leftProps||'svn:special' in rightProps))throw new Error('SVN special property requires file-node link data');
       const keywordText=!!(leftProps['svn:keywords']||rightProps['svn:keywords']);
-      if(keywordText&&kind!=='file')throw new Error('SVN keyword mapping requires regular file');
+      if(keywordText&&(kind!=='file'||replacement&&replacement.kind!=='file'))throw new Error('SVN keyword mapping requires regular file');
       item.textNotice = 'Text preserves SVN cat output and working bytes. CRLF/LF differences alone are not code defects.';
       for (const key of [...new Set([...Object.keys(leftProps), ...Object.keys(rightProps)])].sort()) {
         if (leftProps[key] !== rightProps[key]) item.properties.push({ name: key, old: leftProps[key] ?? null, new: rightProps[key] ?? null });
       }
       item.propertyIdentity = hash(JSON.stringify([leftProps, rightProps]));
-      if (kind === 'dir') {
+      if (kind === 'dir'&&(!replacement||replacement.kind==='dir')) {
         if (status === 'unversioned') throw new Error('Unversioned directory requires explicit descendant tracking');
         if (status === 'deleted' || status === 'added' || copiedDescendant) {
           const descendants = entries.filter(entry => entry['@_path'].replaceAll('\\', '/').startsWith(name + '/')).map(entry => entry['@_path'].replaceAll('\\', '/'));
           if (selectedPaths && descendants.some(child => !selectedPaths.includes(child))) throw new Error('Directory descendants are not all explicitly selected');
+          if(item.workingSource?.depth!=='infinity'){item.blockCode='SVN_SPARSE_STRUCTURE';throw new Error('Sparse or unknown directory depth cannot prove complete structural descendant coverage');}
           item.structuralDescendants = descendants;
           item.structuralNotice = 'Directory node coverage is separate from each descendant; no implicit descendant approval.';
         }
-        item.left = decode(Buffer.alloc(0)); item.right = decode(Buffer.alloc(0));
+        item.left = replacement?replacement.content:decode(Buffer.alloc(0)); item.right = decode(Buffer.alloc(0));
       } else {
-        item.left = decode(hasBase ? await svn(root, ['cat', '-r', 'BASE', '--', target(name)], { ...options, maxBytes: maxFileBytes }) : Buffer.alloc(0));
-        item.right = status === 'deleted' ? decode(Buffer.alloc(0)) : await readLocal(root, name, options);
+        item.left = replacement?replacement.content:decode(hasBase ? await svn(root, ['cat', '-r', 'BASE', '--', target(name)], { ...options, maxBytes: maxFileBytes }) : Buffer.alloc(0));
+        item.right = status === 'deleted'||kind==='dir' ? decode(Buffer.alloc(0)) : Object.hasOwn(rightProps,'svn:special')?(await readWorkingSvnSpecial(root,name,rightProps,options)).content:await readLocal(root, name, options);
+        const oldSpecial=svnSpecialData(item.left,leftProps,replacement?.kind??kind),newSpecial=svnSpecialData(item.right,rightProps,kind);
+        if(oldSpecial||newSpecial){item.specialData={old:oldSpecial,new:newSpecial};item.contentNotice='SVN link record data only on special sides; target strings authorize no target reads or source navigation.';}
         if(Object.hasOwn(leftProps,'svn:eol-style')||Object.hasOwn(rightProps,'svn:eol-style')){
           item.eolMapping={old:svnEolMapping(item.left.text,leftProps['svn:eol-style']??null),new:svnEolMapping(item.right.text,rightProps['svn:eol-style']??null)};
           item.textNotice+=' EOL mapping is hash-only metadata; raw text and LF evidence lines are authoritative. Lone CR has no identity mapping to normalized LF lines.';
         }
         if(keywordText){
           const old=svnKeywordMapping(item.left.text,leftProps['svn:keywords']??''),current=svnKeywordMapping(item.right.text,rightProps['svn:keywords']??'');
-          if(hasBase){
+          if(hasBase&&!replacement){
             const repository=decode(await svn(root,['cat','--ignore-keywords','-r','BASE','--',target(name)],{...options,maxBytes:maxFileBytes}));
             if(old.text!==repository.text)throw new Error('SVN BASE keyword mapping differs from repository text');
           }
@@ -149,7 +176,7 @@ export async function captureSvn(cwd, options = {}) {
         }
       }
     } catch (error) {
-      signal?.throwIfAborted(); item.eligibility = 'blocked'; item.reason = error.message;if(error.code)item.blockCode=error.code;
+      signal?.throwIfAborted();if(error.code==='SVN_CAPTURE_BUDGET')throw error; item.eligibility = 'blocked'; item.reason = error.message;if(error.code)item.blockCode=error.code;
       delete item.left; delete item.right;
     }
   }
@@ -163,21 +190,31 @@ export async function captureSvn(cwd, options = {}) {
       delete item.left; delete item.right;
     }
   }
-  for (const item of files.filter(f => f.eligibility === 'reviewable')) {
+  for (const item of files.filter(f => f.eligibility === 'reviewable'&&!f.replacementTreeRoot)) {
     if(item.workingIdentity){const node=xml(await svn(root,['info','--xml','--',target(item.path)],options)).info.entry[0];if(svnWorkingIdentity(node,rootInfo,item.path).fingerprint!==item.workingIdentity)throw new Error('SVN node identity changed during capture');}
+    if(item.replacementEmptyDirectory){const inventory=xml(await svn(root,['status','--xml','--verbose','--ignore-externals','--depth','infinity','--',target(item.path)],options)).status?.target?.flatMap(t=>t.entry??[])??[];if(inventory.some(e=>e['@_path'].replaceAll('\\','/')!==item.path))throw new Error('Replacement target directory inventory changed during capture');}
     if (item.copySource) {
       const node = xml(await svn(root, ['info', '--xml', '--', target(item.path)], options)).info.entry[0];
       const identity = hash(JSON.stringify([node.url, node['@_kind'], node['@_revision'], node['wc-info']?.schedule, node['wc-info']?.['wcroot-abspath'], node['wc-info']?.['copy-from-url'] ?? null, node['wc-info']?.['copy-from-rev'] ?? null, node.repository]));
       if (identity !== item.copyNodeIdentity) throw new Error('Copy source identity changed during capture');
     }
-    if (item.kind === 'file' && item.rawStatus !== 'deleted' && (await readLocal(root, item.path, options)).hash !== item.right.hash) throw new Error('Content changed during capture');
-    const left = !item.targetAddition && !['added', 'unversioned'].includes(item.rawStatus) ? await properties(root, item.path, true, options) : {};
+    if(item.kind==='file'&&item.rawStatus!=='deleted'){
+      const current=item.specialData?.new?(await readWorkingSvnSpecial(root,item.path,await properties(root,item.path,false,options),options)).content:await readLocal(root,item.path,options);
+      if(current.hash!==item.right.hash)throw new Error('Content changed during capture');
+    }
+    const replacement=item.replacementSource?await readReplacementSource(root,rootInfo,item.path,options.svnReplacementBaseRevision,options):null;
+    if(replacement&&JSON.stringify(replacement.source)!==JSON.stringify(item.replacementSource))throw new Error('Replacement repository baseline changed during capture');
+    const left = replacement?replacement.props:!item.targetAddition && !['added', 'unversioned'].includes(item.rawStatus) ? await properties(root, item.path, true, options) : {};
     const right = ['deleted', 'unversioned'].includes(item.rawStatus) ? {} : await properties(root, item.path, false, options);
     if (hash(JSON.stringify([left, right])) !== item.propertyIdentity) throw new Error('Properties changed during capture');
   }
+  for(const tree of replacementTrees)await tree.verify();
   const finalRootInfo=xml(await svn(root,['info','--xml','--','.@'],options)).info.entry[0];
   if(svnWorkingIdentity(finalRootInfo,rootInfo,'.').fingerprint!==svnWorkingIdentity(rootInfo,rootInfo,'.').fingerprint)throw new Error('SVN root identity changed during capture');
+  if(options.svnEffectiveMergeinfo!==undefined&&typeof options.svnEffectiveMergeinfo!=='boolean')throw new Error('Invalid SVN effective mergeinfo opt-in');
+  const effectiveMergeSources=options.svnEffectiveMergeinfo===true?await workingEffectiveMergeinfo(root,rootInfo,files,options):undefined;
   const mergeSources = snapshotMergeSources(files);
-  const snapshot = { schemaVersion: 1, vcs: 'svn', root, repositoryUuid: rootInfo.repository.uuid, repositoryUrl:rootInfo.url, ...(mergeSources.length ? {mergeSources} : {}), files };
+  const workingScope=workingScopeEvidence(svnWorkingIdentity(rootInfo,rootInfo,'.').source,files);
+  const snapshot = { schemaVersion: 1, vcs: 'svn', root, workingScope, repositoryUuid: rootInfo.repository.uuid, repositoryUrl:rootInfo.url,...(effectiveMergeSources?{effectiveMergeSources}:{}), ...(mergeSources.length ? {mergeSources} : {}), files };
   return { ...snapshot, id: hash(JSON.stringify(snapshot)) };
 }

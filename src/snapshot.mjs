@@ -1,3 +1,4 @@
+import {createSvnCaptureBudget} from './svn-capture-budget.mjs';
 import {captureSvnDependencyChain} from './svn-dependency-chain.mjs';
 import {createSvnNavigationBudget} from './svn-navigation-budget.mjs';
 import {captureSvnExplicitContext} from './svn-explicit-context.mjs';
@@ -42,7 +43,13 @@ export async function captureSnapshot(cwd, options = {}) {
   if (options.oldContextPaths !== undefined && (!Array.isArray(options.oldContextPaths) || options.oldContextPaths.length > 20 || new Set(options.oldContextPaths).size !== options.oldContextPaths.length)) throw new Error('Invalid old context paths');
   for (const name of options.oldContextPaths ?? []) relativePath(name);
   const type = await detectVcs(cwd);
-  if (['svnRevision','svnBaseRevision','svnTargetRevision','svnAllowNetwork'].some(key=>options[key]!==undefined)) {
+  if(options.svnReplacementBaseRevision!==undefined||options.svnReplacementAllowNetwork!==undefined){
+    if(type!=='svn'||['svnRevision','svnBaseRevision','svnTargetRevision','svnBasePath','svnTargetPath','commit','baseRevision','targetRevision'].some(key=>options[key]!==undefined))throw new Error('Replacement repository baseline requires SVN working-copy mode');
+    if(typeof options.svnReplacementBaseRevision!=='string'||!/^(0|[1-9][0-9]*)$/.test(options.svnReplacementBaseRevision)||!Number.isSafeInteger(Number(options.svnReplacementBaseRevision)))throw new Error('Replacement baseline requires fixed numeric revision');
+    if(options.svnReplacementAllowNetwork!==undefined&&typeof options.svnReplacementAllowNetwork!=='boolean')throw new Error('Invalid replacement network permission');
+  }
+  if(options.svnEffectiveMergeinfo!==undefined&&type!=='svn')throw new Error('Effective SVN mergeinfo requires SVN repository');
+  if (['svnRevision','svnBaseRevision','svnTargetRevision','svnAllowNetwork','svnBasePath','svnTargetPath'].some(key=>options[key]!==undefined)) {
     if (type!=='svn') throw new Error('SVN revision parameters require SVN working copy');
     return bindBusinessRequirement(await captureSvnHistory(cwd,options),options.businessRequirement);
   }
@@ -51,6 +58,7 @@ export async function captureSnapshot(cwd, options = {}) {
     if (type !== 'git') throw new Error('Git revision review is unsupported on SVN');
     return bindBusinessRequirement(await captureGitHistory(cwd, options),options.businessRequirement);
   }
+  if(type==='svn'){const budget=createSvnCaptureBudget(options.signal);options={...options,signal:budget.signal,svnCaptureBudget:budget};}
   const capture = type === 'git' ? captureGit : captureSvn;
   const snapshot = await capture(cwd, options);
   if (!Array.isArray(rulePaths) || rulePaths.some(name => contextPaths.includes(name))) throw new Error('Rule paths must be separate from context paths');
@@ -76,6 +84,7 @@ export async function captureSnapshot(cwd, options = {}) {
     if (changed) {
       if (changed.eligibility !== 'reviewable') throw new Error('Context path is an excluded or blocked change');
       if (changed.rightExists === false) throw new Error('Deleted path cannot be working context');
+      if(changed.specialData)throw new Error('SVN link records cannot be working source context');
       context.push({ path: name, ...changed.right,...(changed.eolMapping?.new?{eolMapping:structuredClone(changed.eolMapping.new)}:{}) });
     } else {
       const seed=explicitSeeds.find(c=>c.path===name);

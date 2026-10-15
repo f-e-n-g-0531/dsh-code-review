@@ -14,7 +14,7 @@ export async function svnHistoryDependencies(files, history, context, {lookup, r
   relativePath(name);signal?.throwIfAborted();
   if(!cache[side].has(name)){
    if(++probes>512)throw new Error('SVN historical dependency probe limit exceeded');
-   const node=await lookup(name,side==='old'?history.base:history.target);
+   const node=await lookup(name,side==='old'?history.base:history.target,side);
    if(node!==null&&(!node||!['file','dir'].includes(node.kind)))throw new Error('Invalid SVN historical dependency probe result');
    cache[side].set(name,node);
   }
@@ -26,6 +26,7 @@ export async function svnHistoryDependencies(files, history, context, {lookup, r
  for(const file of files){
   if(file.eligibility!=='reviewable'||file.kind==='dir'&&file.path==='.')continue;
   for(const side of ['old','new']){
+   if(file.specialData?.[side])continue;
    const kind=side==='old'?file.oldKind:file.newKind,text=(side==='old'?file.left:file.right)?.text;
    if(kind==='file'&&typeof text==='string'){visited[side].add(file.path);frontier[side].push(nextSource(file.path,text));}
   }
@@ -52,7 +53,7 @@ export async function svnHistoryDependencies(files, history, context, {lookup, r
      const changed=files.find(file=>file.path===entry.path);
      if(changed){
       const kind=side==='old'?changed.oldKind:changed.newKind,text=(side==='old'?changed.left:changed.right)?.text;
-      if(changed.eligibility!=='reviewable'||kind!=='file'||typeof text!=='string'){receipt.status='blocked';receipt.reason='Dependency conflicts with excluded blocked or unavailable change';continue;}
+      if(changed.eligibility!=='reviewable'||changed.specialData?.[side]||kind!=='file'||typeof text!=='string'){receipt.status='blocked';receipt.reason='Dependency conflicts with excluded blocked or unavailable change';continue;}
       receipt.status='reused-change';next[side].push(nextSource(entry.path,text));continue;
      }
      if(isSecretPath(entry.path)){receipt.status='blocked';receipt.reason='Credential dependency excluded';continue;}
@@ -63,7 +64,7 @@ export async function svnHistoryDependencies(files, history, context, {lookup, r
      if(!item&&context.length>=maxContextFiles){receipt.status='blocked';receipt.reason='Context file limit exceeded';continue;}
      const presentText=side==='old'?item?.oldText:item?.text;
      if(typeof presentText==='string'){receipt.status='reused-context';next[side].push(nextSource(entry.path,presentText));continue;}
-     const value=await read(entry.path,receipt.revision);signal?.throwIfAborted();
+     const value=await read(entry.path,receipt.revision,side);signal?.throwIfAborted();
      if(typeof value?.content?.text!=='string'||!value.source||value.source.operativeRevision!==receipt.revision)throw new Error('Invalid fixed SVN dependency body');
      charge(value.content.text);
      if(!item){item={path:entry.path};context.push(item);}
