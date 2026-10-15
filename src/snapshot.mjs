@@ -1,4 +1,5 @@
 import {captureSvnDependencyChain} from './svn-dependency-chain.mjs';
+import {captureSvnExplicitContext} from './svn-explicit-context.mjs';
 import {captureDependencyChain} from './dependency-chain.mjs';
 import {captureSvnCallers} from './svn-caller-capture.mjs';
 import { captureCallers } from './caller-capture.mjs';
@@ -62,15 +63,20 @@ export async function captureSnapshot(cwd, options = {}) {
     const chain=await captureSvnDependencyChain(snapshot.root,snapshot.files,options);
     explicitSeeds=chain.explicitSeeds;context.push(...chain.context);autoContext=chain.autoContext;indexOptions=chain.indexOptions;verifyDependencies=chain.verify;
   }
+  let verifyExplicit;
+  if(type==='svn'&&options.autoContext!==true&&contextPaths.length){
+    const explicit=await captureSvnExplicitContext(snapshot.root,[...new Set(contextPaths)].filter(name=>!snapshot.files.some(f=>f.path===name)).sort(),options);
+    explicitSeeds=explicit.context;verifyExplicit=explicit.verify;indexOptions=explicit.options;
+  }
   for (const name of [...new Set(contextPaths)].sort()) {
     const changed = snapshot.files.find(f => f.path === name);
     if (changed) {
       if (changed.eligibility !== 'reviewable') throw new Error('Context path is an excluded or blocked change');
       if (changed.rightExists === false) throw new Error('Deleted path cannot be working context');
-      context.push({ path: name, ...changed.right });
+      context.push({ path: name, ...changed.right,...(changed.eolMapping?.new?{eolMapping:structuredClone(changed.eolMapping.new)}:{}) });
     } else {
-      const item={path:name,...await readLocal(snapshot.root,name,indexOptions)};
       const seed=explicitSeeds.find(c=>c.path===name);
+      const item=type==='svn'&&options.autoContext!==true&&seed?structuredClone(seed):{path:name,...await readLocal(snapshot.root,name,indexOptions)};
       if(seed&&seed.hash!==item.hash)throw new Error('Explicit dependency seed changed during capture');
       if(seed?.eolMapping)item.eolMapping=structuredClone(seed.eolMapping);
       context.push(item);
@@ -100,6 +106,7 @@ export async function captureSnapshot(cwd, options = {}) {
   if (index && (await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, indexOptions)).fingerprint !== index.fingerprint) throw new Error('Tracked context index changed during capture');
   const verifiedRules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
   if (JSON.stringify(verifiedRules) !== JSON.stringify(rules)) throw new Error('Rules changed during capture');
+  if (verifyExplicit) await verifyExplicit();
   if (verifyDependencies) await verifyDependencies();
   if (verifyCallers) await verifyCallers();
   const result = { ...snapshot, context, ...(callerDiscovery ? {callerDiscovery} : {}), ...(autoContext ? { autoContext } : {}), ...(rules.length ? { rules } : {}) };
