@@ -4,6 +4,7 @@ import {svnCallerNode,svnCallerProbes} from './svn-caller-node.mjs';
 import {callerCandidates} from './caller-candidates.mjs';
 import {readLocal} from './content.mjs';
 import {isSecretPath} from './secret-path.mjs';
+import {svnEolMapping} from './svn-eol-mapping.mjs';
 
 // Called only by preview capture, never by a model retrieval request.
 export async function captureSvnCallers(root, files, scopes, options={}) {
@@ -24,7 +25,7 @@ export async function captureSvnCallers(root, files, scopes, options={}) {
   const content=await readLocal(root,name,bounded);
   scannedBytes+=content.bytes;
   if(scannedBytes>1024*1024)throw new Error('Caller scan byte limit exceeded');
-  scanned.push({path:name,...content,nodeFingerprint:identity.fingerprint,revision:identity.revision});
+  scanned.push({path:name,...content,...(identity.eolStyle?{eolMapping:svnEolMapping(content.text,identity.eolStyle)}:{}),nodeFingerprint:identity.fingerprint,revision:identity.revision});
  }
  const requested=callerCandidates(files,scanned,[]).probePaths;
  const probes=await svnCallerProbes(root,requested,bounded);

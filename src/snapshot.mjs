@@ -72,6 +72,7 @@ export async function captureSnapshot(cwd, options = {}) {
       const item={path:name,...await readLocal(snapshot.root,name,indexOptions)};
       const seed=explicitSeeds.find(c=>c.path===name);
       if(seed&&seed.hash!==item.hash)throw new Error('Explicit dependency seed changed during capture');
+      if(seed?.eolMapping)item.eolMapping=structuredClone(seed.eolMapping);
       context.push(item);
     }
   }
