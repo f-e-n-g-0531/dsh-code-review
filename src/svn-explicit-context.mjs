@@ -17,7 +17,7 @@ export async function captureSvnExplicitContext(root,names,options={}){
    if(base.text!==repository.text)throw new Error('SVN explicit BASE keyword mapping differs from repository text');
    const {text,...metadata}=current;keywordMapping={...metadata,status:'verified-line-view',notice:'Raw working text remains evidence; BASE contraction independently verified. Keyword view is not behavioral equivalence.'};
   }
-  context.push({path:name,...content,...(keywordMapping?{keywordMapping}:{}),...(node.eolStyle?{eolMapping:svnEolMapping(content.text,node.eolStyle)}:{})});identities.push({path:name,fingerprint:node.fingerprint});
+  context.push({path:name,...content,...(keywordMapping?{keywordMapping}:{}),...(node.eolStyle?{eolMapping:svnEolMapping(content.text,node.eolStyle)}:{})});identities.push({path:name,fingerprint:node.fingerprint,revision:node.revision});
  }
  const verify=async()=>{for(const node of identities)if((await svnCallerNode(root,node.path,bounded)).fingerprint!==node.fingerprint)throw new Error('SVN explicit context identity changed during capture');signal.throwIfAborted();};
  return {context,verify,options:bounded,sourceBytes:bytes,identities};
