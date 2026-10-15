@@ -82,6 +82,7 @@ export async function captureSnapshot(cwd, options = {}) {
       const item=type==='svn'&&options.autoContext!==true&&seed?structuredClone(seed):{path:name,...await readLocal(snapshot.root,name,indexOptions)};
       if(seed&&seed.hash!==item.hash)throw new Error('Explicit dependency seed changed during capture');
       if(seed?.eolMapping)item.eolMapping=structuredClone(seed.eolMapping);
+      if(seed?.keywordMapping)item.keywordMapping=structuredClone(seed.keywordMapping);
       context.push(item);
     }
   }

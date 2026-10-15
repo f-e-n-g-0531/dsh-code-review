@@ -20,5 +20,5 @@ export async function captureSvnExplicitContext(root,names,options={}){
   context.push({path:name,...content,...(keywordMapping?{keywordMapping}:{}),...(node.eolStyle?{eolMapping:svnEolMapping(content.text,node.eolStyle)}:{})});identities.push({path:name,fingerprint:node.fingerprint});
  }
  const verify=async()=>{for(const node of identities)if((await svnCallerNode(root,node.path,bounded)).fingerprint!==node.fingerprint)throw new Error('SVN explicit context identity changed during capture');signal.throwIfAborted();};
- return {context,verify,options:bounded,sourceBytes:bytes};
+ return {context,verify,options:bounded,sourceBytes:bytes,identities};
 }
