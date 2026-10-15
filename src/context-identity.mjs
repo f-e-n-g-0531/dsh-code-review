@@ -1,11 +1,14 @@
 import { hash, relativePath } from './content.mjs';
 import { assertNonSecretPath } from './secret-path.mjs';
+import {svnEolMapping} from './svn-eol-mapping.mjs';
+import {isDeepStrictEqual} from 'node:util';
 
 export const CONTEXT_SIDE_NOTICE = 'context.text属于批准当前或target侧；oldText/oldRevision与context-old属于baseline旧侧。oldOnly:true表示只捕获旧侧，没有target正文，不证明目标路径不存在。不得互换版本或用旧侧上下文证明新侧行为；没有证据须保留uncertain。';
 
 function verifySvnSource(source, history, name, revision, text) {
  const expected=history.url?.replace(/\/$/,'')+'/'+name.split('/').map(encodeURIComponent).join('/');
  if(!source||source.repositoryUuid!==history.repositoryUuid||source.url!==expected||source.pegRevision!==revision||source.operativeRevision!==revision||!/^[0-9a-f]{64}$/.test(source.hash??'')||source.textHash!==hash(text))throw new Error('Invalid SVN historical context provenance');
+ if(source.eolMapping!==undefined&&!isDeepStrictEqual(source.eolMapping,svnEolMapping(text,source.eolMapping?.style)))throw new Error('Invalid SVN historical context EOL metadata');
 }
 
 // Validate approved snapshot data only. This does not authorize any capture.
@@ -32,10 +35,10 @@ export function contextSources(item, history) {
   }
  }
  if (typeof item.text !== 'string') throw new Error('Missing current context text');
- const sources=[{side:'context',text:item.text,...(item.revision ? {revision:item.revision} : {})}];
+ const sources=[{side:'context',text:item.text,...(item.revision ? {revision:item.revision} : {}),...(history?.vcs==='svn'?{svnSource:structuredClone(item.svnSource)}:{})}];
  if (item.oldText !== undefined) {
   if (!history || !history.base || item.oldRevision !== history.base || item.revision !== history.target || typeof item.oldText !== 'string') throw new Error('Invalid historical context provenance');
-  sources.push({side:'context-old',text:item.oldText,revision:item.oldRevision});
+  sources.push({side:'context-old',text:item.oldText,revision:item.oldRevision,...(history?.vcs==='svn'?{svnSource:structuredClone(item.oldSvnSource)}:{})});
  }
  return sources;
 }

@@ -108,7 +108,7 @@ export async function captureSvnHistory(cwd,options={}) {
     const node=await identity(name,rev),props=await properties(name,rev);
     if(Object.hasOwn(props,'svn:special'))throw new Error('Historical SVN special node excluded');
     const content=node['@_kind']==='dir'?decode(Buffer.alloc(0)):decode(await run(['cat','--ignore-keywords','-r',rev,'--',at(name,rev)],true));
-    return {content,props,kind:node['@_kind'],source:{repositoryUuid:local.repository.uuid,url:at(name,rev).slice(0,-rev.length-1),pegRevision:rev,operativeRevision:rev,kind:node['@_kind'],hash:content.hash,textHash:hash(content.text)}};
+    return {content,props,kind:node['@_kind'],source:{repositoryUuid:local.repository.uuid,url:at(name,rev).slice(0,-rev.length-1),pegRevision:rev,operativeRevision:rev,kind:node['@_kind'],hash:content.hash,textHash:hash(content.text),...(node['@_kind']==='file'&&Object.hasOwn(props,'svn:eol-style')?{eolMapping:svnEolMapping(content.text,props['svn:eol-style'])}:{})}};
   };
   const files=[];
   for(const [name,record]of [...records].sort(([a],[b])=>a<b?-1:a>b?1:0)){
