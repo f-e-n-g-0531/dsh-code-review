@@ -2,7 +2,7 @@ import test from 'node:test';import assert from 'node:assert/strict';import{svnK
 import{mkdtemp,writeFile,readFile,rm}from'node:fs/promises';import os from'node:os';import path from'node:path';import{pathToFileURL}from'node:url';import{checked}from'../src/process.mjs';import{captureSnapshot}from'../src/snapshot.mjs';import{reviewSnapshot}from'../src/review.mjs';import{createReviewService}from'../src/service.mjs';
 test('standard SVN keyword view retains raw hashes and identical CRLF/LF line positions',()=>{
  const text='// $Id: file.cpp 12 user date $\r\n// $Rev: 12 $\n$Unknown: unchanged $\n';const view=svnKeywordMapping(text,'Id Rev');assert.equal(view.text,'// $Id$\r\n// $Rev$\n$Unknown: unchanged $\n');assert.equal(view.replacements,2);assert.equal(view.lineMapping,'identity');assert.equal(view.status,'candidate-only');assert.notEqual(view.rawTextHash,view.textHash);
- for(const [text,config]of [['$Id:: fixed $','Id'],['$Id:bad$','Id'],['$Id: missing','Id'],['x','Build=%r']])assert.throws(()=>svnKeywordMapping(text,config));
+ for(const [text,config]of [['$Id:: fixed $','Id'],['$Id:bad$','Id'],['$Id: missing','Id'],['x','Build=%r_%a']])assert.throws(()=>svnKeywordMapping(text,config));
 });
 test('real SVN expanded working keywords map to repository unexpanded text without mutation',async t=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'dsh-keyword-map-'));t.after(async()=>{assert.ok(path.basename(dir).startsWith('dsh-keyword-map-'));await rm(dir,{recursive:true,force:true});});const repo=path.join(dir,'repo'),root=path.join(dir,'wc');await checked('svnadmin',['create',repo]);await checked('svn',['checkout',pathToFileURL(repo).href,root]);const svn=(...args)=>checked('svn',['--non-interactive',...args],{cwd:root});
