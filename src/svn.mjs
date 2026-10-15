@@ -1,3 +1,4 @@
+import {svnWorkingIdentity} from './svn-working-identity.mjs';
 import { isSecretPath } from './secret-path.mjs';
 import { svnStateIssue } from './svn-state.mjs';
 import { snapshotMergeSources } from './svn-mergeinfo.mjs';
@@ -59,6 +60,7 @@ export async function captureSvn(cwd, options = {}) {
   if (selectedPaths) for (const name of selectedPaths) if (name !== '.') relativePath(name);
   const info = xml(await svn(cwd, ['info', '--xml', '--', '.@'], options)).info.entry[0];
   const root = await realpath(info['wc-info']['wcroot-abspath']);
+  const rootInfo=xml(await svn(root,['info','--xml','--','.@'],options)).info.entry[0];
   const statusArgs = ['status', '--xml', '--ignore-externals', '--', '.@'];
   const before = await svn(root, statusArgs, options);
   const originalEntries = xml(before).status.target.flatMap(t => t.entry ?? []);
@@ -87,6 +89,8 @@ export async function captureSvn(cwd, options = {}) {
       if (status === 'unversioned') kind = (await lstat(path.join(root, name))).isDirectory() ? 'dir' : 'file';
       else {
         const node = xml(await svn(root, ['info', '--xml', '--', target(name)], options)).info.entry[0];
+        const identity=svnWorkingIdentity(node,rootInfo,name);
+        item.workingSource=identity.source;item.workingIdentity=identity.fingerprint;
         kind = node['@_kind'];
         if (state['@_copied'] === 'true' || node['wc-info']?.['copy-from-url']) {
           let source = node['wc-info']?.['copy-from-url'], revision = node['wc-info']?.['copy-from-rev'];
@@ -145,7 +149,7 @@ export async function captureSvn(cwd, options = {}) {
         }
       }
     } catch (error) {
-      signal?.throwIfAborted(); item.eligibility = 'blocked'; item.reason = error.message;
+      signal?.throwIfAborted(); item.eligibility = 'blocked'; item.reason = error.message;if(error.code)item.blockCode=error.code;
       delete item.left; delete item.right;
     }
   }
@@ -160,6 +164,7 @@ export async function captureSvn(cwd, options = {}) {
     }
   }
   for (const item of files.filter(f => f.eligibility === 'reviewable')) {
+    if(item.workingIdentity){const node=xml(await svn(root,['info','--xml','--',target(item.path)],options)).info.entry[0];if(svnWorkingIdentity(node,rootInfo,item.path).fingerprint!==item.workingIdentity)throw new Error('SVN node identity changed during capture');}
     if (item.copySource) {
       const node = xml(await svn(root, ['info', '--xml', '--', target(item.path)], options)).info.entry[0];
       const identity = hash(JSON.stringify([node.url, node['@_kind'], node['@_revision'], node['wc-info']?.schedule, node['wc-info']?.['wcroot-abspath'], node['wc-info']?.['copy-from-url'] ?? null, node['wc-info']?.['copy-from-rev'] ?? null, node.repository]));
@@ -170,7 +175,9 @@ export async function captureSvn(cwd, options = {}) {
     const right = ['deleted', 'unversioned'].includes(item.rawStatus) ? {} : await properties(root, item.path, false, options);
     if (hash(JSON.stringify([left, right])) !== item.propertyIdentity) throw new Error('Properties changed during capture');
   }
+  const finalRootInfo=xml(await svn(root,['info','--xml','--','.@'],options)).info.entry[0];
+  if(svnWorkingIdentity(finalRootInfo,rootInfo,'.').fingerprint!==svnWorkingIdentity(rootInfo,rootInfo,'.').fingerprint)throw new Error('SVN root identity changed during capture');
   const mergeSources = snapshotMergeSources(files);
-  const snapshot = { schemaVersion: 1, vcs: 'svn', root, repositoryUuid: info.repository.uuid, ...(mergeSources.length ? {mergeSources} : {}), files };
+  const snapshot = { schemaVersion: 1, vcs: 'svn', root, repositoryUuid: rootInfo.repository.uuid, repositoryUrl:rootInfo.url, ...(mergeSources.length ? {mergeSources} : {}), files };
   return { ...snapshot, id: hash(JSON.stringify(snapshot)) };
 }
