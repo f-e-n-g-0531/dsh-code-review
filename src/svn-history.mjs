@@ -5,6 +5,7 @@ import {hash,decode,relativePath} from './content.mjs';
 import {isSecretPath,assertNonSecretPath} from './secret-path.mjs';
 import {captureProjectRules} from './project-rules.mjs';
 import {snapshotMergeSources} from './svn-mergeinfo.mjs';
+import {svnEolMapping} from './svn-eol-mapping.mjs';
 import {fixedSvnLookup} from './svn-history-lookup.mjs';
 import {svnHistoryDependencies} from './svn-history-dependencies.mjs';
 import {svnHistoryCallers} from './svn-history-callers.mjs';
@@ -130,6 +131,11 @@ export async function captureSvnHistory(cwd,options={}) {
       for(const key of [...new Set([...Object.keys(left.props),...Object.keys(right.props)])].sort())if(left.props[key]!==right.props[key])item.properties.push({name:key,old:left.props[key]??null,new:right.props[key]??null});
       item.propertyIdentity=hash(JSON.stringify([left.props,right.props]));
       item.textNotice='Fixed revision repository text; keywords unexpanded by svn cat --ignore-keywords. No working-copy text or keyword line remapping.';
+      if(Object.hasOwn(left.props,'svn:eol-style')||Object.hasOwn(right.props,'svn:eol-style')){
+        const mapping=side=>side.kind==='file'?svnEolMapping(side.content.text,side.props['svn:eol-style']??null):null;
+        item.eolMapping={old:mapping(left),new:mapping(right)};
+        item.textNotice+=' EOL metadata describes each existing file side only; null means absent or directory, not an empty file. Original fixed source bytes and LF evidence lines remain authoritative; lone CR has no normalized LF line identity.';
+      }
     }catch(error){signal.throwIfAborted();if(error.code==='SVN_HISTORY_BUDGET')throw error;item.eligibility='blocked';item.reason=error.message;delete item.left;delete item.right;}
     if(Buffer.byteLength(JSON.stringify(files))>maxSnapshotBytes)throw new Error('SVN historical snapshot limit exceeded');
   }
