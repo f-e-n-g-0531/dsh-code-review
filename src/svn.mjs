@@ -2,6 +2,7 @@ import { isSecretPath } from './secret-path.mjs';
 import { svnStateIssue } from './svn-state.mjs';
 import { snapshotMergeSources } from './svn-mergeinfo.mjs';
 import { svnKeywordMapping } from './svn-keyword-mapping.mjs';
+import { svnEolMapping } from './svn-eol-mapping.mjs';
 import { realpath, lstat } from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
@@ -128,6 +129,10 @@ export async function captureSvn(cwd, options = {}) {
       } else {
         item.left = decode(hasBase ? await svn(root, ['cat', '-r', 'BASE', '--', target(name)], { ...options, maxBytes: maxFileBytes }) : Buffer.alloc(0));
         item.right = status === 'deleted' ? decode(Buffer.alloc(0)) : await readLocal(root, name, options);
+        if(Object.hasOwn(leftProps,'svn:eol-style')||Object.hasOwn(rightProps,'svn:eol-style')){
+          item.eolMapping={old:svnEolMapping(item.left.text,leftProps['svn:eol-style']??null),new:svnEolMapping(item.right.text,rightProps['svn:eol-style']??null)};
+          item.textNotice+=' EOL mapping is hash-only metadata; raw text and LF evidence lines are authoritative. Lone CR has no identity mapping to normalized LF lines.';
+        }
         if(keywordText){
           const old=svnKeywordMapping(item.left.text,leftProps['svn:keywords']??''),current=svnKeywordMapping(item.right.text,rightProps['svn:keywords']??'');
           if(hasBase){

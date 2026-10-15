@@ -21,15 +21,46 @@
 | 普通新增/删除目录及后代 | v0.60.0 已发布：补齐默认 status 隐藏的删除后代，离线递归枚举与末尾清单复核；普通结构目录只在后代全选且可审查时开放，凭据/阻断子项导致目录覆盖不足。461 项串行回归、宿主、隔离安装与四矩阵 CI 通过；原产物/npm/Release 118,284 字节逐字节一致，双哈希/清单/冻结发布说明通过 | 第二批普通目录子批 |
 | 替换、删除再新增、文件/目录类型变化 | 普通与复制替换分别用 SVN_REPLACEMENT/SVN_COPIED_REPLACEMENT 诊断；离线探测确认前者 BASE 无 pristine，后者可能返回复制来源，禁止伪造旧侧。已新增未接入采集的 candidate-only 完整 diff 重建组件及真实离线测试：匹配完整工作侧，拒绝片段、错侧、截断与超限。diff 仍不能独立证明旧节点/编码/旧属性，因此未提交工作副本真实双侧替换仍未支持，不能把辅助组件算作支持完成。v0.64.1 已发布已提交固定历史版本的同路径 deleted/added 合并，真实目标旧/新正文与属性通过测试；481 项串行回归、宿主、隔离安装、四矩阵 CI 与原包/npm/Release 128,279 字节、双哈希/清单/发布说明通过。v0.65.0 已发布已提交固定历史文件/目录类型替换：分侧 kind/正文/属性、预览披露和目录后代覆盖；482 项串行回归、宿主、隔离安装、四矩阵 CI 与原包/npm/Release 128,792 字节、双哈希/清单/发布说明通过。未提交替换仍拒绝 | 第二批：区分 BASE 旧节点与目标节点 |
 | 缺失、文本/属性/树冲突、阻塞 | v0.60.1 已发布稳定状态诊断：SVN_MISSING_NODE/OBSTRUCTED_NODE/INCOMPLETE_NODE/TEXT_CONFLICT/PROPERTY_CONFLICT/TREE_CONFLICT 等，预览与报告透传 blockCode。463 项串行回归、宿主、隔离安装、四矩阵 CI 与原包/npm/Release 119,462 字节、双哈希/清单/发布说明通过。诊断不算真实双侧支持，仍需后续实现 | 第三批：明确状态诊断；不能合成不存在的工作侧或声称审核通过 |
-| svn:keywords、svn:eol-style | v0.70.0 已发布标准关键字行保持映射，BASE收缩与cat --ignore-keywords核验、原正文及hash保留、预览披露与模型原行号证据通过；不以规范化正文代替证据或证明行为等价。自定义/固定宽度/未闭合展开仍阻断；504项串行全量回归、宿主/隔离安装、四矩阵CI通过；原包/npm/Release 137,678字节、双哈希/清单/发布说明核验通过。换行保留原文但无规范化映射 | 第三批：双侧可验证映射，保留原字节和定位 |
+| svn:keywords、svn:eol-style | v0.70.0 已发布标准关键字行保持映射，BASE收缩与cat --ignore-keywords核验、原正文及hash保留、预览披露与模型原行号证据通过；不以规范化正文代替证据或证明行为等价。自定义/固定宽度/未闭合展开仍阻断；504项串行全量回归、宿主/隔离安装、四矩阵CI通过；原包/npm/Release 137,678字节、双哈希/清单/发布说明核验通过。本地新增 EOL 元数据映射：保留原文/原hash与LF视图hash、CRLF/LF/CR计数，CRLF/LF行号identity，单CR明确不等同LF证据行号；预览与模型原文集成测试通过，已补充 UTF-16 字节/文本哈希区分、关键字组合、属性移除、非法样式明确失败与状态不变验证；专项3项、根目录预览/关键字/EOL组合7项、实际ASAR宿主及隔离安装通过，507项串行全量回归通过（0失败/跳过），v0.71.0 尚未发布。不以LF视图替换证据或证明行为等价 | 第三批：双侧可验证映射，保留原字节和定位 |
 | svn:special/链接 | 当前阻断，不跟随链接取正文 | 第三批：如支持只审链接目标数据；不沿链接读取文件 |
 | switched、externals、稀疏/混合 revision | 多数拒绝；调用方/依赖链要求祖先 normal | 第四批：明确仓库边界与独立来源，禁止隐式跨仓读取 |
-| 固定 revision 单提交 | v0.62.0 已发布 svnRevision：r-1/r 固定对象、UUID/URL/peg/operative revision 逐侧绑定，正文不读工作树；远端显式 svnAllowNetwork。472 项串行回归、宿主、隔离安装、四矩阵 CI 及原包/npm/Release 125,486 字节、双哈希/清单/发布说明通过。历史上下文/规则/调用方尚未支持 | 第五批：新增明确 SVN 参数与冻结身份 |
-| 固定 revision 区间 | v0.62.0 已发布 svnBaseRevision/svnTargetRevision，固定树端点 summary+逐侧 cat/proplist，目录后代与属性纳入预算，不建临时工作树；同上述完整发布验证。分支间不同 URL 和历史上下文尚未支持 | 第五批：固定树端点与逐路径差异 |
+| 固定 revision 单提交 | v0.62.0 已发布 svnRevision：r-1/r 固定对象、UUID/URL/peg/operative revision 逐侧绑定，正文不读工作树；远端显式 svnAllowNetwork。472 项串行回归、宿主、隔离安装、四矩阵 CI 及原包/npm/Release 125,486 字节、双哈希/清单/发布说明通过。历史上下文/规则/调用方已由下方 v0.63–0.69 行跟踪，不再沿用 v0.62 当时缺口 | 第五批：新增明确 SVN 参数与冻结身份 |
+| 固定 revision 区间 | v0.62.0 已发布 svnBaseRevision/svnTargetRevision，固定树端点 summary+逐侧 cat/proplist，目录后代与属性纳入预算，不建临时工作树；同上述完整发布验证。历史上下文见下方 v0.63–0.69；分支间不同 URL 仍未支持 | 第五批：固定树端点与逐路径差异 |
 | 分支复制、分支间比较、合并来源 | v0.66.0 已发布批准历史 mergeinfo 属性的来源路径/区间导航，保留非继承标记、有界不展开 revision、不读取分支源码；invalid/limited 明确且不裁剪。485 项串行回归、宿主、隔离安装、四矩阵 CI 与原包/npm/Release 129,866 字节、双哈希/清单/发布说明通过；v0.67.0 已发布工作副本 BASE/工作侧属性的同一有界导航及预览/报告披露；489 项串行回归、宿主、隔离安装、四矩阵 CI 与原包/npm/Release 130,866 字节、双哈希/清单/发布说明通过。有效继承 mergeinfo、跨 URL 比较、源码归属/合并提交覆盖仍未支持 | 第六批：URL/peg/operative revision 与 mergeinfo 导航披露 |
 | 当前三层依赖与限定目录调用方 | v0.66.1 已发布根目录仅 mergeinfo 变化下的自动依赖/限定调用方修复：根目录不作源码候选，祖先双侧属性仅 mergeinfo 差异可通过且入指纹；其他属性/unsafe 状态仍拒绝。488 项串行回归、宿主、隔离安装、四矩阵 CI 与原包/npm/Release 130,642 字节、双哈希/清单/发布说明通过。其他祖先/混合状态继续待验证 | 第四批补祖先/混合状态组合 |
 | 历史两侧上下文与调用方 | v0.63.0 已发布显式 contextPaths 固定双侧来源及目标 rulePaths，UUID/URL/peg/operative revision/原字节与正文 hash 验证，禁止脏工作树与排除项回流。477 项串行回归、宿主、隔离安装、四矩阵 CI 与原包/npm/Release 127,355 字节、双哈希/清单/发布说明通过。v0.64.0 已发布 oldContextPaths 旧侧独有正文、SVN 来源专用校验、预览披露与选中删除身份复用；479 项串行回归、宿主、隔离安装、四矩阵 CI 与原包/npm/Release 127,879 字节、双哈希/清单/发布说明通过；本地开发了注入固定版本 lookup/read 能力的三层历史依赖导航核心，逐侧共享512探测/20候选/1MiB来源与上下文名额；排除项、旧侧限定和规则隔离测试通过。v0.68.0 已发布三层逐侧历史 autoContext，固定父目录有界清单 lookup，清单成功证明缺失、访问失败直接传播，真实旧/新版本链和脏工作树隔离通过。496 项串行回归、宿主、隔离安装、四矩阵 CI 与原包/npm/Release 134,056 字节、双哈希/清单/发布说明通过；本地新增逐侧固定 revision 调用方核心能力接口：共享256索引/128扫描/1MiB正文/512侧探测，命中侧才捕获正文，规则/变更排除与old-only限制保留，同侧命名调用声明导航测试通过；本地已接入固定 SVN 显式目录递归清单/同侧正文、统一30秒/512命令/元数据/正文预算，caller 与依赖共享精确探测及来源上限，真实集成专项13项通过；v0.69.0 已发布历史限定调用方和autoContext组合；502项串行全量回归、组合模型输入隔离、宿主/隔离安装、四矩阵 CI 通过。原包/npm/Release 136,030 字节、双哈希/清单/发布说明通过；字面发现仍不证明完整调用覆盖 | 第六批：逐侧固定版本，不能回退至工作副本 |
 | 真正 r7314→r7315 样本 | 用户未提供隔离副本路径；本地类似复现不是该样本验收 | 获得路径后只读生成预览，不自动发送模型 |
+
+## 实现与复现入口索引
+
+以下入口便于逐项复核，测试存在不等于所有状态已支持；发布验收仍以对应批次实跑结果为准。
+
+| 矩阵项 | 源码入口 | 复现测试入口 |
+|---|---|---|
+| 常规文件、子目录属性、新增/删除目录 | `src/svn.mjs` | `test/svn.test.mjs` |
+| 根目录属性预览 | `src/file-relations.mjs`、`src/service.mjs` | `test/svn-root-preview.test.mjs` |
+| 文件/目录复制、移动来源 | `src/svn.mjs` 的 structuralEntries 与 copySource | `test/svn.test.mjs` 离线复制/移动及复制目录案例 |
+| 未提交替换辅助重建（未接入） | `src/svn-state.mjs`、`src/svn-replacement-text.mjs` | `test/svn-replacement-text.test.mjs`、`test/svn-state.test.mjs` |
+| 已提交同路径与类型替换 | `src/svn-history.mjs` 的 mergeSvnHistoryRecord 与逐侧 kind | `test/svn-history-replacement.test.mjs` |
+| 缺失/冲突/阻塞诊断 | `src/svn-state.mjs` | `test/svn-state.test.mjs`；真实缺失在 `test/svn.test.mjs` |
+| 标准关键字与换行 | `src/svn-keyword-mapping.mjs`、`src/svn-eol-mapping.mjs` | `test/svn-keyword-mapping.test.mjs`、`test/svn-eol-mapping.test.mjs` |
+| switched/外部根的拒绝 | `src/svn-caller-safety.mjs`、`src/svn-caller-node.mjs` | `test/svn-caller-special-roots.test.mjs`、`test/svn-caller-index.test.mjs` |
+| 固定单 revision/区间及身份 | `src/svn-history.mjs` | `test/svn-history.test.mjs` |
+| 显式 mergeinfo 来源导航 | `src/svn-mergeinfo.mjs` | `test/svn-mergeinfo.test.mjs` |
+| 本地依赖/调用方及 mergeinfo 祖先 | `src/svn-dependency-chain.mjs`、`src/svn-caller-capture.mjs` | `test/svn-dependency-chain.test.mjs`、`test/svn-caller-capture.test.mjs`、`test/svn-mergeinfo-ancestor.test.mjs` |
+| 历史两侧上下文/依赖/调用方 | `src/svn-history.mjs`、`src/svn-history-dependencies.mjs`、`src/svn-history-callers.mjs` | `test/svn-history.test.mjs`、`test/svn-history-dependencies.test.mjs`、`test/svn-history-callers-integration.test.mjs` |
+| special、稀疏/混合状态、有效继承 mergeinfo、跨 URL | 上表限制仍有效 | 尚无完整支持验收，不能由其他案例推断完成 |
+
+## EOL 子批验收索引（v0.71.0 待发布）
+
+| 项目 | 实现/复现证据 | 当前结论 |
+|---|---|---|
+| CRLF/LF/CR 与混合计数、视图哈希 | `src/svn-eol-mapping.mjs`；`test/svn-eol-mapping.test.mjs` 前两项 | 专项通过；原文/原字节哈希不替换；单 CR 不保证 LF 行映射 |
+| 编码身份 | 同上 UTF-16 BOM 案例 | 文本 hash 与 source bytes hash 明确区分，不能互换 |
+| 预览/模型输入及只读 | `src/svn.mjs`、`src/service.mjs`；真实 SVN EOL 集成案例 | 预览不发送；受控模型读取原文；文件与解析后 status 不变 |
+| 组合与失败 | 同一集成案例中标准关键字+CRLF、移除属性、强制非法样式 | 组合通过；非法样式被 SVN 在 status 阶段拒绝，采集明确失败 |
+| 根目录优先修复持续回归 | `test/svn-root-preview.test.mjs` 默认/指定三文件预览 | 本批重新实跑通过，0模型发送，状态不变；原 v0.58.1 交付不重发 |
+| 历史、上下文、特殊状态 | 不在本子批新增范围 | 仍按上表未完成项推进，不由元数据功能推断支持 |
 
 ## 每批发布门禁
 
