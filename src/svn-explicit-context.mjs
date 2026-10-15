@@ -8,11 +8,11 @@ export async function captureSvnExplicitContext(root,names,options={}){
  if(!Array.isArray(names)||names.length>20||new Set(names).size!==names.length)throw new Error('Invalid SVN explicit context selection');
  const context=[],identities=[];let bytes=0;
  for(const name of names){
-  const node=await svnCallerNode(root,name,bounded),content=await readLocal(root,name,bounded);bytes+=content.bytes;if(bytes>1024*1024)throw new Error('SVN explicit context source byte limit exceeded');
+  const node=await svnCallerNode(root,name,bounded),content=await readLocal(root,name,bounded);bounded.svnNavigationBudget?.charge(content.bytes);bytes+=content.bytes;if(bytes>1024*1024)throw new Error('SVN explicit context source byte limit exceeded');
   let keywordMapping;
   if(node.keywords){
    const current=svnKeywordMapping(content.text,node.keywords);
-   const readBase=async(ignore)=>{const data=await checked('svn',['--non-interactive','cat',...(ignore?['--ignore-keywords']:[]),'-r','BASE','--',name+'@'],{...bounded,cwd:root,maxBytes:bounded.maxFileBytes});bytes+=data.length;if(bytes>1024*1024)throw new Error('SVN explicit context source byte limit exceeded');return decode(data);};
+   const readBase=async(ignore)=>{const data=await checked('svn',['--non-interactive','cat',...(ignore?['--ignore-keywords']:[]),'-r','BASE','--',name+'@'],{...bounded,cwd:root,maxBytes:bounded.maxFileBytes});bounded.svnNavigationBudget?.charge(data.length);bytes+=data.length;if(bytes>1024*1024)throw new Error('SVN explicit context source byte limit exceeded');return decode(data);};
    const base=svnKeywordMapping((await readBase(false)).text,node.keywords),repository=await readBase(true);
    if(base.text!==repository.text)throw new Error('SVN explicit BASE keyword mapping differs from repository text');
    const {text,...metadata}=current;keywordMapping={...metadata,status:'verified-line-view',notice:'Raw working text remains evidence; BASE contraction independently verified. Keyword view is not behavioral equivalence.'};

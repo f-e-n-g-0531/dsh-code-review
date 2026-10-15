@@ -1,4 +1,5 @@
 import {captureSvnDependencyChain} from './svn-dependency-chain.mjs';
+import {createSvnNavigationBudget} from './svn-navigation-budget.mjs';
 import {captureSvnExplicitContext} from './svn-explicit-context.mjs';
 import {captureDependencyChain} from './dependency-chain.mjs';
 import {captureSvnCallers} from './svn-caller-capture.mjs';
@@ -54,18 +55,20 @@ export async function captureSnapshot(cwd, options = {}) {
   const snapshot = await capture(cwd, options);
   if (!Array.isArray(rulePaths) || rulePaths.some(name => contextPaths.includes(name))) throw new Error('Rule paths must be separate from context paths');
   const rules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
+  const navigationBudget=type==='svn'?createSvnNavigationBudget(options.signal):undefined;
+  const navigationOptions=navigationBudget?{...options,signal:navigationBudget.signal,svnNavigationBudget:navigationBudget}:options;
   const context = [];
   let autoContext, index, verifyDependencies, explicitSeeds = [], indexOptions = options;
   if (options.autoContext === true && type==='git') {
     const chain=await captureDependencyChain(snapshot.root,snapshot.files,options);
     explicitSeeds=chain.explicitSeeds;context.push(...chain.context);autoContext=chain.autoContext;index=chain.index;indexOptions=chain.indexOptions;
   } else if (options.autoContext === true) {
-    const chain=await captureSvnDependencyChain(snapshot.root,snapshot.files,options);
+    const chain=await captureSvnDependencyChain(snapshot.root,snapshot.files,navigationOptions);
     explicitSeeds=chain.explicitSeeds;context.push(...chain.context);autoContext=chain.autoContext;indexOptions=chain.indexOptions;verifyDependencies=chain.verify;
   }
   let verifyExplicit;
   if(type==='svn'&&options.autoContext!==true&&contextPaths.length){
-    const explicit=await captureSvnExplicitContext(snapshot.root,[...new Set(contextPaths)].filter(name=>!snapshot.files.some(f=>f.path===name)).sort(),options);
+    const explicit=await captureSvnExplicitContext(snapshot.root,[...new Set(contextPaths)].filter(name=>!snapshot.files.some(f=>f.path===name)).sort(),navigationOptions);
     explicitSeeds=explicit.context;verifyExplicit=explicit.verify;indexOptions=explicit.options;
   }
   for (const name of [...new Set(contextPaths)].sort()) {
@@ -84,7 +87,7 @@ export async function captureSnapshot(cwd, options = {}) {
   }
   let callerDiscovery, verifyCallers;
   if (options.callerScopePaths !== undefined) {
-    const callers = await (type==='git'?captureCallers:captureSvnCallers)(snapshot.root, snapshot.files, options.callerScopePaths, options);
+    const callers = await (type==='git'?captureCallers:captureSvnCallers)(snapshot.root, snapshot.files, options.callerScopePaths, type==='svn'?navigationOptions:options);
     verifyCallers = callers.verify;
     callerDiscovery = { ...callers.discovery, capturedPaths: [] };
     for (const item of callers.context) {

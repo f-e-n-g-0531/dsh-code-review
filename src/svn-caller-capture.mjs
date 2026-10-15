@@ -23,7 +23,7 @@ export async function captureSvnCallers(root, files, scopes, options={}) {
   // Read failures are fatal: unread bytes are not negative search evidence.
   const identity=await svnCallerNode(root,name,bounded);
   const content=await readLocal(root,name,bounded);
-  scannedBytes+=content.bytes;
+  bounded.svnNavigationBudget?.charge(content.bytes);scannedBytes+=content.bytes;
   if(scannedBytes>1024*1024)throw new Error('Caller scan byte limit exceeded');
   scanned.push({path:name,...content,...(identity.eolStyle?{eolMapping:svnEolMapping(content.text,identity.eolStyle)}:{}),nodeFingerprint:identity.fingerprint,revision:identity.revision});
  }
