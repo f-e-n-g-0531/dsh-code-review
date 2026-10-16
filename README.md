@@ -211,7 +211,7 @@ Git / SVN 历史审查也能使用这些参数；依赖和调用方按对应版�
 1. 调用code_review_start，phase设为preview，previewArgs填原预览参数（例如reviewMode=project）。
 2. 用code_review_status和jobId查询；完成后读取resultSummary中的预览范围、模型和previewId。
 3. 展示预览，确认后调用code_review_start，phase设为execute，传previewId与confirmed=true。
-4. 查询审查任务；offset/limit分页取回检查点、文件状态和发现；单个检查点内的大清单用checkpointIndex指定其零基索引，再用offset/limit取回内部全部条目。可调用code_review_cancel取消。
+4. 持续调用code_review_wait等待进度变化或终态，不因启动返回任务ID就结束用户请求。可展示阶段与“处理数/总数”，不分批汇报问题；抓取阶段分母未知则不显示虚假百分比。等待返回仍running就继续等待，不重新启动。任务结束后取回并统一交付一份最终报告。查询审查任务；offset/limit分页取回检查点、文件状态和发现；单个检查点内的大清单用checkpointIndex指定其零基索引，再用offset/limit取回内部全部条目。可调用code_review_cancel取消。
 
 报告保存在宿主profile的data/dsh-code-review/jobs目录；没有profile环境时使用用户主目录.dsh下的数据目录，不写入业务仓库。内容可能含源码片段，应按源码敏感级别保护。本次启动调用结束不自动取消后台任务；明确取消、停用插件或宿主退出会停止它。
 

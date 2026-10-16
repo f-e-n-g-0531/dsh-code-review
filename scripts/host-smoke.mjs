@@ -63,6 +63,12 @@ try {
   await assert.rejects(tools.get('code_review_execute').execute({ previewId: preview.previewId, confirmed: false }, exec), /confirm/i);
   assert.equal(modelCalls, 0);
   console.log('Registered tool preview captured real Git content; unconfirmed execution prevented LLM execution.');
+  const startTool=tools.get('code_review_start'),waitTool=tools.get('code_review_wait');
+  assert.ok(waitTool);
+  const background=JSON.parse((await startTool.execute({phase:'preview',previewArgs:{}},exec)).json);
+  let backgroundResult;do{backgroundResult=JSON.parse((await waitTool.execute({jobId:background.jobId,after:backgroundResult?.waitRevision},exec)).json);}while(['queued','running'].includes(backgroundResult.status));
+  assert.equal(backgroundResult.status,'completed');assert.ok(backgroundResult.resultSummary.previewId);assert.equal(modelCalls,0);
+  console.log('Background preview waited through progress to terminal without model sending.');
   allowed = true;
   const approvedPreview = JSON.parse((await previewTool.execute({}, exec)).json);
   const statusBefore = await checked('git', ['status', '--porcelain=v1'], { cwd: root });
