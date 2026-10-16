@@ -1,10 +1,11 @@
+import {captureSignal} from './capture-signal.mjs';
 import {contextCandidates} from './context-candidates.mjs';
 import {checked} from './process.mjs';
 import {decode,hash,relativePath} from './content.mjs';
 import {assertNonSecretPath} from './secret-path.mjs';
 // Immutable object reads only. Both version sides share every navigation budget.
 export async function captureHistoryDependencyChain(root,files,history,context,options={}){
- const signal=AbortSignal.any([AbortSignal.timeout(30000),...(options.signal?[options.signal]:[])]);
+ const signal=captureSignal(options.signal);
  const bounded={...options,cwd:root,signal},probes=new Set(),visited={old:new Set(files.map(f=>f.path)),new:new Set(files.map(f=>f.path))};
  const maps={old:new Map(),new:new Map()},candidates=new Map(),reserved=new Set([...(options.rulePaths??[]),...(options.oldContextPaths??[]),...(options.contextPaths??[])]);let bytes=0,truncated=false;
  const regular=e=>e?.type==='blob'&&['100644','100755'].includes(e.mode);

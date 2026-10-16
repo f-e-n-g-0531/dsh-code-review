@@ -1,3 +1,4 @@
+import {captureSignal} from './capture-signal.mjs';
 import {gitCallerIndex} from './caller-index.mjs';
 import {gitCallerProbes} from './caller-probes.mjs';
 import {callerCandidates} from './caller-candidates.mjs';
@@ -6,8 +7,7 @@ import {isSecretPath} from './secret-path.mjs';
 
 // Called only by preview capture, never by a model retrieval request.
 export async function captureCallers(root, files, scopes, options={}) {
- const deadline=AbortSignal.timeout(30000);
- const signal=options.signal?AbortSignal.any([options.signal,deadline]):deadline;
+ const signal=captureSignal(options.signal);
  const bounded={...options,signal,maxFileBytes:Math.min(options.maxFileBytes??256*1024,256*1024)};
  const index=await gitCallerIndex(root,scopes,bounded);
  const changed=new Set(files.flatMap(f=>[f.path,...(f.oldPath?[f.oldPath]:[])]));

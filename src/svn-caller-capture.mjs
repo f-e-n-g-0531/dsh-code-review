@@ -1,3 +1,4 @@
+import {captureSignal} from './capture-signal.mjs';
 import {svnCallerIndex} from './svn-caller-index.mjs';
 import {svnCallerNode,svnCallerProbes} from './svn-caller-node.mjs';
 
@@ -9,8 +10,7 @@ import {createSvnNavigationBudget} from './svn-navigation-budget.mjs';
 
 // Called only by preview capture, never by a model retrieval request.
 export async function captureSvnCallers(root, files, scopes, options={}) {
- const deadline=AbortSignal.timeout(30000);
- const signal=options.signal?AbortSignal.any([options.signal,deadline]):deadline;
+ const signal=captureSignal(options.signal);
  const bounded={...options,signal,svnNavigationBudget:options.svnNavigationBudget??createSvnNavigationBudget(signal),maxFileBytes:Math.min(options.maxFileBytes??256*1024,256*1024)};
  const index=await svnCallerIndex(root,scopes,bounded);
  const changed=new Set(files.flatMap(f=>[f.path,...(f.oldPath?[f.oldPath]:[])]));

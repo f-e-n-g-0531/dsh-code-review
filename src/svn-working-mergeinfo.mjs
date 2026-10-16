@@ -1,3 +1,4 @@
+import {captureSignal} from './capture-signal.mjs';
 import {checked} from './process.mjs';
 import {xml} from './svn.mjs';
 import {hash} from './content.mjs';
@@ -5,8 +6,8 @@ import {svnWorkingIdentity} from './svn-working-identity.mjs';
 import {captureEffectiveMergeinfo} from './svn-effective-mergeinfo.mjs';
 
 export async function workingEffectiveMergeinfo(root,rootInfo,files,options={}){
- const signal=AbortSignal.any([AbortSignal.timeout(30000),...(options.signal?[options.signal]:[])]);let commands=0,bytes=0;const cache=new Map();
- const run=async args=>{signal.throwIfAborted();if(++commands>512)throw new Error('SVN working mergeinfo command budget exceeded');const data=await checked('svn',['--non-interactive',...args],{...options,cwd:root,signal,maxBytes:256*1024});bytes+=data.length;if(bytes>1024*1024)throw new Error('SVN working mergeinfo metadata budget exceeded');return xml(data);};
+ const signal=captureSignal(options.signal);let commands=0,bytes=0;const cache=new Map();
+ const run=async args=>{signal.throwIfAborted();commands++;const data=await checked('svn',['--non-interactive',...args],{...options,cwd:root,signal,maxBytes:256*1024});bytes+=data.length;if(bytes>1024*1024)throw new Error('SVN working mergeinfo metadata budget exceeded');return xml(data);};
  const read=async(name,side,revision)=>{
   const key=JSON.stringify([name,side]);if(cache.has(key)){const value=cache.get(key);if(side==='old'&&value.source.revision!==revision)throw new Error('Mixed BASE revisions cannot prove effective mergeinfo');return value;}
   const node=(await run(['info','--xml','--',name+'@'])).info?.entry?.[0];const identity=svnWorkingIdentity(node,rootInfo,name);

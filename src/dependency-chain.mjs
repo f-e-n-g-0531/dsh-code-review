@@ -1,9 +1,10 @@
+import {captureSignal} from './capture-signal.mjs';
 import {contextCandidates} from './context-candidates.mjs';
 import {gitContextIndex} from './tracked-context.mjs';
 import {readLocal} from './content.mjs';
 // Fixed-depth literal navigation, not symbol binding. Never enumerate the repository.
 export async function captureDependencyChain(root,files,options={}){
- const signal=AbortSignal.any([AbortSignal.timeout(30000),...(options.signal?[options.signal]:[])]);
+ const signal=captureSignal(options.signal);
  const scoped={...options,maxFileBytes:Math.min(options.maxFileBytes??256*1024,256*1024),signal},probes=new Set(),visited=new Set(files.map(f=>f.path)),context=[],candidates=[];
  const reserved=new Set([...(options.contextPaths??[]),...(options.rulePaths??[])]),limit=Math.min(options.maxContextFiles??20,20);
  let frontier=[...files],index,bytes=0,truncated=false,depth=0;

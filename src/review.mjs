@@ -64,7 +64,7 @@ async function invoke(model, request, timeoutMs, parentSignal) {
   const abort = () => controller.abort(parentSignal.reason);
   parentSignal?.addEventListener('abort', abort, { once: true });
   if (parentSignal?.aborted) abort();
-  const timer = setTimeout(() => controller.abort(Object.assign(new Error('Model timeout'), { code: 'MODEL_TIMEOUT' })), timeoutMs);
+  const timer = timeoutMs>0?setTimeout(() => controller.abort(Object.assign(new Error('Model timeout'), { code: 'MODEL_TIMEOUT' })), timeoutMs):undefined;
   try {
     controller.signal.throwIfAborted();
     // Executors must honor cancellation; never release ownership before cleanup settles.
@@ -79,9 +79,10 @@ async function invoke(model, request, timeoutMs, parentSignal) {
 
 export async function reviewSnapshot(snapshot, model, options = {}) {
   const rounds = reviewRounds(options.reviewRounds);
-  const { signal, maxInputBytes = 96 * 1024, maxCalls = 100, timeoutMs = 120_000 } = options;
+  const { signal, maxInputBytes = 96 * 1024, maxCalls = Number.MAX_SAFE_INTEGER, timeoutMs = 0 } = options;
   if (typeof model !== 'function') throw new Error('A model executor is required');
-  for (const n of [maxInputBytes, maxCalls, timeoutMs]) if (!Number.isSafeInteger(n) || n < 1) throw new Error('Invalid review limit');
+  for(const n of [maxInputBytes,maxCalls])if(!Number.isSafeInteger(n)||n<1)throw new Error('Invalid review limit');
+  if(!Number.isSafeInteger(timeoutMs)||timeoutMs<0)throw new Error('Invalid review limit');
   // Clone once: callers cannot change the input while a model call is pending.
   const input = structuredClone(snapshot);
   const instructions=input.projectScope?PROJECT_REVIEW_INSTRUCTIONS:REVIEW_INSTRUCTIONS;

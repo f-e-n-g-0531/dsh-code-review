@@ -1,3 +1,4 @@
+import {captureSignal} from './capture-signal.mjs';
 import {historyCallerIndex,historyCallerProbes} from './history-caller-index.mjs';
 import {callerCandidates} from './caller-candidates.mjs';
 import {checked} from './process.mjs';
@@ -5,7 +6,7 @@ import {decode,hash} from './content.mjs';
 import {isSecretPath} from './secret-path.mjs';
 // Both sides share one capture lifecycle and all discovery limits. Never called by model readers.
 export async function captureHistoryCallers(root,files,history,scopes,options={}){
- const deadline=AbortSignal.timeout(30000),signal=options.signal?AbortSignal.any([options.signal,deadline]):deadline,bounded={...options,signal};
+ const signal=captureSignal(options.signal),bounded={...options,signal};
  const changed=new Set(files.map(f=>f.path)),rules=new Set(options.rulePaths??[]),scanned=[],candidates=[],indexes=[],contexts=new Map();let scanBytes=0,indexBytes=0,indexRecords=0,probeBytes=0;const allProbes=new Set();
  for(const [side,commit] of [['old',history.base],['new',history.target]]){if(!commit)continue;const index=await historyCallerIndex(root,commit,scopes,bounded);indexBytes+=index.bytes;indexRecords+=index.records;if(indexBytes>64*1024||indexRecords>256)throw new Error('Historical caller shared index limit exceeded');const sources=[];
   for(const entry of index.entries){signal.throwIfAborted();if(changed.has(entry.path)||rules.has(entry.path)||isSecretPath(entry.path)||!/\.(mjs|cjs|js|jsx|ts|tsx|c|cc|cpp|cxx|h|hh|hpp|hxx|shader|hlsl|glsl|cginc|hlsli|compute)$/i.test(entry.path))continue;if(scanned.length>=128)throw new Error('Historical caller shared scan file limit exceeded');const content=decode(await checked('git',['--no-optional-locks','cat-file','blob',entry.oid],{...bounded,cwd:root,maxBytes:Math.min(options.maxFileBytes??256*1024,256*1024)}));scanBytes+=content.bytes;if(scanBytes>1024*1024)throw new Error('Historical caller shared scan byte limit exceeded');const source={path:entry.path,...content,blobOid:entry.oid,revision:commit,side};scanned.push(source);sources.push(source);}

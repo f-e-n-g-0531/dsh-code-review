@@ -1,10 +1,10 @@
 import { spawn } from 'node:child_process';
 
 /** Run only adapter-owned commands. No shell, prompts, or unbounded capture. */
-export function run(command, args, { cwd, signal, timeoutMs = 30_000, maxBytes = 8 * 1024 * 1024, env = {} } = {}) {
+export function run(command, args, { cwd, signal, timeoutMs = 0, maxBytes = 8 * 1024 * 1024, env = {} } = {}) {
   return new Promise((resolve, reject) => {
     signal?.throwIfAborted();
-    for (const value of [timeoutMs, maxBytes]) if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid command limit');
+    if(!Number.isSafeInteger(timeoutMs)||timeoutMs<0||!Number.isSafeInteger(maxBytes)||maxBytes<1)throw new Error('Invalid command limit');
     const childEnv = { ...process.env, ...env };
     for (const key of Object.keys(childEnv)) if (/^GIT_/i.test(key)) delete childEnv[key];
     Object.assign(childEnv, { GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0', GIT_NO_REPLACE_OBJECTS: '1', GIT_NO_LAZY_FETCH: '1' });
@@ -19,7 +19,7 @@ export function run(command, args, { cwd, signal, timeoutMs = 30_000, maxBytes =
     const abort = () => stop(signal.reason ?? new Error('Cancelled'));
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) abort();
-    const timer = setTimeout(() => stop(new Error('Command timeout')), timeoutMs);
+    const timer = timeoutMs>0?setTimeout(() => stop(new Error('Command timeout')), timeoutMs):undefined;
     const capture = chunks => data => {
       bytes += data.length;
       if (bytes > maxBytes) stop(new Error('Command output limit exceeded'));

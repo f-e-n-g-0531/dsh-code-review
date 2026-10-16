@@ -1,10 +1,11 @@
+import {captureSignal} from './capture-signal.mjs';
 import {svnCallerNode} from './svn-caller-node.mjs';
 import {readLocal,decode} from './content.mjs';
 import {checked} from './process.mjs';
 import {svnKeywordMapping} from './svn-keyword-mapping.mjs';
 import {svnEolMapping} from './svn-eol-mapping.mjs';
 export async function captureSvnExplicitContext(root,names,options={}){
- const signal=AbortSignal.any([AbortSignal.timeout(30000),...(options.signal?[options.signal]:[])]),bounded={...options,allowExplicitKeywords:true,signal,maxFileBytes:Math.min(options.maxFileBytes??256*1024,256*1024)};
+ const signal=captureSignal(options.signal),bounded={...options,allowExplicitKeywords:true,signal,maxFileBytes:Math.min(options.maxFileBytes??256*1024,256*1024)};
  if(!Array.isArray(names)||names.length>20||new Set(names).size!==names.length)throw new Error('Invalid SVN explicit context selection');
  const context=[],identities=[];let bytes=0;
  for(const name of names){

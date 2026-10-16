@@ -1,3 +1,4 @@
+import {captureSignal} from './capture-signal.mjs';
 import {sameSvnUrl,canonicalSvnUrl} from './svn-url.mjs';
 import {svnHistoryEndpoints} from './svn-history-endpoints.mjs';
 import {realpath} from 'node:fs/promises';
@@ -62,11 +63,11 @@ export async function captureSvnHistory(cwd,options={}) {
   for(const [value,cap]of [[maxFiles,200],[maxFileBytes,256*1024],[maxSnapshotBytes,4*1024*1024]])if(!Number.isSafeInteger(value)||value<1||value>cap)throw new Error('Invalid SVN history limit');
   if(selectedPaths!==undefined && (!Array.isArray(selectedPaths)||selectedPaths.length>200||new Set(selectedPaths).size!==selectedPaths.length))throw new Error('Invalid SVN history selection');
   for(const name of selectedPaths??[])if(name!=='.')relativePath(name);
-  const signal=AbortSignal.any([AbortSignal.timeout(30000),...(options.signal?[options.signal]:[])]);
+  const signal=captureSignal(options.signal);
   let commands=0,metadataBytes=0,sourceBytes=0;
   const budgetError = message => Object.assign(new Error(message), {code:'SVN_HISTORY_BUDGET'});
   const run=async(args,body=false)=>{
-    signal.throwIfAborted();if(++commands>512 || metadataBytes>1024*1024 || sourceBytes>maxSnapshotBytes)throw budgetError('SVN historical shared budget exceeded');
+    signal.throwIfAborted();commands++;if(metadataBytes>1024*1024 || sourceBytes>maxSnapshotBytes)throw budgetError('SVN historical shared budget exceeded');
     const bytes=await checked('svn',['--non-interactive',...args],{cwd,signal,maxBytes:body?maxFileBytes:1024*1024});
     if(body){sourceBytes+=bytes.length;if(sourceBytes>maxSnapshotBytes)throw budgetError('SVN historical source budget exceeded');}
     else{metadataBytes+=bytes.length;if(metadataBytes>1024*1024)throw budgetError('SVN historical metadata budget exceeded');}

@@ -1,3 +1,4 @@
+import {captureSignal} from './capture-signal.mjs';
 import {contextCandidates} from './context-candidates.mjs';
 import {svnCallerNode,svnCallerProbes} from './svn-caller-node.mjs';
 import {captureSvnExplicitContext} from './svn-explicit-context.mjs';
@@ -5,7 +6,7 @@ import {createSvnNavigationBudget} from './svn-navigation-budget.mjs';
 
 // Exact local path probes only. Every body requires safe offline SVN node identity.
 export async function captureSvnDependencyChain(root,files,options={}){
- const signal=AbortSignal.any([AbortSignal.timeout(30000),...(options.signal?[options.signal]:[])]),bounded={...options,signal,svnNavigationBudget:options.svnNavigationBudget??createSvnNavigationBudget(signal),maxFileBytes:Math.min(options.maxFileBytes??256*1024,256*1024)};
+ const signal=captureSignal(options.signal),bounded={...options,signal,svnNavigationBudget:options.svnNavigationBudget??createSvnNavigationBudget(signal),maxFileBytes:Math.min(options.maxFileBytes??256*1024,256*1024)};
  const visited=new Set(files.map(f=>f.path)),reserved=new Set([...(options.contextPaths??[]),...(options.rulePaths??[])]),probes=new Set(),context=[],candidates=[],nodes=[];let frontier=[...files],bytes=0,truncated=false,index;
  const limit=Math.min(options.maxContextFiles??20,20);if(new Set(options.contextPaths??[]).size>limit)throw new Error('Context file limit exceeded');
  const capture=async name=>{const value=await captureSvnExplicitContext(root,[name],bounded);bytes+=value.sourceBytes;if(bytes>1024*1024)throw new Error('SVN dependency source byte limit exceeded');return {item:value.context[0],node:value.identities[0]};};
