@@ -132,13 +132,13 @@ dsh plugin add https://github.com/f-e-n-g-0531/dsh-code-review.git
 {"svnBaseRevision":"7300","svnTargetRevision":"7315","svnAllowNetwork":true,"autoContext":true}
 ```
 
-这是两个版本端点的比较，**不是逐一审查区间内的每个提交**。revision 使用带引号的十进制数字，不写 `r7315`、`HEAD` 或日期；旧版本必须小于新版本。`svnRevision` 与区间参数不能同时使用，也不能混用 Git 版本参数。
+这是两个版本端点的比较，**不是逐一审查区间内的每个提交**。revision 使用带引号的十进制数字，不写 `r7315`、`HEAD` 或日期；同一路径比较要求旧版本小于新版本；不同分支可使用相同 revision（见下一节）。`svnRevision` 与区间参数不能同时使用，也不能混用 Git 版本参数。
 
 `svnAllowNetwork:true` 只允许读取本次工作副本对应仓库的固定版本，不授权更新、合并或任意远端 URL。本地 `file:` 仓库通常无需此参数。
 
-### 比较 SVN 两个分支（v0.80.0）
+### 比较 SVN 两个分支
 
-以下为v0.80.0集中更新的用法；安装旧版本时这些参数不可用，先确认当前加载版本。
+跨分支、有效继承属性和独立基线替换从正式版 v0.80.1 提供。请先确认当前 DSH 加载的版本；仅更新仓库不会升级宿主插件。
 
 ```json
 {"svnBaseRevision":"7315","svnTargetRevision":"7315","svnBasePath":"branches/release","svnTargetPath":"trunk","svnAllowNetwork":true,"autoContext":true}
@@ -146,7 +146,7 @@ dsh plugin add https://github.com/f-e-n-g-0531/dsh-code-review.git
 
 分支路径相对于当前SVN仓库根，不是本地目录或任意URL。旧、新两侧分别固定URL、peg与operative revision；同revision可以比较不同分支。只能在同仓库UUID内比较；嵌套重叠根和不明确来源拒绝，不能推断merge提交归属。
 
-### 查看有效继承 mergeinfo（v0.80.0）
+### 查看有效继承 mergeinfo
 
 ```json
 {"svnRevision":"7315","svnAllowNetwork":true,"svnEffectiveMergeinfo":true}
@@ -154,7 +154,7 @@ dsh plugin add https://github.com/f-e-n-g-0531/dsh-code-review.git
 
 显式允许读取选中节点及最近祖先的合并属性，额外读取受共享预算限制；工作副本模式也可使用该开关并保持离线。空属性屏蔽继承，祖先证据不完整、混合BASE或不安全来源显示unknown；结果仅为属性导航，不证明相关revision已经审核。
 
-### 审查未提交替换（v0.80.0）
+### 审查未提交替换
 
 ```json
 {"selectedPaths":["src/module","src/module/old.cpp","src/module/new.cpp"],"svnReplacementBaseRevision":"7314","svnReplacementAllowNetwork":true}
@@ -182,9 +182,9 @@ dsh plugin add https://github.com/f-e-n-g-0531/dsh-code-review.git
 
 这些文件和目录需要实际存在，路径相对于所选仓库：
 
-- `contextPaths`：手动加入辅助文件，不代表该文件本身完成了主审。SVN工作副本的未变更文件须通过离线正常节点/属性及来源检查；标准关键字在显式上下文和autoContext依赖中经过BASE核验后支持；简单自定义Name=%r也经同一BASE核验支持；复杂自定义/固定宽度关键字、特殊或不可确认来源仍明确拒绝，已选择的可审查变更复用快照。
+- `contextPaths`：手动加入辅助文件，不代表该文件本身完成了主审。SVN工作副本的未变更文件须通过离线正常节点/属性及来源检查；标准、固定宽度及受支持的复合自定义关键字经过 BASE 核验后可用于上下文；关键字名可由空格、制表符或换行分隔，格式内空格使用 `%_`。引号配置、未知格式及特殊或不可确认来源仍明确拒绝，已选择的可审查变更复用快照。
 - `autoContext:true`：自动补充最多三层文本依赖，不是全仓扫描或编译器分析。
-- `callerScopePaths`：在明确指定的非根目录中寻找字面引用。预览可能扫描该目录内不匹配的候选正文；只有捕获的匹配上下文随执行发送模型。SVN标准关键字候选经BASE核验后支持，扫描及核验正文共同计费；不支持配置明确失败，不保证找到全部调用方。
+- `callerScopePaths`：在明确指定的非根目录中寻找字面引用。预览可能扫描该目录内不匹配的候选正文；只有捕获的匹配上下文随执行发送模型。SVN受支持的关键字候选经 BASE 核验后支持，扫描及核验正文共同计费；不支持配置明确失败，不保证找到全部调用方。
 - `rulePaths`：最多四个 UTF-8 Markdown 或文本规则文件，不能同时列为上下文。
 - `businessRequirement`：帮助确定审查目标，本身不是缺陷证据。
 
@@ -248,8 +248,8 @@ Git / SVN 历史审查也能使用这些参数；依赖和调用方按对应版�
 - 插件遵循 DSH 工具权限；确认预览不等于绕过宿主权限。不执行项目代码、构建脚本或模型生成的 shell 命令。
 - Git 支持工作区、单提交、两版本比较。SVN 支持工作副本和固定历史端点；**尚未完整支持所有 SVN 状态**。
 - SVN 根目录属性可预览；同仓库复制新增以空目标旧侧审查，复制来源只作信息；移动的新增/删除分别覆盖。目录后代须逐项纳入，选择父目录不自动批准所有后代。
-- SVN 标准关键字展开，以及工作副本变更/自动依赖/命中调用方、固定历史变更及上下文的换行元数据保留原文证据；不以规范化结果证明行为等价。自定义/固定宽度关键字、未提交替换、冲突、特殊节点、切换/外部工作副本及跨 URL 比较等仍有限制。已提交固定历史替换与未提交替换的支持不同，详见 [SVN 支持矩阵](SVN-SUPPORT-MATRIX.md)。
-- 二进制、不能解码的文件、链接和超限内容会明确阻断，不静默截断后声称完成。文本导航不证明语义绑定、执行可达或完整调用覆盖。
+- SVN 标准、固定宽度和受支持的复合关键字展开，以及工作副本变更/自动依赖/命中调用方、固定历史变更及上下文的换行元数据保留原文证据；不以规范化结果证明行为等价。自定义/固定宽度关键字、未提交替换、冲突、特殊节点、切换/外部工作副本及跨仓库比较等仍有限制。同仓库跨分支与独立基线替换需要下文列出的显式参数。已提交固定历史替换与未提交替换的支持不同，详见 [SVN 支持矩阵](SVN-SUPPORT-MATRIX.md)。
+- 二进制、不能解码的文件、普通源码路径中的链接和超限内容会明确阻断；已跟踪的 SVN 链接只审查 `link 目标` 记录，不读取目标正文，不静默截断后声称完成。文本导航不证明语义绑定、执行可达或完整调用覆盖。
 
 ## 规模限制
 

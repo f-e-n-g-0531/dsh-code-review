@@ -16,7 +16,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { checked } from './process.mjs';
 import { hash, decode, readLocal, relativePath } from './content.mjs';
-const parser = new XMLParser({ ignoreAttributes: false, parseTagValue: false, parseAttributeValue: false, trimValues: false, isArray: name => ['entry', 'target', 'property'].includes(name) });
+const parser = new XMLParser({ htmlEntities: {}, ignoreAttributes: false, parseTagValue: false, parseAttributeValue: false, trimValues: false, isArray: name => ['entry', 'target', 'property'].includes(name) });
 export function xml(bytes) {
   const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   if (/<!DOCTYPE|<!ENTITY/i.test(source) || XMLValidator.validate(source) !== true) throw new Error('Unsafe or invalid SVN XML');
