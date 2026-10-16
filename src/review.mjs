@@ -142,9 +142,9 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         if (report.modelCalls >= maxCalls) throw new Error('Model call budget exceeded');
         report.modelCalls++;
       };
-      const trackedModel=request=>model({...request,onProtocolCorrection:async info=>{beforeCall();await request.onProtocolCorrection?.(info);await options.onProgress?.({stage:'protocol-correction',fileId:file.id,path:file.path,...info});}});
+      const trackedModel=request=>model({...request,onProtocolEvent:async info=>{await options.onProgress?.({stage:'protocol-correction',fileId:file.id,path:file.path,...info});},onProtocolCorrection:async info=>{beforeCall();await request.onProtocolCorrection?.(info);await options.onProgress?.({stage:'protocol-correction',fileId:file.id,path:file.path,...info});}});
       const executor = scope
-        ? request => retrievalLoop(trackedModel, request, scope, { maxInputBytes, beforeCall, onRetrieved: records => {
+        ? request => retrievalLoop(trackedModel, request, scope, { correctProtocol:options.correctProtocol===true,maxInputBytes, beforeCall, onRetrieved: records => {
           (state.retrievalAudit ??= []).push(...records);
         }, onTruncated: () => {
           if (!state.retrievalTruncated) report.limitations.push({ fileId: file.id, text: '检索结果达到数量上限，部分匹配未提供给模型' });
@@ -248,7 +248,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           for (const finding of generated.findings) finding.verification = { status: 'pending', causality: 'unverified' };
           try {
             const verdicts = await verificationLoop(trackedModel, request, generated.findings, scope, {
-              maxInputBytes, beforeCall,
+              correctProtocol:options.correctProtocol===true,maxInputBytes, beforeCall,
               onRetrieved: records => { (state.retrievalAudit ??= []).push(...records); },
               onTruncated: () => { report.limitations.push({ fileId: file.id, text: '复核检索结果达到数量上限' }); },
             });

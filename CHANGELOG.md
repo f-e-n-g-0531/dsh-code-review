@@ -2,7 +2,7 @@
 
 本文件介绍对使用者有意义的变化。安装与参数见 [README](README.md)，本次发布正文见 [发布说明](RELEASE-NOTES.md)。历史提交和安装包保留在 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-review/releases)；本文不把开发日志当作功能介绍。
 
-## 0.82.2 — 综合失败隔离与一次性最终报告
+## 0.82.3 — 综合失败隔离与一次性最终报告
 
 保留主审和窗口成果，综合失败独立披露并保持整体partial。新增两次JSON尝试的脱敏诊断；全项目只渲染一份去重后的最终报告，不逐批拼接。
 

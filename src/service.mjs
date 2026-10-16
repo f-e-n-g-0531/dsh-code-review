@@ -76,7 +76,7 @@ function createSessionReviewService(llm, { capture = captureSnapshot, now = Date
         exec.signal?.throwIfAborted();
         if (owner(exec).cwd !== current.cwd || JSON.stringify(owner(exec).route) !== JSON.stringify(preview.route)) throw new Error('Agent changed during approval');
         await exec.reviewCheckpoint?.({stage:'approved-manifest',snapshotId:snapshot.id,files:snapshot.files.map(f=>({fileId:f.id,path:f.path,status:f.eligibility==='reviewable'?'pending':f.eligibility}))});
-        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route,{correctJson:true}), { signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableVerification: true, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:preview.rounds, enableBusinessGrouping, enableAnchorCorrection, onProgress:exec.reviewCheckpoint });
+        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route,{correctJson:true}), { signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableVerification: true, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:preview.rounds, enableBusinessGrouping, enableAnchorCorrection,correctProtocol:true, onProgress:exec.reviewCheckpoint });
         report.model = preview.route;
         const latest = await resolveWorkspaceRepository(current.cwd, preview.options.repositoryPath).then(target => target === preview.target ? capture(target, { ...preview.options, signal: exec.signal }) : null).catch(() => null);
         report.outdated = !latest || latest.id !== snapshot.id || owner(exec).cwd !== current.cwd;
