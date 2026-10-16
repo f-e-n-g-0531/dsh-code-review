@@ -12,5 +12,5 @@ export function validateAttribution(value, file, changes = changeMap(file.left.t
   if (value.editIds.some(id => typeof id !== 'string' || !ids.has(id)) || value.properties.some(name => typeof name !== 'string' || !properties.has(name))) throw new Error('Unknown change reference');
   if (new Set(value.editIds).size !== value.editIds.length || new Set(value.properties).size !== value.properties.length) throw new Error('Duplicate change reference');
   if (!value.editIds.length && !value.properties.length) throw new Error('Attribution requires a change reference');
-  return { status: 'references-validated', causality: 'unverified', editIds: [...value.editIds], properties: [...value.properties], beforeBehavior: value.beforeBehavior, afterBehavior: value.afterBehavior, reason: value.reason };
+  return { status: 'references-validated', causality: 'unverified', ...(changes.precision==='envelope'?{precision:'envelope',notice:'References are broad region coordinates, not exact edit evidence.'}:{}), editIds: [...value.editIds], properties: [...value.properties], beforeBehavior: value.beforeBehavior, afterBehavior: value.afterBehavior, reason: value.reason };
 }

@@ -44,10 +44,10 @@ test('forged attribution rejects a located finding rather than silently dropping
 
 test('diff limits remain visible when full text review succeeds', async () => {
   const report = await reviewSnapshot(snapshot('a\n'.repeat(500), 'b\n'.repeat(500)), async request => {
-    assert.equal(JSON.parse(request.input).changes.status, 'limited');
+    assert.equal(JSON.parse(request.input).changes.precision, 'envelope');
     return { findings: [], limitations: [] };
   });
   assert.equal(report.modelCalls, 1);
   assert.equal(report.status, 'partial');
-  assert.match(report.limitations[0].text, /精确变更分析受限/);
+  assert.match(report.limitations[0].text, /精确差异不可得/);
 });

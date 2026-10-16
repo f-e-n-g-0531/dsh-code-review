@@ -48,13 +48,13 @@ ctx.set('approval', { request: async request => {
   return allowed ? 'allowed-once' : 'rejected';
 } });
 plugin.apply(ctx, { allowModelSending: true });
-console.log('Real ToolRuntime accepted both plugin definitions.');
+console.log('Real ToolRuntime accepted synchronous and background review tools.');
 const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-review-host-'));
 try {
   await checked('git', ['init', '-q'], { cwd: root });
   await writeFile(path.join(root, 'sample.js'), 'const value = 1;');
   await checked('git', ['add', 'sample.js'], { cwd: root });
-  const exec = { agent: { session: { header: { cwd: root } }, options: { provider: 'offline-test', model: 'none' } }, signal: new AbortController().signal };
+  const exec = { agent: { session: { header: { id:'host-smoke-session', cwd: root } }, options: { provider: 'offline-test', model: 'none' } }, signal: new AbortController().signal };
   const previewTool = tools.get('code_review_preview');
   assert.ok(previewTool);
   const preview = JSON.parse((await previewTool.execute({}, exec)).json);

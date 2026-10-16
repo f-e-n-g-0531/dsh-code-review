@@ -1,3 +1,4 @@
+import {registerBackgroundReview} from './src/background-review.mjs';
 import { createReviewService } from './src/service.mjs';
 export const name = 'dsh-code-review';
 export const inject = ['tools', 'llm'];
@@ -22,5 +23,6 @@ export function apply(ctx, config = {}) {
     output,
     async execute(args, exec) { const result = await service.execute(args, exec); return { json: JSON.stringify(result.report), markdown: result.markdown }; },
   });
+  registerBackgroundReview(ctx,service);
   ctx.on('dispose', () => service.dispose());
 }

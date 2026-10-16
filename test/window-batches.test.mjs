@@ -20,5 +20,5 @@ test('oversized window and batch cap remain explicit instead of silently droppin
 });
 test('invalid identities and budgets fail closed', () => {
   assert.throws(() => planWindowBatches([windows[0], windows[0]], serialize, measure), /identity/);
-  assert.throws(() => planWindowBatches(windows, serialize, measure, { maxBatches: 21 }), /Invalid/);
+  assert.throws(() => planWindowBatches(windows, serialize, measure, { maxBatches: 0 }), /Invalid/);
 });

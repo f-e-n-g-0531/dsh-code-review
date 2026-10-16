@@ -119,8 +119,10 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   const interactionPlans = scope && report.grouping ? report.grouping.groups.filter(g => g.fileIds.length > 1).map(group => ({ group, prepared: prepareInteractionInput(input, group, payload => initialInputBudget({ instructions, input: payload }, scope, maxInputBytes)) })) : [];
   for (const plan of interactionPlans.filter(p => p.prepared.status !== 'not-applicable')) report.interactions.push({ groupId: plan.group.id, fileIds: plan.prepared.fileIds, status: plan.prepared.status === 'ready' ? 'pending' : 'blocked', reason: plan.prepared.reason, lifecycle: 'shares-last-primary-timeout' });
   for (const file of input.files) {
+    if(report.files.length)await options.onProgress?.({stage:'file-complete',snapshotId:input.id,file:report.files.at(-1),findings:report.findings.filter(f=>f.fileId===report.files.at(-1).fileId)});
     const state = { fileId: file.id, path: file.path, status: file.eligibility === 'reviewable' ? 'pending' : file.eligibility, reason: file.reason, ...(file.blockCode ? {blockCode:file.blockCode} : {}) };
     report.files.push(state);
+    await options.onProgress?.({stage:'file-started',snapshotId:input.id,fileId:file.id,path:file.path,status:state.status});
     if (state.status !== 'pending') continue;
     if (signal?.aborted) { state.status = 'cancelled'; state.reason = '用户取消'; continue; }
     if (report.modelCalls >= maxCalls) { state.reason = '模型调用预算耗尽'; continue; }
@@ -131,6 +133,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     if (prepared.synthesis) state.synthesisStatus = prepared.synthesis.budget.fits ? 'pending' : 'blocked';
     if (prepared.synthesis && !prepared.synthesis.budget.fits) report.limitations.push({ fileId: file.id, text: '跨窗口综合输入超限，未发送；单窗口完成不表示交互影响已检查' });
     if (state.sourceMode === 'change-windows') state.windowCoverage = { completed: [], pending: [...state.windowIds] };
+    if(changes.precision==='envelope')report.limitations.push({fileId:file.id,text:'精确差异不可得，按保守包络分段检查；包络包含可能未变的行，不证明精确编辑或回归因果。'});
     if (changes.status === 'limited') report.limitations.push({ fileId: file.id, text: '精确变更分析受限：' + changes.reason + '；仍按完整两侧内容审查' });
     if (state.groupFallback) report.limitations.push({ fileId: file.id, text: '关联组上下文超过输入预算，回退单文件审查' });
     if (state.initialInputBytes > maxInputBytes) { state.status = 'blocked'; state.reason = '输入超过预算，未截断或提交模型'; continue; }
@@ -139,14 +142,15 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         if (report.modelCalls >= maxCalls) throw new Error('Model call budget exceeded');
         report.modelCalls++;
       };
+      const trackedModel=request=>model({...request,onProtocolCorrection:async info=>{beforeCall();await request.onProtocolCorrection?.(info);await options.onProgress?.({stage:'protocol-correction',fileId:file.id,path:file.path,...info});}});
       const executor = scope
-        ? request => retrievalLoop(model, request, scope, { maxInputBytes, beforeCall, onRetrieved: records => {
+        ? request => retrievalLoop(trackedModel, request, scope, { maxInputBytes, beforeCall, onRetrieved: records => {
           (state.retrievalAudit ??= []).push(...records);
         }, onTruncated: () => {
           if (!state.retrievalTruncated) report.limitations.push({ fileId: file.id, text: '检索结果达到数量上限，部分匹配未提供给模型' });
           state.retrievalTruncated = true;
         } })
-        : request => { beforeCall(); return model(request); };
+        : request => { beforeCall(); return trackedModel(request); };
       await invoke(async enclosingRequest => {
         if (options.enableBusinessGrouping === true && !report.businessGrouping && prepareBusinessGroups(input.files)) {
           report.businessGrouping = { status: 'pending' };
@@ -241,7 +245,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         if (options.enableVerification === true && generated.findings.length) {
           for (const finding of generated.findings) finding.verification = { status: 'pending', causality: 'unverified' };
           try {
-            const verdicts = await verificationLoop(model, request, generated.findings, scope, {
+            const verdicts = await verificationLoop(trackedModel, request, generated.findings, scope, {
               maxInputBytes, beforeCall,
               onRetrieved: records => { (state.retrievalAudit ??= []).push(...records); },
               onTruncated: () => { report.limitations.push({ fileId: file.id, text: '复核检索结果达到数量上限' }); },
@@ -267,6 +271,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           state.windowCoverage.pending = state.windowCoverage.pending.filter(id => !batch.windowIds.includes(id));
         }
         if(rounds>1)state.reviewPasses[batchIndex].status='completed';
+        await options.onProgress?.({stage:'window-complete',snapshotId:input.id,fileId:file.id,path:file.path,windowIds:batch.windowIds,round:batch.round,findings:generated.findings,windowCoverage:state.windowCoverage});
         }
       }, { instructions, input: payload }, timeoutMs, signal);
       if (signal?.aborted) throw signal.reason;
@@ -280,6 +285,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       state.failureCode = signal?.aborted ? 'CANCELLED' : ['MODEL_INVALID_JSON','MODEL_TIMEOUT','MODEL_INVALID_READ_REQUEST'].includes(error?.code) ? error.code : 'REVIEW_EXECUTION_FAILED';
     }
   }
+  await options.onProgress?.({stage:'batch-complete',snapshotId:input.id,files:report.files,findings:report.findings,limitations:report.limitations});
   for (const interaction of report.interactions) if (interaction.status !== 'completed') report.limitations.push({ text: '跨文件综合未完成：' + interaction.groupId + ' (' + interaction.status + ')' });
   if (report.grouping?.links.some(l => l.split)) report.limitations.push({ text: '跨组关系未综合覆盖；关联分组不代表全部跨文件交互覆盖' });
   const reviewableCount = input.files.filter(f => f.eligibility === 'reviewable').length;

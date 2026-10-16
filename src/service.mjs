@@ -1,3 +1,4 @@
+import {REVIEW_RUNTIME} from './runtime-identity.mjs';
 import {createProjectReviewService} from './project-review-service.mjs';
 import {svnDiagnostic} from './svn-diagnostics.mjs';
 import { reviewRounds as validateReviewRounds } from './review-rounds.mjs';
@@ -74,7 +75,8 @@ function createSessionReviewService(llm, { capture = captureSnapshot, now = Date
         if (await authorize({ snapshot, route: preview.route, exec }) !== true) throw new Error('Model sending approval denied or unavailable');
         exec.signal?.throwIfAborted();
         if (owner(exec).cwd !== current.cwd || JSON.stringify(owner(exec).route) !== JSON.stringify(preview.route)) throw new Error('Agent changed during approval');
-        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route), { signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableVerification: true, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:preview.rounds, enableBusinessGrouping, enableAnchorCorrection });
+        await exec.reviewCheckpoint?.({stage:'approved-manifest',snapshotId:snapshot.id,files:snapshot.files.map(f=>({fileId:f.id,path:f.path,status:f.eligibility==='reviewable'?'pending':f.eligibility}))});
+        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route,{correctJson:true}), { signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableVerification: true, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:preview.rounds, enableBusinessGrouping, enableAnchorCorrection, onProgress:exec.reviewCheckpoint });
         report.model = preview.route;
         const latest = await resolveWorkspaceRepository(current.cwd, preview.options.repositoryPath).then(target => target === preview.target ? capture(target, { ...preview.options, signal: exec.signal }) : null).catch(() => null);
         report.outdated = !latest || latest.id !== snapshot.id || owner(exec).cwd !== current.cwd;
@@ -88,5 +90,5 @@ function createSessionReviewService(llm, { capture = captureSnapshot, now = Date
 export function createReviewService(llm,options={}){
  const sessions=new Map();let disposed=false;
  const get=exec=>{if(disposed)throw new Error('Review service disposed');const agent=exec?.agent,key=agent?.session??agent;if(!key||typeof key!=='object')throw new Error('Active Agent required');if(!sessions.has(key)){const changes=createSessionReviewService(llm,options),project=createProjectReviewService(llm,options);let locked=false;const call=async(kind,args,exec)=>{if(locked)throw new Error('Review service busy');locked=true;try{return await (kind==='preview'?(args?.reviewMode==='project'?project.preview(args,exec):changes.preview(args?.reviewMode==='changes'?Object.fromEntries(Object.entries(args).filter(([key])=>key!=='reviewMode')):args,exec)):(project.owns(args?.previewId)?project.execute(args,exec):changes.execute(args,exec)));}finally{locked=false;}};sessions.set(key,{preview:(a,e)=>call('preview',a,e),execute:(a,e)=>call('execute',a,e),dispose(){changes.dispose();project.dispose();}});}return sessions.get(key);};
- return {preview:async(args,exec)=>get(exec).preview(args,exec),execute:async(args,exec)=>get(exec).execute(args,exec),dispose(){disposed=true;for(const service of sessions.values())service.dispose();sessions.clear();}};
+ return {preview:async(args,exec)=>{const started=Date.now();await exec?.reviewCheckpoint?.({stage:'preview-started',runtime:REVIEW_RUNTIME});const result=await get(exec).preview(args,exec);return {...result,runtime:REVIEW_RUNTIME,elapsedMs:Date.now()-started};},execute:async(args,exec)=>get(exec).execute(args,exec),dispose(){disposed=true;for(const service of sessions.values())service.dispose();sessions.clear();}};
 }

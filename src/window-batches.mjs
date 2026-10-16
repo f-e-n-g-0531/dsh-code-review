@@ -1,6 +1,6 @@
 // Bounded pure planner. Every window is either in one batch or explicitly blocked.
-export function planWindowBatches(windows, serialize, measure, { maxBatches = 20 } = {}) {
-  if (!Array.isArray(windows) || windows.length > 200 || typeof serialize !== 'function' || typeof measure !== 'function' || !Number.isSafeInteger(maxBatches) || maxBatches < 1 || maxBatches > 20) throw new Error('Invalid window batch plan');
+export function planWindowBatches(windows, serialize, measure, { maxBatches = Number.MAX_SAFE_INTEGER } = {}) {
+  if (!Array.isArray(windows) || windows.length > 100000 || typeof serialize !== 'function' || typeof measure !== 'function' || !Number.isSafeInteger(maxBatches) || maxBatches < 1) throw new Error('Invalid window batch plan');
   const ids = new Set();
   for (const window of windows) {
     if (!window || typeof window.id !== 'string' || !window.id || ids.has(window.id)) throw new Error('Invalid window identity');
