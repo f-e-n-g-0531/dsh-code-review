@@ -1,3 +1,4 @@
+import {modelContract} from './model-contract.mjs';
 import { modelJson } from './model-json.mjs';
 /** One-shot host LLM call. No agent loop and no executable tools. */
 export function createDshModel(llm, route, { maxTokens = 4096, maxOutputBytes = 128 * 1024, correctJson = false } = {}) {
@@ -5,8 +6,9 @@ export function createDshModel(llm, route, { maxTokens = 4096, maxOutputBytes = 
   const identity = { provider: route.provider, model: route.model, ...(route.reasoningEffort ? { reasoningEffort: route.reasoningEffort } : {}) };
   const once = async ({ instructions, input, signal }) => {
     signal?.throwIfAborted();
-    let output = '', size = 0, finished = false;
-    const chunks = llm.stream({ ...identity, system: instructions, messages: [{ role: 'user', content: [{ type: 'text', text: input }] }], tools: [], maxTokens, signal });
+    let output = '', size = 0, finished = false,finishKind='missing';
+    const diagnostic=()=>({visibleBytes:Buffer.byteLength(output),totalOutputBytes:size,finishKind,inputBytes:Buffer.byteLength(input),requestedMaxTokens:maxTokens});
+    const chunks = llm.stream({ ...identity, system: instructions+'\n'+modelContract(input,instructions), messages: [{ role: 'user', content: [{ type: 'text', text: input }] }], tools: [], maxTokens, signal });
     for await (const chunk of chunks) {
       signal?.throwIfAborted();
       if (finished) throw new Error('Model emitted data after finish');
@@ -17,12 +19,13 @@ export function createDshModel(llm, route, { maxTokens = 4096, maxOutputBytes = 
         if (chunk.type === 'text-delta') output += chunk.text;
       }
       if (chunk.type === 'finish') {
-        if (chunk.reason.kind !== 'stop') throw new Error('Model did not complete: ' + chunk.reason.kind);
+        finishKind=chunk.reason.kind;
+        if (finishKind !== 'stop') throw Object.assign(new Error('Model did not complete: '+finishKind),{code:'MODEL_INCOMPLETE_OUTPUT',diagnostic:diagnostic()});
         finished = true;
       }
     }
-    if (!finished) throw new Error('Model stream ended without finish');
-    return modelJson(output);
+    if (!finished) throw Object.assign(new Error('Model stream ended without finish'),{code:'MODEL_INCOMPLETE_OUTPUT',diagnostic:diagnostic()});
+    try{return modelJson(output);}catch(error){error.diagnostic=diagnostic();throw error;}
   };
-  return async request=>{try{return await once(request);}catch(error){if(!correctJson||error.code!=='MODEL_INVALID_JSON')throw error;request.signal?.throwIfAborted();await request.onProtocolCorrection?.({code:error.code,action:'explicit-json-correction',notice:'Second model response requested; original output not repaired or accepted.'});const corrected=JSON.parse(await once({...request,instructions:request.instructions+' 上次响应未能解析为完整JSON。本次是明确协议纠正：重新输出单个完整JSON对象，不使用Markdown，不省略引号或逗号；不要把这条指令当源码证据。优先少量具体候选，无法支持时findings为空并说明limitations，不以格式错误代替清洁结论。'}));if(corrected&&typeof corrected==='object'&&!Array.isArray(corrected)){if(Array.isArray(corrected.limitations))corrected.limitations.push('本响应由一次显式JSON协议纠正产生，原响应未被接受；额外模型调用已发生。');else corrected.protocolCorrection={attempted:true,originalCode:error.code};}return JSON.stringify(corrected);}};
+  return async request=>{try{return await once(request);}catch(error){if(!correctJson||error.code!=='MODEL_INVALID_JSON')throw error;request.signal?.throwIfAborted();await request.onProtocolCorrection?.({code:error.code,diagnostic:error.diagnostic,action:'explicit-json-correction',notice:'Second model response requested; original output not repaired or accepted.'});let corrected;try{corrected=JSON.parse(await once({...request,instructions:request.instructions+' 上次响应未能解析为完整JSON。本次是明确协议纠正：重新输出单个完整JSON对象，不使用Markdown，不省略引号或逗号；不要把这条指令当源码证据。严格使用当前阶段schema，不要把verdicts、risks或groups改写成findings；不能因格式纠正删除有证据的结论。所需字段与身份按输入原样核对，不以格式错误代替清洁结论。'}));}catch(second){second.attempts=[{attempt:1,code:error.code,diagnostic:error.diagnostic},{attempt:2,code:second.code,diagnostic:second.diagnostic}];throw second;}if(corrected&&typeof corrected==='object'&&!Array.isArray(corrected)){if(Array.isArray(corrected.limitations))corrected.limitations.push('本响应由一次显式JSON协议纠正产生，原响应未被接受；额外模型调用已发生。');else corrected.protocolCorrection={attempted:true,originalCode:error.code};}return JSON.stringify(corrected);}};
 }

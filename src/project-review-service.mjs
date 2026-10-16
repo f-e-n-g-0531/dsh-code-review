@@ -1,3 +1,4 @@
+import {renderProjectReport} from './project-report.mjs';
 import {realpath} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
 import {hash} from './content.mjs';
@@ -31,7 +32,7 @@ export function createProjectReviewService(llm,{allowModelSending=false,authoriz
    for(const b of s.batches){if(signal.aborted||calls>=projectMaxCalls){results.push({snapshotId:b.id,status:'partial',files:b.files.map(f=>({fileId:f.id,path:f.path,status:f.eligibility==='reviewable'?'pending':f.eligibility,reason:'Session project budget exhausted or cancelled'})),findings:[],limitations:[]});continue;}results.push(await reviewSnapshot(b,model,{signal,maxCalls:projectMaxCalls-calls,enableRetrieval:true,enableVerification:true,onProgress:exec.reviewCheckpoint}));}
    const files=results.flatMap(r=>r.files.map(f=>({...f,batchSnapshotId:r.snapshotId}))),coverage={total:s.selectedFiles,completed:files.filter(f=>f.status==='completed').length,excluded:files.filter(f=>f.status==='excluded').length,blocked:files.filter(f=>f.status==='blocked').length,pending:files.filter(f=>!['completed','excluded','blocked'].includes(f.status)).length};const findings=results.flatMap(r=>r.findings.map(f=>({...f,batchSnapshotId:r.snapshotId})));const report={schemaVersion:1,mode:'project',snapshotId:s.id,status:signal.aborted?'cancelled':coverage.total===0||coverage.completed===0?'partial':results.every(r=>r.status==='completed')&&files.every(f=>['completed','excluded'].includes(f.status))?'completed':'partial',repositoryRoot:s.root,vcs:s.vcs,model:p.route,modelCalls:calls,maxModelCalls:projectMaxCalls,totalTrackedNodes:s.totalTrackedNodes,selectionComplete:s.selectionComplete,inventoryComplete:s.inventoryComplete,coverage,files,findings,batches:results,notice:s.notice+' Coverage counts processing of selected tracked files only, not proof of correctness. Excluded and blocked are never completed. No cross-batch whole-program semantic coverage is claimed.'};
    try{report.outdated=(await capture(current.cwd,p.args,signal)).id!==s.id;}catch{report.outdated=true;}
-   const lines=['# 全项目代码审查报告','','状态：'+report.status,'已完成：'+coverage.completed+'/'+coverage.total,'排除：'+coverage.excluded+'；阻断：'+coverage.blocked+'；未完成：'+coverage.pending,'',report.notice];for(let i=0;i<results.length;i++)lines.push('', '## 批次 '+(i+1),markdownReport({...results[i],coverage:results[i].coverage??{},interactions:results[i].interactions??[]}));if(report.outdated)lines.push('注意：项目已变化或无法复核，报告仅对应原批准快照。');return {report,markdown:lines.join(String.fromCharCode(10))};
+   return {report,markdown:renderProjectReport(report)};
   }finally{busy=false;}},dispose(){lifetime.abort();previews.clear();}
  };
 }

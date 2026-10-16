@@ -5,9 +5,10 @@ export function coverageFollowup(report) {
   const items = report.files.map(file => {
     if (!file || typeof file.fileId !== 'string' || !file.fileId || ids.has(file.fileId) || typeof file.path !== 'string' || !file.path || paths.has(file.path) || !['completed', 'excluded', 'blocked', 'failed', 'cancelled', 'pending'].includes(file.status)) throw new Error('Invalid coverage file');
     ids.add(file.fileId); paths.add(file.path);
+    const incompleteSynthesis=(file.stageFailures??[]).length>0||file.synthesisStatus==='failed';
     const incompleteVerification = report.findings.some(f => f.fileId === file.fileId && ['pending', 'incomplete'].includes(f.verification?.status));
-    return { fileId: file.fileId, path: file.path, status: file.status, incompleteVerification,
-      followup: file.status !== 'excluded' && (file.status !== 'completed' || incompleteVerification) };
+    return { fileId: file.fileId, path: file.path, status: file.status, incompleteVerification,incompleteSynthesis,
+      followup: file.status !== 'excluded' && (file.status !== 'completed' || incompleteVerification || incompleteSynthesis) };
   }).sort((a, b) => a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   return { snapshotId: report.snapshotId, requiresNewPreview: true, requiresApproval: true, items,
     suggestedPaths: items.filter(item => item.followup).map(item => item.path) };

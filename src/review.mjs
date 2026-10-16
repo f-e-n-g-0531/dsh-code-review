@@ -186,6 +186,8 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         if(rounds>1) state.reviewPasses=scheduled.map(b=>({round:b.round,windowIds:b.windowIds,...(b.interaction?{groupId:b.interaction.id}:{}),...(b.synthesis?{synthesis:true}:{}),status:'pending'}));
         for (const [batchIndex,batch] of scheduled.entries()) {
         enclosingRequest.signal.throwIfAborted();
+        const phase=batch.interaction?'file-interaction':batch.synthesis?'window-synthesis':'primary';
+        try{
         let batchPayload = batch.payload;
         if (options.enableRiskPlanning === true && !batch.synthesis && batch.round === 1) {
           const decision = options.skipSmallRiskPlans === true ? riskPlanningDecision(batch.interaction ? input.files.filter(f=>batch.interaction.fileIds.includes(f.id)) : [file]) : {required:true,reason:'unconditional'};
@@ -272,6 +274,17 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         }
         if(rounds>1)state.reviewPasses[batchIndex].status='completed';
         await options.onProgress?.({stage:'window-complete',snapshotId:input.id,fileId:file.id,path:file.path,windowIds:batch.windowIds,round:batch.round,findings:generated.findings,windowCoverage:state.windowCoverage});
+        }catch(error){
+          enclosingRequest.signal.throwIfAborted();
+          if(phase==='primary'||/budget exceeded/i.test(error.message))throw error;
+          const failure={phase,status:'failed',code:error.code??'REVIEW_EXECUTION_FAILED',reason:error.message,round:batch.round,...(error.attempts?{attempts:error.attempts}:{}),...(error.diagnostic?{diagnostic:error.diagnostic}:{})};
+          (state.stageFailures??=[]).push(failure);
+          if(batch.synthesis)state.synthesisStatus='failed';
+          if(batch.interaction){const interaction=report.interactions.find(p=>p.groupId===batch.interaction.id);if(interaction)Object.assign(interaction,{status:'failed',reason:error.message,failureCode:failure.code});}
+          if(rounds>1)state.reviewPasses[batchIndex].status='failed';
+          report.limitations.push({fileId:file.id,text:phase+'未完成：'+error.message+'；已完成主文件/窗口成果保留，不表示综合已通过'});
+          await options.onProgress?.({stage:'synthesis-failed',snapshotId:input.id,fileId:file.id,path:file.path,...failure,windowCoverage:state.windowCoverage});
+        }
         }
       }, { instructions, input: payload }, timeoutMs, signal);
       if (signal?.aborted) throw signal.reason;
@@ -281,8 +294,10 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     } catch (error) {
       state.status = signal?.aborted ? 'cancelled' : 'failed';
       state.reason = error?.message ?? String(error);
+      if(error.attempts)state.protocolAttempts=error.attempts;
+      if(error.diagnostic)state.protocolDiagnostic=error.diagnostic;
       for(const pass of state.reviewPasses??[])if(pass.status==='running')pass.status=signal?.aborted?'cancelled':'failed';
-      state.failureCode = signal?.aborted ? 'CANCELLED' : ['MODEL_INVALID_JSON','MODEL_TIMEOUT','MODEL_INVALID_READ_REQUEST'].includes(error?.code) ? error.code : 'REVIEW_EXECUTION_FAILED';
+      state.failureCode = signal?.aborted ? 'CANCELLED' : ['MODEL_INVALID_JSON','MODEL_INCOMPLETE_OUTPUT','MODEL_TIMEOUT','MODEL_INVALID_READ_REQUEST'].includes(error?.code) ? error.code : 'REVIEW_EXECUTION_FAILED';
     }
   }
   await options.onProgress?.({stage:'batch-complete',snapshotId:input.id,files:report.files,findings:report.findings,limitations:report.limitations});
@@ -321,6 +336,7 @@ export function markdownReport(report) {
   if (report.businessGrouping) output.push('- 业务分组：' + safe(report.businessGrouping.status) + (report.businessGrouping.reason ? ' — ' + safe(report.businessGrouping.reason) : '') + '；仅调度假设，不证明依赖或覆盖');
   for (const file of report.files) for (const plan of file.riskPlans ?? []) output.push('- 风险计划：' + safe(file.path) + ' · ' + safe(plan.status) + ' · ' + plan.risks.length + '项待证假设；不表示缺陷成立或覆盖完成');
   for (const file of report.files) if(file.reviewPasses)output.push('- 独立审查轮次 '+safe(file.path)+'：'+file.reviewPasses.filter(p=>p.status==='completed').length+'/'+file.reviewPasses.length+'阶段完成；同一生命周期预算，后续轮无首轮计划；不证明代码正确。');
+  for(const file of report.files)for(const failure of file.stageFailures??[])output.push('- 未完成阶段：'+safe(file.path)+' · '+safe(failure.phase)+' · '+safe(failure.code)+'；主审成果保留。');
   for (const file of report.files) output.push('- ' + safe(file.path) + '：' + file.status + (file.reason ? ' — ' + safe(file.reason) : ''));
   if (report.grouping) {
     const names = new Map(report.files.map(f => [f.fileId, f.path]));
