@@ -3,6 +3,9 @@ export function validateWindowFindings(findings, windows, synthesis = false) {
   const edits = new Set(windows.flatMap(w => w.editIds));
   for (const finding of findings) {
     const attribution = finding.attribution;
+    if(attribution.status==='not-applicable'&&attribution.causality==='current-source-only'){
+      const anchor=finding.anchor;if(synthesis||anchor.kind!=='line'||anchor.side!=='new'||!windows.some(w=>anchor.start>=w.new.start&&anchor.end<w.new.start+w.new.count))throw new Error('Project finding outside approved current-source windows');continue;
+    }
     if (attribution.status !== 'references-validated' || !attribution.editIds?.length || attribution.editIds.some(id => !edits.has(id))) throw new Error('Finding outside current window edits');
     if (synthesis && windows.filter(w => w.editIds.some(id => attribution.editIds.includes(id))).length < 2) throw new Error('Synthesis finding must reference multiple windows');
     const anchor = finding.anchor;

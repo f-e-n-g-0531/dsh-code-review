@@ -19,7 +19,7 @@ export async function verificationLoop(model, request, candidates, scope, option
   const input = JSON.stringify({ contextSideNotice:CONTEXT_SIDE_NOTICE, ...(envelope.businessRequirement!==undefined?{businessRequirement:envelope.businessRequirement,requirementNotice:envelope.requirementNotice}:{}), defectGuidance: [...new Set(candidates.map(f => scope.catalog().find(s => s.fileId === f.fileId)?.path).filter(Boolean))].map(path => envelope.file?.path === path && envelope.defectGuidance ? envelope.defectGuidance : envelope.files?.find(f=>f.path===path)?.defectGuidance ?? defectGuidance(path)), rules, candidates: candidates.map((finding, i) => ({ candidateId: ids[i], finding })) });
   const receipts = createEvidenceReceipts(scope.read);
   const retrievalScope = { ...scope, read: receipts.read };
-  const response = await retrievalLoop(model, { ...request, input, instructions: VERIFICATION_INSTRUCTIONS }, retrievalScope, options);
+  const response = await retrievalLoop(model, { ...request, input, instructions:envelope.file?.reviewMode==='project'?VERIFICATION_INSTRUCTIONS+' 本次为当前项目源码审查，空old只是传输占位，不是历史版本。不要要求回归因果；regression.classification用uncertain并说明不适用，仅凭new侧原文核实当前缺陷和反证。':VERIFICATION_INSTRUCTIONS }, retrievalScope, options);
   request.signal?.throwIfAborted();
   return validateCandidateVerification(response, ids, scope.read, receipts.resolve, { catalog: scope.catalog(), fileIds: Object.fromEntries(ids.map((id, i) => [id, candidates[i].fileId])) });
 }

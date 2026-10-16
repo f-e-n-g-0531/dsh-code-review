@@ -15,7 +15,7 @@ import { initialInputBudget } from './input-budget.mjs';
 // Pure preparation over already captured data. No model calls or new reads.
 export function preparePrimaryInput(input, file, { instructions, scope, grouping, maxInputBytes }) {
   const changes = changeMap(file.left.text, file.right.text);
-  const base = { ...(input.history ? {contextSideNotice:CONTEXT_SIDE_NOTICE} : {}), ...(input.businessRequirement!==undefined?{businessRequirement:input.businessRequirement,requirementNotice:REQUIREMENT_NOTICE}:{}), defectGuidance: defectGuidance(file.path, file.rightExists === false ? file.left.text : file.right.text), snapshotId: input.id, file, changes, context: input.context ?? [], rules: input.rules ?? [] };
+  const base = { ...(input.projectScope?{projectScope:input.projectScope,reviewNotice:'Full current-file review; empty left is a sentinel, not a historical baseline. changes are transport coordinates only, do not infer introduced regression.'}:{}), ...(input.history ? {contextSideNotice:CONTEXT_SIDE_NOTICE} : {}), ...(input.businessRequirement!==undefined?{businessRequirement:input.businessRequirement,requirementNotice:REQUIREMENT_NOTICE}:{}), defectGuidance: defectGuidance(file.path, file.rightExists === false ? file.left.text : file.right.text), snapshotId: input.id, file, changes, context: input.context ?? [], rules: input.rules ?? [] };
   const contextRelations = inferContextRelations(input, file);
   if (contextRelations.length) {
     base.contextRelations = contextRelations;

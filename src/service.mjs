@@ -1,3 +1,4 @@
+import {createProjectReviewService} from './project-review-service.mjs';
 import {svnDiagnostic} from './svn-diagnostics.mjs';
 import { reviewRounds as validateReviewRounds } from './review-rounds.mjs';
 import { validateCallerScopes } from './caller-index.mjs';
@@ -19,7 +20,7 @@ function owner(exec) {
   if (!agent || typeof cwd !== 'string' || !cwd || !agent.options?.provider || !agent.options?.model) throw new Error('Active Agent with cwd and model is required');
   return { agent, cwd, route: { provider: agent.options.provider, model: agent.options.model, ...(agent.options.reasoningEffort ? { reasoningEffort: agent.options.reasoningEffort } : {}) } };
 }
-export function createReviewService(llm, { capture = captureSnapshot, now = Date.now, ttlMs = 300000, maxPreviews = 8, allowModelSending = false, enableRiskPlanning = false, skipSmallRiskPlans = true, reviewRounds = 1, enableBusinessGrouping = false, enableAnchorCorrection = false, authorize = async () => false } = {}) {
+function createSessionReviewService(llm, { capture = captureSnapshot, now = Date.now, ttlMs = 300000, maxPreviews = 8, allowModelSending = false, enableRiskPlanning = false, skipSmallRiskPlans = true, reviewRounds = 1, enableBusinessGrouping = false, enableAnchorCorrection = false, authorize = async () => false } = {}) {
   for (const value of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid preview limit');
   const lifetime = new AbortController();
   const bind = exec => ({ ...exec, signal: exec.signal ? AbortSignal.any([exec.signal, lifetime.signal]) : lifetime.signal });
@@ -82,4 +83,10 @@ export function createReviewService(llm, { capture = captureSnapshot, now = Date
     },
     dispose() { lifetime.abort(new Error('Review service disposed')); previews.clear(); },
   };
+}
+
+export function createReviewService(llm,options={}){
+ const sessions=new Map();let disposed=false;
+ const get=exec=>{if(disposed)throw new Error('Review service disposed');const agent=exec?.agent,key=agent?.session??agent;if(!key||typeof key!=='object')throw new Error('Active Agent required');if(!sessions.has(key)){const changes=createSessionReviewService(llm,options),project=createProjectReviewService(llm,options);let locked=false;const call=async(kind,args,exec)=>{if(locked)throw new Error('Review service busy');locked=true;try{return await (kind==='preview'?(args?.reviewMode==='project'?project.preview(args,exec):changes.preview(args?.reviewMode==='changes'?Object.fromEntries(Object.entries(args).filter(([key])=>key!=='reviewMode')):args,exec)):(project.owns(args?.previewId)?project.execute(args,exec):changes.execute(args,exec)));}finally{locked=false;}};sessions.set(key,{preview:(a,e)=>call('preview',a,e),execute:(a,e)=>call('execute',a,e),dispose(){changes.dispose();project.dispose();}});}return sessions.get(key);};
+ return {preview:async(args,exec)=>get(exec).preview(args,exec),execute:async(args,exec)=>get(exec).execute(args,exec),dispose(){disposed=true;for(const service of sessions.values())service.dispose();sessions.clear();}};
 }
