@@ -6,12 +6,12 @@ import path from 'node:path';
 // Report storage is host-owned, never inside a reviewed working copy.
 export function createReviewJobs({directory}={}){
  if(typeof directory!=='string'||!path.isAbsolute(directory))throw new Error('Absolute host report directory required');
- const jobs=new Map();let disposed=false;
+ const jobs=new Map();let disposed=false,canonicalDirectory;
  const identity=exec=>{const a=exec?.agent,s=a?.session;if(!s||!a.options?.provider||!a.options?.model||!s.header?.cwd)throw new Error('Review job requires session identity');const id=s.header.id??s.id;if(typeof id!=='string'||!id)throw new Error('Durable session id required');return {sessionId:id,cwd:s.header.cwd,provider:a.options.provider,model:a.options.model,reasoningEffort:a.options.reasoningEffort??null};};
  const same=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
  const pageCheckpoint=(c,offset,limit)=>({...c,...(c.files?{files:c.files.slice(offset,offset+limit),totalFiles:c.files.length}:{}),...(c.findings?{findings:c.findings.slice(offset,offset+limit),totalFindings:c.findings.length}: {})});
  const filename=id=>{if(typeof id!=='string'||!/^[a-f0-9-]{36}$/.test(id))throw new Error('Invalid review job id');return path.join(directory,id+'.json');};
- async function safeDirectory(){await mkdir(directory,{recursive:true,mode:0o700});const stat=await lstat(directory);if(stat.isSymbolicLink()||!stat.isDirectory()||path.resolve(await realpath(directory)).toLowerCase()!==path.resolve(directory).toLowerCase())throw new Error('Unsafe report directory');}
+ async function safeDirectory(){await mkdir(directory,{recursive:true,mode:0o700});const stat=await lstat(directory),resolved=await realpath(directory);if(stat.isSymbolicLink()||!stat.isDirectory()||(canonicalDirectory!==undefined&&resolved!==canonicalDirectory))throw new Error('Unsafe report directory');canonicalDirectory??=resolved;}
  async function save(job){await safeDirectory();const tmp=path.join(directory,job.id+'.'+randomUUID()+'.tmp');await writeFile(tmp,JSON.stringify(job.record),{mode:0o600,flag:'wx'});await rename(tmp,filename(job.id));}
  async function owned(id,exec){const who=identity(exec),job=jobs.get(id);if(job){if(!same(who,job.record.owner))throw new Error('Foreign review job');return job.record;}await safeDirectory();const name=filename(id),stat=await lstat(name);if(stat.isSymbolicLink()||!stat.isFile())throw new Error('Unsafe report file');const r=JSON.parse(await readFile(name,'utf8'));if(!same(who,r.owner))throw new Error('Foreign review job');if(['queued','running'].includes(r.status)){r.status='interrupted';r.notice='Host restarted or plugin disposed. Saved checkpoints are available; resending requires a fresh preview and approval.';}return r;}
  return {
