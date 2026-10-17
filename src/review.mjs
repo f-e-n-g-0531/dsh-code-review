@@ -21,6 +21,7 @@ import { createRetrievalScope } from './retrieval-scope.mjs';
 import { retrievalLoop } from './retrieval-loop.mjs';
 import { preparePrimaryInput } from './primary-input.mjs';
 import { validateAttribution } from './attribution.mjs';
+import { changeScopeLabel } from './git-change-scope.mjs';
 
 export { REVIEW_INSTRUCTIONS };
 export { PROJECT_REVIEW_INSTRUCTIONS };
@@ -111,6 +112,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   }
   if(input.projectScope)report.projectScope=structuredClone(input.projectScope);
   if (input.history) report.history = structuredClone(input.history);
+  if (input.changeScope) report.changeScope = input.changeScope;
   if (input.mergeSources) report.mergeSources = structuredClone(input.mergeSources);
   if(input.workingScope)report.workingScope=structuredClone(input.workingScope);
   if(input.effectiveMergeSources)report.effectiveMergeSources=structuredClone(input.effectiveMergeSources);
@@ -367,6 +369,7 @@ export function markdownReport(report) {
   if(report.businessRequirement)output.push('- 业务需求：SHA256 '+safe(report.businessRequirement.hash)+' · '+report.businessRequirement.bytes+' bytes；不可信约束，不是证据或权限，全文不在报告重复。');
   for (const file of report.files) for (const correction of file.anchorCorrections ?? []) output.push('- 定位纠正：' + safe(correction.originalCandidate.fileId) + ' · ' + safe(correction.status) + ' · ' + safe(correction.reason) + '；原完整候选保留JSON，仅定位不证明因果');
   if (report.history) output.push('- Git历史审查：' + safe(report.history.mode) + ' · ' + safe(report.history.base ?? 'empty') + ' → ' + safe(report.history.target) + '；精确端点树差异，重命名按增删，不含工作树');
+  if (report.changeScope) output.push('- Git审查范围：' + safe(changeScopeLabel(report.changeScope)) + '；其他范围未审查，未跟踪文件仍默认排除。');
   if (report.businessGrouping) output.push('- 业务分组：' + safe(report.businessGrouping.status) + (report.businessGrouping.reason ? ' — ' + safe(report.businessGrouping.reason) : '') + '；仅调度假设，不证明依赖或覆盖');
   for (const file of report.files) for (const plan of file.riskPlans ?? []) output.push('- 风险计划：' + safe(file.path) + ' · ' + safe(plan.status) + ' · ' + plan.risks.length + '项待证假设；不表示缺陷成立或覆盖完成');
   for (const file of report.files) if(file.reviewPasses)output.push('- 独立审查轮次 '+safe(file.path)+'：'+file.reviewPasses.filter(p=>p.status==='completed').length+'/'+file.reviewPasses.length+'阶段完成；同一生命周期预算，后续轮无首轮计划；不证明代码正确。');

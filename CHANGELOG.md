@@ -2,6 +2,10 @@
 
 本文件介绍对使用者有意义的变化。安装与参数见 [README](README.md)，本次发布正文见 [发布说明](RELEASE-NOTES.md)。历史提交和安装包保留在 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-review/releases)；本文不把开发日志当作功能介绍。
 
+## 0.84.0 — 暂存区与未暂存审查范围
+
+新增 Git `changeScope`：`staged` 只审查 HEAD 到索引的已暂存内容，工作区里尚未暂存的修改不作为变更正文参与或发送（上下文与规则文件仍按工作区读取）；`unstaged` 只审查索引到工作区的未暂存改动，已暂存内容仅作旧侧基线。省略时仍是 HEAD 到工作区的净变化。两个范围只用于 Git 工作副本，不能与历史版本、SVN 参数或全项目模式混用；未跟踪文件仍默认排除。预览与报告会标明实际比较范围，执行前重新核验对应内容。
+
 ## 0.83.1 — 代码结构整理
 
 整理内部结构，不改变行为：模型指令集中到 src/prompts.mjs 并由原模块继续重导出；重复的工具输出 schema 抽到 src/tool-view.mjs；缺陷/协议指引的扩展名判定改为优先级查找表；超长单行与巨型函数拆成具名小函数，覆盖 service、dsh-model、git、git-history、snapshot、review 渲染、项目模式、会话/后台任务与 SVN 纯辅助模块。工具参数、协议字段和报告语义不变，升级前后输出一致。

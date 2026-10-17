@@ -16,6 +16,7 @@ import { captureProjectRules } from './project-rules.mjs';
 import { captureSvn } from './svn.mjs';
 import { captureSvnHistory } from './svn-history.mjs';
 import { readLocal, relativePath, hash } from './content.mjs';
+import { CHANGE_SCOPES } from './git-change-scope.mjs';
 
 export async function detectVcs(cwd) {
   let current = await realpath(cwd);
@@ -50,6 +51,11 @@ export async function captureSnapshot(cwd, options = {}) {
   const { rulePaths, contextPaths, maxContextFiles, maxSnapshotBytes } = validateSnapshotOptions(options);
 
   const type = await detectVcs(cwd);
+  if (options.changeScope !== undefined) {
+    if (typeof options.changeScope !== 'string' || !CHANGE_SCOPES.includes(options.changeScope)) throw new Error('Invalid changeScope; expected worktree, staged or unstaged');
+    if (['commit', 'baseRevision', 'targetRevision', 'svnRevision', 'svnBaseRevision', 'svnTargetRevision', 'svnBasePath', 'svnTargetPath'].some(key => options[key] !== undefined)) throw new Error('changeScope applies to Git working-copy comparison only');
+    if (type !== 'git') throw new Error('changeScope requires a Git working copy');
+  }
   const replacementOptions = options.svnReplacementBaseRevision !== undefined || options.svnReplacementAllowNetwork !== undefined;
   if (replacementOptions) {
     if (type !== 'svn' || ['svnRevision', 'svnBaseRevision', 'svnTargetRevision', 'svnBasePath', 'svnTargetPath', 'commit', 'baseRevision', 'targetRevision'].some(key => options[key] !== undefined)) throw new Error('Replacement repository baseline requires SVN working-copy mode');

@@ -13,6 +13,7 @@ import { planWindowBatches } from './window-batches.mjs';
 import { changeWindows } from './change-windows.mjs';
 import { changeMap } from './change-map.mjs';
 import { initialInputBudget } from './input-budget.mjs';
+import { changeScopeNotice } from './git-change-scope.mjs';
 
 const CPP_FILE = /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/;
 const RELATION_NOTICE = '命名和相对导入关系仅为源码线索，可能被同名局部变量遮蔽，不证明绑定、调用可达或因果；只报告主file的问题，不为relatedFiles重复生成发现。';
@@ -35,6 +36,7 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
 
   const base = {
     ...(input.projectScope ? { projectScope: input.projectScope, reviewNotice: 'Full current-file review; empty left is a sentinel, not a historical baseline. changes are transport coordinates only, do not infer introduced regression.' } : {}),
+    ...(input.changeScope ? { changeScope: input.changeScope, changeScopeNotice: changeScopeNotice(input.changeScope) } : {}),
     ...(input.history ? { contextSideNotice: CONTEXT_SIDE_NOTICE } : {}),
     ...(input.businessRequirement !== undefined ? { businessRequirement: input.businessRequirement, requirementNotice: REQUIREMENT_NOTICE } : {}),
     defectGuidance: defectGuidance(file.path, file.rightExists === false ? file.left.text : file.right.text),
