@@ -52,21 +52,163 @@ const checklists = {
   properties: ['Check duplicate keys, malformed key-value entries (missing separator or stray whitespace) and unescaped backslashes/unicode in the visible scope.', 'Check plaintext passwords, API keys or connection strings; report only concrete sensitive values, not every user-editable property.'],
   json: ['Check spelling of JSON keys against the surrounding schema; ignore value content and do not infer a schema that is not captured.']
 };
+// ─────────────────────────────────────────────────────────────
+// Detection is declarative: priority-ordered tables, not nested ternaries.
+// Each table entry is [pattern, value]; the first match wins.
+const SNIFF_HEAD_BYTES = 8192;
+
+const OBJC_SOURCE_HINT = /^(?:#(?:import|include|pragma|if|define)\b|@(?:import|interface|implementation|class|protocol)\b|\/\/|\/\*)/;
+const MYBATIS_HINT = /<mapper\s+namespace\s*=|<!DOCTYPE\s+mapper\b|<(?:select|insert|update|delete)\s+id\s*=/;
+const SOLIDITY_HINT = /\/\/\s*SPDX-License-Identifier|pragma\s+solidity|\b(?:contract|interface|library)\s+[A-Za-z_$][A-Za-z0-9_$]*|\b(?:function|constructor|fallback|receive|modifier)\s*\(/;
+const FSHARP_HINT = /\blet\b|\bmodule\b|\bnamespace\b|\bopen\b|\btype\b|\[</;
+
+const SHADER_FILE = /\.(shader|hlsl|glsl|cginc|hlsli|compute)$/;
+
+const EXTENSION_LANGUAGE = [
+  [/\.mm$/, 'objc'],
+  [/\.swift$/, 'swift'],
+  [/\.ets$/, 'arkts'],
+  [/\.(vh|sv|svh|vhd|vhdl)$/, 'hdl'],
+  [/\.vy$/, 'vyper'],
+  [/\.rego$/, 'rego'],
+  [/\.(jsonnet|libsonnet)$/, 'jsonnet'],
+  [/\.nix$/, 'nix'],
+  [/\.zig$/, 'zig'],
+  [/\.r$/, 'rlang'],
+  [/\.elm$/, 'elm'],
+  [/\.(hs|lhs)$/, 'haskell'],
+  [/\.jl$/, 'julia'],
+  [/\.nim$/, 'nim'],
+  [/\.(ml|mli)$/, 'ocaml'],
+  [/\.po$/, 'po'],
+  [/\.java$/, 'java'],
+  [/\.go$/, 'go'],
+  [/\.(py|pyi)$/, 'python'],
+  [/\.rs$/, 'rust'],
+  [/\.(kt|kts)$/, 'kotlin'],
+  [/\.(php|phtml)$/, 'php'],
+];
+
+const BASE_LANGUAGE = [
+  [/\.(c|cc|cpp|cxx|h|hh|hpp|hxx)$/, 'cpp'],
+  [/\.cs$/, 'csharp'],
+  [/\.(js|jsx|mjs|cjs|ts|tsx)$/, 'javascript'],
+  [/\.(json|yaml|yml|toml|ini|xml|properties)$/, 'configuration'],
+];
+
+const TEMPLATE_FORMATS = [
+  [/\.(ftl|ftlh|ftlx)$/, 'freemarker'],
+  [/\.(hbs|mustache)$/, 'handlebars'],
+  [/\.(jinja2|j2)$/, 'jinja'],
+  [/\.pug$/, 'pug'],
+  [/\.astro$/, 'astro'],
+];
+
+const INFRA_FORMATS = [
+  [/\.(tf|hcl|tfvars)$/, 'terraform'],
+  [/\.bicep$/, 'bicep'],
+];
+
+const MANIFEST_FORMATS = [
+  [/(?:^|\/)package\.json$/, 'package_json'],
+  [/(?:^|\/)cargo\.toml$/, 'cargo_toml'],
+  [/(?:^|\/)pom\.xml$/, 'pom_xml'],
+  [/(?:^|\/)build\.gradle$/, 'build_gradle'],
+  [/(?:^|\/)composer\.json$/, 'composer_json'],
+];
+
+const PURPOSE_BY_EXTENSION = [
+  [/\.(ftl|ftlh|ftlx|hbs|mustache|jinja2|j2|pug|astro)$/, 'template'],
+  [/\.(tf|hcl|tfvars|bicep|nix)$/, 'infrastructure'],
+  [/\.(proto|thrift|capnp|graphql|gql|prisma)$/, 'protocol-schema'],
+];
+
+const DEFAULT_TEMPLATE_CHECKS = [
+  'Check escaping for the actual HTML/attribute/URL/script context, untrusted raw output and template execution boundaries.',
+  'Check missing/null variables and changed conditional branches against captured callers; do not invent engine defaults.',
+];
+
+const DEFAULT_INFRA_CHECKS = [
+  'Check privilege/network exposure, secret/state handling and untrusted interpolation against actual provider semantics.',
+  'Check replacement/deletion, dependency order and changed defaults for concrete data loss or service disruption; configuration is not an applied plan.',
+];
+
+/** First matching table entry's value, otherwise null. Priority = array order. */
+function firstMatch(table, lower) {
+  for (const [pattern, value] of table) if (pattern.test(lower)) return value;
+  return null;
+}
+
+/** Content sniffing for extensions whose meaning depends on the file body. */
+function sniffContent(lower, head, first) {
+  if (lower.endsWith('.m')) return OBJC_SOURCE_HINT.test(first) ? 'objc' : 'matlab';
+  if (lower.endsWith('.xml') && MYBATIS_HINT.test(head)) return 'mybatis';
+  if (lower.endsWith('.sol') && SOLIDITY_HINT.test(head)) return 'solidity';
+  if (/\.(fs|fsi|fsx)$/.test(lower) && FSHARP_HINT.test(head)) return 'fsharp';
+  return null;
+}
+
 export function defectGuidance(filePath, sourceText = '') {
- const lower = filePath.toLowerCase(), protocol = protocolGuidance(filePath);
- const head = typeof sourceText === 'string' ? sourceText.slice(0,8192) : '';
- const first = head.split('\n').map(s=>s.trim()).find(Boolean) ?? '';
- const sniffed = lower.endsWith('.m') ? (/^(?:#(?:import|include|pragma|if|define)\b|@(?:import|interface|implementation|class|protocol)\b|\/\/|\/\*)/.test(first) ? 'objc' : 'matlab') : lower.endsWith('.xml') && /<mapper\s+namespace\s*=|<!DOCTYPE\s+mapper\b|<(?:select|insert|update|delete)\s+id\s*=/.test(head) ? 'mybatis' : lower.endsWith('.sol') && /\/\/\s*SPDX-License-Identifier|pragma\s+solidity|\b(?:contract|interface|library)\s+[A-Za-z_$][A-Za-z0-9_$]*|\b(?:function|constructor|fallback|receive|modifier)\s*\(/.test(head) ? 'solidity' : /\.(fs|fsi|fsx)$/.test(lower) && /\blet\b|\bmodule\b|\bnamespace\b|\bopen\b|\btype\b|\[</.test(head) ? 'fsharp' : null;
- const specialized = /\.(shader|hlsl|glsl|cginc|hlsli|compute)$/.test(lower) ? 'shader' : sniffed ?? (/\.mm$/.test(lower) ? 'objc' : /\.swift$/.test(lower) ? 'swift' : /\.ets$/.test(lower) ? 'arkts' : /\.(vh|sv|svh|vhd|vhdl)$/.test(lower) ? 'hdl' : /\.vy$/.test(lower) ? 'vyper' : /\.rego$/.test(lower) ? 'rego' : /\.(jsonnet|libsonnet)$/.test(lower) ? 'jsonnet' : /\.nix$/.test(lower) ? 'nix' : /\.zig$/.test(lower) ? 'zig' : /\.r$/.test(lower) ? 'rlang' : /\.elm$/.test(lower) ? 'elm' : /\.(hs|lhs)$/.test(lower) ? 'haskell' : /\.jl$/.test(lower) ? 'julia' : /\.nim$/.test(lower) ? 'nim' : /\.(ml|mli)$/.test(lower) ? 'ocaml' : /\.po$/.test(lower) ? 'po' : null) ?? (/\.java$/.test(lower) ? 'java' : /\.go$/.test(lower) ? 'go' : /\.(py|pyi)$/.test(lower) ? 'python' : /\.rs$/.test(lower) ? 'rust' : /\.(kt|kts)$/.test(lower) ? 'kotlin' : /\.(php|phtml)$/.test(lower) ? 'php' : null);
- const language = protocol?.language ?? specialized ?? (/\.(c|cc|cpp|cxx|h|hh|hpp|hxx)$/.test(lower) ? 'cpp' : lower.endsWith('.cs') ? 'csharp' : /\.(js|jsx|mjs|cjs|ts|tsx)$/.test(lower) ? 'javascript' : /\.(json|yaml|yml|toml|ini|xml|properties)$/.test(lower) ? 'configuration' : 'generic');
- const fileType = /^\.github\/workflows\/.+\.(yaml|yml)$/.test(lower) ? 'github-workflow' : /(?:^|\/)(package\.json|cargo\.toml|pom\.xml|build\.gradle|composer\.json)$/.test(lower) ? 'dependency-manifest' : undefined;
- const purpose = fileType ?? (/\.(ftl|ftlh|ftlx|hbs|mustache|jinja2|j2|pug|astro)$/.test(lower) ? 'template' : /\.(tf|hcl|tfvars|bicep|nix)$/.test(lower) ? 'infrastructure' : /\.(proto|thrift|capnp|graphql|gql|prisma)$/.test(lower) ? 'protocol-schema' : undefined);
- const templateFormat = /\.(ftl|ftlh|ftlx)$/.test(lower) ? 'freemarker' : /\.(hbs|mustache)$/.test(lower) ? 'handlebars' : /\.(jinja2|j2)$/.test(lower) ? 'jinja' : /\.pug$/.test(lower) ? 'pug' : /\.astro$/.test(lower) ? 'astro' : undefined;
-  const infraFormat = /\.(tf|hcl|tfvars)$/.test(lower) ? 'terraform' : /\.bicep$/.test(lower) ? 'bicep' : undefined;
-  const purposeChecks = purpose === 'protocol-schema' ? protocol.checks : purpose === 'template' ? (checklists[templateFormat] ?? ['Check escaping for the actual HTML/attribute/URL/script context, untrusted raw output and template execution boundaries.', 'Check missing/null variables and changed conditional branches against captured callers; do not invent engine defaults.']) : purpose === 'infrastructure' ? (checklists[infraFormat] ?? ['Check privilege/network exposure, secret/state handling and untrusted interpolation against actual provider semantics.', 'Check replacement/deletion, dependency order and changed defaults for concrete data loss or service disruption; configuration is not an applied plan.']) : [];
- const reactChecks = /\.(jsx|tsx)$/.test(lower) ? checklists.react : [];
- const manifestFormat = /(?:^|\/)package\.json$/.test(lower) ? 'package_json' : /(?:^|\/)cargo\.toml$/.test(lower) ? 'cargo_toml' : /(?:^|\/)pom\.xml$/.test(lower) ? 'pom_xml' : /(?:^|\/)build\.gradle$/.test(lower) ? 'build_gradle' : /(?:^|\/)composer\.json$/.test(lower) ? 'composer_json' : undefined;
- const configFormat = fileType === 'github-workflow' ? 'github_workflows' : /^\.github\/.+\.(yaml|yml)$/.test(lower) ? 'github_config' : /\.(yaml|yml)$/.test(lower) ? 'yaml' : /\.properties$/.test(lower) ? 'properties' : /\.(json|json5)$/.test(lower) ? 'json' : undefined;
- const format = manifestFormat ?? configFormat;
- return { version:5, language, ...(sniffed ? {selection:'bounded-first-nonblank-line-hint'} : {}), ...(purpose ? {fileType:purpose} : {}), ...(format || templateFormat || infraFormat ? {format: format ?? templateFormat ?? infraFormat} : {}), checks:[...common,...(format ? (checklists[format] ?? []) : (checklists[language] ?? [])),...reactChecks,...purposeChecks], notice:'Guidance is not evidence, a semantic parser, a style rule or permission to read outside the snapshot.' };
+  const lower = filePath.toLowerCase();
+  const protocol = protocolGuidance(filePath);
+  const head = typeof sourceText === 'string' ? sourceText.slice(0, SNIFF_HEAD_BYTES) : '';
+  const first = head.split('\n').map(line => line.trim()).find(Boolean) ?? '';
+
+  const sniffed = sniffContent(lower, head, first);
+
+  // Priority: shader extension > content sniffing > plain extension lookup.
+  const specialized =
+    (SHADER_FILE.test(lower) ? 'shader' : null) ??
+    sniffed ??
+    firstMatch(EXTENSION_LANGUAGE, lower);
+
+  const language =
+    protocol?.language ??
+    specialized ??
+    (firstMatch(BASE_LANGUAGE, lower) ?? 'generic');
+
+  const fileType =
+    /^\.github\/workflows\/.+\.(yaml|yml)$/.test(lower) ? 'github-workflow'
+    : /(?:^|\/)(package\.json|cargo\.toml|pom\.xml|build\.gradle|composer\.json)$/.test(lower) ? 'dependency-manifest'
+    : undefined;
+
+  const purposeCategory = firstMatch(PURPOSE_BY_EXTENSION, lower);
+  const purpose = fileType ?? purposeCategory;
+
+  const templateFormat = firstMatch(TEMPLATE_FORMATS, lower);
+  const infraFormat = firstMatch(INFRA_FORMATS, lower);
+
+  const purposeChecks =
+    purpose === 'protocol-schema' ? protocol.checks
+    : purpose === 'template' ? (checklists[templateFormat] ?? DEFAULT_TEMPLATE_CHECKS)
+    : purpose === 'infrastructure' ? (checklists[infraFormat] ?? DEFAULT_INFRA_CHECKS)
+    : [];
+
+  const reactChecks = /\.(jsx|tsx)$/.test(lower) ? checklists.react : [];
+
+  const manifestFormat = firstMatch(MANIFEST_FORMATS, lower);
+  const configFormat =
+    fileType === 'github-workflow' ? 'github_workflows'
+    : /^\.github\/.+\.(yaml|yml)$/.test(lower) ? 'github_config'
+    : /\.(yaml|yml)$/.test(lower) ? 'yaml'
+    : /\.properties$/.test(lower) ? 'properties'
+    : /\.(json|json5)$/.test(lower) ? 'json'
+    : undefined;
+
+  const format = manifestFormat ?? configFormat;
+
+  return {
+    version: 5,
+    language,
+    ...(sniffed ? { selection: 'bounded-first-nonblank-line-hint' } : {}),
+    ...(purpose ? { fileType: purpose } : {}),
+    ...(format || templateFormat || infraFormat ? { format: format ?? templateFormat ?? infraFormat } : {}),
+    checks: [
+      ...common,
+      ...(format ? (checklists[format] ?? []) : (checklists[language] ?? [])),
+      ...reactChecks,
+      ...purposeChecks,
+    ],
+    notice: 'Guidance is not evidence, a semantic parser, a style rule or permission to read outside the snapshot.',
+  };
 }

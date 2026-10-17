@@ -4,55 +4,80 @@ import { run, checked } from './process.mjs';
 import { hash, decode, readLocal, relativePath } from './content.mjs';
 
 const flags = ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false'];
+const STATUS_ARGS = ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'];
 const git = (cwd, args, options) => checked('git', [...flags, ...args], { ...options, cwd });
 const text = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 
-export async function captureGit(cwd, options = {}) {
-  const { signal, selectedPaths, maxFiles = 200, maxFileBytes = 256 * 1024 } = options;
-  if (selectedPaths) for (const name of selectedPaths) relativePath(name);
-  const root = await realpath(text(await git(cwd, ['rev-parse', '--show-toplevel'], options)).trim());
-  const statusArgs = ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'];
-  const before = await git(root, statusArgs, options);
+async function resolveRoot(cwd, options) {
+  const top = text(await git(cwd, ['rev-parse', '--show-toplevel'], options)).trim();
+  return realpath(top);
+}
+
+/** HEAD commit sha, or null only for a genuinely unborn branch. */
+async function resolveHead(root, options) {
   const headResult = await run('git', [...flags, 'rev-parse', '--verify', 'HEAD'], { ...options, cwd: root });
-  // Only a genuinely unborn branch may use an empty baseline.
-  let head = headResult.code === 0 ? text(headResult.stdout).trim() : null;
-  if (!head) {
-    const branch = text(await git(root, ['symbolic-ref', 'HEAD'], options)).trim();
-    const ref = await run('git', [...flags, 'show-ref', '--verify', '--quiet', branch], { ...options, cwd: root });
-    if (ref.code !== 1) throw new Error('Cannot resolve Git HEAD');
-  }
-  const base = new Map();
-  // Resolve only reviewable changed baselines below; never enumerate the HEAD tree.
-  const records = text(before).split('\0');
+  const head = headResult.code === 0 ? text(headResult.stdout).trim() : null;
+  if (head) return head;
+  const branch = text(await git(root, ['symbolic-ref', 'HEAD'], options)).trim();
+  const ref = await run('git', [...flags, 'show-ref', '--verify', '--quiet', branch], { ...options, cwd: root });
+  if (ref.code !== 1) throw new Error('Cannot resolve Git HEAD');
+  return null;
+}
+
+function parseChanges(bytes) {
+  const records = text(bytes).split('\0');
   const changes = [];
   for (let i = 0; i < records.length; i++) {
     if (!records[i]) continue;
-    const rawStatus = records[i].slice(0, 2), name = records[i].slice(3);
+    const rawStatus = records[i].slice(0, 2);
+    const name = records[i].slice(3);
     let oldPath;
     if (/[RC]/.test(rawStatus)) oldPath = records[++i];
     changes.push({ path: name, ...(oldPath ? { oldPath } : {}), rawStatus });
   }
+  return changes;
+}
+
+/** Resolve only reviewable changed baselines; never enumerate the whole HEAD tree. */
+async function resolveBaselines(root, head, changes, selectedPaths, options, signal) {
+  const base = new Map();
+  const requested = [...new Set(changes
+    .filter(change =>
+      !isSecretPath(change.path) &&
+      !isSecretPath(change.oldPath) &&
+      (!selectedPaths || selectedPaths.includes(change.path)) &&
+      (change.rawStatus !== '??' || selectedPaths?.includes(change.path)))
+    .map(change => relativePath(change.oldPath ?? change.path)))];
+  for (const name of requested) {
+    signal?.throwIfAborted();
+    const records = text(await git(root, ['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', head, '--', name], options)).split('\0').filter(Boolean);
+    for (const record of records) {
+      const m = /^(\d{6}) (blob|tree|commit) ([a-f0-9]{40}|[a-f0-9]{64})\t([\s\S]+)$/.exec(record);
+      if (!m || m[4] !== name || base.has(name)) throw new Error('Invalid changed baseline lookup');
+      base.set(name, { mode: m[1], type: m[2], oid: m[3] });
+    }
+  }
+  return base;
+}
+
+export async function captureGit(cwd, options = {}) {
+  const { signal, selectedPaths, maxFiles = 200, maxFileBytes = 256 * 1024 } = options;
+  if (selectedPaths) for (const name of selectedPaths) relativePath(name);
+  const root = await resolveRoot(cwd, options);
+  const before = await git(root, STATUS_ARGS, options);
+  const head = await resolveHead(root, options);
+  const changes = parseChanges(before);
   if (changes.length > maxFiles) throw new Error('Change count limit exceeded; narrow repository scope');
   const known = new Set(changes.map(c => c.path));
   if (selectedPaths?.some(p => !known.has(p))) throw new Error('Selected path is not a current change');
-  if (head) {
-    const requested = [...new Set(changes.filter(c => !isSecretPath(c.path) && !isSecretPath(c.oldPath) && (!selectedPaths || selectedPaths.includes(c.path)) && (c.rawStatus !== '??' || selectedPaths?.includes(c.path))).map(c => relativePath(c.oldPath ?? c.path)))];
-    for (const name of requested) {
-      signal?.throwIfAborted();
-      const records = text(await git(root, ['--literal-pathspecs','ls-tree','-z','--full-tree',head,'--',name], options)).split('\0').filter(Boolean);
-      for (const record of records) {
-        const m = /^(\d{6}) (blob|tree|commit) ([a-f0-9]{40}|[a-f0-9]{64})\t([\s\S]+)$/.exec(record);
-        if (!m || m[4] !== name || base.has(name)) throw new Error('Invalid changed baseline lookup');
-        base.set(name,{mode:m[1],type:m[2],oid:m[3]});
-      }
-    }
-  }
+  const base = head ? await resolveBaselines(root, head, changes, selectedPaths, options, signal) : new Map();
+
   const files = [];
   for (const change of changes) {
     signal?.throwIfAborted();
     const item = { ...change, id: hash(change.path), eligibility: 'reviewable', properties: [] };
     files.push(item);
-    if (isSecretPath(change.path) || isSecretPath(change.oldPath)) { item.eligibility='excluded'; item.reason='Credential path excluded'; continue; }
+    if (isSecretPath(change.path) || isSecretPath(change.oldPath)) { item.eligibility = 'excluded'; item.reason = 'Credential path excluded'; continue; }
     if ((selectedPaths && !selectedPaths.includes(change.path)) || (change.rawStatus === '??' && !selectedPaths?.includes(change.path))) {
       item.eligibility = 'excluded'; item.reason = 'Not explicitly selected'; continue;
     }
@@ -64,19 +89,24 @@ export async function captureGit(cwd, options = {}) {
       if (previous && (previous.type !== 'blob' || previous.mode === '120000')) throw new Error('Submodule or symbolic link baseline');
       const left = previous ? await git(root, ['cat-file', 'blob', previous.oid], { ...options, maxBytes: maxFileBytes }) : Buffer.alloc(0);
       item.left = decode(left);
-      try { item.right = await readLocal(root, change.path, options); item.rightExists = true; }
-      catch (error) {
+      try {
+        item.right = await readLocal(root, change.path, options);
+        item.rightExists = true;
+      } catch (error) {
         if (error.code === 'ENOENT' && change.rawStatus.includes('D')) { item.right = decode(Buffer.alloc(0)); item.rightExists = false; }
         else throw error;
       }
-      if (previous && item.rightExists && item.left.hash === item.right.hash && !change.oldPath) { item.eligibility = 'excluded'; item.reason = 'No net content change (mode-only changes not analyzed)'; }
+      if (previous && item.rightExists && item.left.hash === item.right.hash && !change.oldPath) {
+        item.eligibility = 'excluded'; item.reason = 'No net content change (mode-only changes not analyzed)';
+      }
     } catch (error) {
       signal?.throwIfAborted();
       item.eligibility = 'blocked'; item.reason = error.message;
       delete item.left; delete item.right;
     }
   }
-  if (!(await git(root, statusArgs, options)).equals(before)) throw new Error('Repository changed during capture');
+
+  if (!(await git(root, STATUS_ARGS, options)).equals(before)) throw new Error('Repository changed during capture');
   const finalHead = await run('git', [...flags, 'rev-parse', '--verify', 'HEAD'], { ...options, cwd: root });
   if ((finalHead.code === 0 ? text(finalHead.stdout).trim() : null) !== head) throw new Error('HEAD changed during capture');
   for (const file of files.filter(f => f.right)) {

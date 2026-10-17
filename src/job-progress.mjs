@@ -1,2 +1,21 @@
-import {recoveryCoverage} from './recovery-coverage.mjs';
-export function jobProgress(record){const r=recoveryCoverage(record),counts={completed:0,excluded:0,blocked:0,failed:0,cancelled:0,pending:0};for(const f of r.files)counts[f.status]=(counts[f.status]??0)+1;const terminal=!['queued','running'].includes(record.status);return {stage:record.stage,terminal,elapsedMs:Date.now()-Date.parse(record.createdAt),total:r.manifestSaved?r.files.length:null,counts,processed:r.files.filter(f=>!['pending'].includes(f.status)).length,percent:r.manifestSaved&&r.files.length?Math.floor(100*r.files.filter(f=>!['pending'].includes(f.status)).length/r.files.length):null,notice:'Percent measures terminal primary-file processing, not successful review or synthesis completion. Unknown capture denominator is null, never invented.'};}
+import { recoveryCoverage } from './recovery-coverage.mjs';
+
+const NOTICE = 'Percent measures terminal primary-file processing, not successful review or synthesis completion. Unknown capture denominator is null, never invented.';
+
+export function jobProgress(record) {
+  const r = recoveryCoverage(record);
+  const counts = { completed: 0, excluded: 0, blocked: 0, failed: 0, cancelled: 0, pending: 0 };
+  for (const f of r.files) counts[f.status] = (counts[f.status] ?? 0) + 1;
+  const terminal = !['queued', 'running'].includes(record.status);
+  const processed = r.files.filter(f => !['pending'].includes(f.status)).length;
+  return {
+    stage: record.stage,
+    terminal,
+    elapsedMs: Date.now() - Date.parse(record.createdAt),
+    total: r.manifestSaved ? r.files.length : null,
+    counts,
+    processed,
+    percent: r.manifestSaved && r.files.length ? Math.floor(100 * processed / r.files.length) : null,
+    notice: NOTICE,
+  };
+}

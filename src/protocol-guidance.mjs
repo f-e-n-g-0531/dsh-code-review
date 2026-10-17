@@ -21,4 +21,16 @@ const checks={
   'Check concrete data loss, migration order and client rollout counterexamples; do not require indexes or tenant fields from names alone or invent database enforcement in emulated relations.'
  ]
 };
-export function protocolGuidance(filePath){const lower=filePath.toLowerCase();const language=/\.proto$/.test(lower)?'protobuf':/\.thrift$/.test(lower)?'thrift':/\.capnp$/.test(lower)?'capnp':/\.(graphql|gql)$/.test(lower)?'graphql':/\.prisma$/.test(lower)?'prisma':undefined;return language?{language,checks:[...checks[language]]}:undefined;}
+const PROTOCOL_LANGUAGE = [
+  [/\.proto$/, 'protobuf'],
+  [/\.thrift$/, 'thrift'],
+  [/\.capnp$/, 'capnp'],
+  [/\.(graphql|gql)$/, 'graphql'],
+  [/\.prisma$/, 'prisma'],
+];
+
+export function protocolGuidance(filePath) {
+  const lower = filePath.toLowerCase();
+  const language = PROTOCOL_LANGUAGE.find(([re]) => re.test(lower))?.[1];
+  return language ? { language, checks: [...checks[language]] } : undefined;
+}

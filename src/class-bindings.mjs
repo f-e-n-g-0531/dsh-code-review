@@ -3,6 +3,12 @@
 // and duplicate definitions are all refused.
 const BS = String.fromCharCode(96);
 const NL = String.fromCharCode(10);
+
+const escapeDollar = name => name.replaceAll('$', '\\$');
+function boundaryPattern(name, suffix, flags = '') {
+  return new RegExp('(^|[^A-Za-z0-9_$])' + escapeDollar(name) + suffix, flags);
+}
+
 function classBody(lines, classLine) {
   const col = lines[classLine - 1].indexOf('{');
   if (col < 0) return null;
@@ -11,25 +17,47 @@ function classBody(lines, classLine) {
   while (i < rest.length && depth > 0) {
     const ch = rest[i];
     if (ch === '"' || ch === "'" || ch === BS) {
-      const q = ch; out += ch; i++;
-      while (i < rest.length && rest[i] !== q) { out += rest[i]; if (rest[i] === '\\' && i + 1 < rest.length) { out += rest[i + 1]; i += 2; continue; } i++; }
+      const q = ch;
+      out += ch;
+      i++;
+      while (i < rest.length && rest[i] !== q) {
+        out += rest[i];
+        if (rest[i] === '\\' && i + 1 < rest.length) { out += rest[i + 1]; i += 2; continue; }
+        i++;
+      }
       if (i < rest.length) { out += rest[i]; i++; }
       continue;
     }
-    if (ch === '/' && rest[i + 1] === '/') { const e = rest.indexOf(NL, i); i = e < 0 ? rest.length : e; continue; }
+    if (ch === '/' && rest[i + 1] === '/') {
+      const e = rest.indexOf(NL, i);
+      i = e < 0 ? rest.length : e;
+      continue;
+    }
     if (ch === '{') depth++;
     else if (ch === '}') { depth--; if (depth === 0) return out; }
-    out += ch; i++;
+    out += ch;
+    i++;
   }
   return null;
 }
+
 function directMethods(body) {
   const out = [];
   let depth = 0;
   for (let i = 0; i < body.length;) {
     const ch = body[i];
-    if (ch === '"' || ch === "'" || ch === BS) { const q = ch; i++; while (i < body.length && body[i] !== q) { if (body[i] === '\\') i++; i++; } i++; continue; }
-    if (ch === '/' && body[i + 1] === '/') { const e = body.indexOf(NL, i); i = e < 0 ? body.length : e; continue; }
+    if (ch === '"' || ch === "'" || ch === BS) {
+      const q = ch;
+      i++;
+      while (i < body.length && body[i] !== q) { if (body[i] === '\\') i++; i++; }
+      i++;
+      continue;
+    }
+    if (ch === '/' && body[i + 1] === '/') {
+      const e = body.indexOf(NL, i);
+      i = e < 0 ? body.length : e;
+      continue;
+    }
     if (ch === '{') { depth++; i++; continue; }
     if (ch === '}') { depth--; i++; continue; }
     if (depth === 0) {
@@ -40,6 +68,7 @@ function directMethods(body) {
   }
   return out;
 }
+
 export function instanceMethodBindings(lines, importLine, targetText) {
   if (!Array.isArray(lines) || lines.length > 20000 || typeof targetText !== 'string') return [];
   const caller = lines.join(NL);
@@ -72,9 +101,10 @@ export function instanceMethodBindings(lines, importLine, targetText) {
     if (names[d.name] !== 1) continue;
     if (d.name === 'constructor') continue;
     const member = d.name;
-    const token = new RegExp('(^|[^A-Za-z0-9_$])' + member.replaceAll('$', '\\$') + '(?=[^A-Za-z0-9_$]|$)', 'g');
+    const token = boundaryPattern(member, '(?=[^A-Za-z0-9_$]|$)', 'g');
     const occ = [];
-    let m; while ((m = token.exec(body)) !== null) occ.push(m.index);
+    let m;
+    while ((m = token.exec(body)) !== null) occ.push(m.index);
     if (occ.length !== 1) continue;
     const before = body.slice(0, d.i);
     const spanStart = Math.max(before.lastIndexOf('}'), before.lastIndexOf(';'), before.lastIndexOf('{'));
@@ -89,14 +119,17 @@ export function instanceMethodBindings(lines, importLine, targetText) {
       if (a && a[2] === local) { if (assign !== null) return []; assign = i + 1; inst = a[1]; }
     }
     if (assign === null || inst === member || inst === klass || inst === local) continue;
-    const newCount = [...caller.matchAll(new RegExp('(^|[^A-Za-z0-9_$])new\\s+' + local.replaceAll('$', '\\$') + '\\s*\\(', 'g'))].length;
+    const newCount = [...caller.matchAll(new RegExp('(^|[^A-Za-z0-9_$])new\\s+' + escapeDollar(local) + '\\s*\\(', 'g'))].length;
     if (newCount !== 1) continue;
-    const instToken = new RegExp('(^|[^A-Za-z0-9_$])' + inst.replaceAll('$', '\\$') + '(?=[^A-Za-z0-9_$]|$)', 'g');
+    const instToken = boundaryPattern(inst, '(?=[^A-Za-z0-9_$]|$)', 'g');
     const instLines = [];
-    for (let i = 0; i < lines.length; i++) { const o = [...lines[i].matchAll(instToken)]; if (o.length) { if (o.length !== 1) return []; instLines.push(i + 1); } }
+    for (let i = 0; i < lines.length; i++) {
+      const o = [...lines[i].matchAll(instToken)];
+      if (o.length) { if (o.length !== 1) return []; instLines.push(i + 1); }
+    }
     if (instLines.length !== 2 || !instLines.includes(assign)) continue;
     const callLine = instLines.find(l => l !== assign);
-    const callRe = new RegExp('^\\s*(?:await\\s+)?' + inst.replaceAll('$', '\\$') + '\\.([A-Za-z_$][A-Za-z0-9_$]*)\\s*\\([^();"\x27/]*\\)\\s*;?\\s*$');
+    const callRe = new RegExp('^\\s*(?:await\\s+)?' + escapeDollar(inst) + '\\.([A-Za-z_$][A-Za-z0-9_$]*)\\s*\\([^();"\x27/]*\\)\\s*;?\\s*$');
     const call = callRe.exec(lines[callLine - 1]);
     if (!call || call[1] !== member) continue;
     const methodLine = classLine + (body.slice(0, d.i).split(NL).length - 1);

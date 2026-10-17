@@ -21,6 +21,32 @@ function owner(exec) {
   if (!agent || typeof cwd !== 'string' || !cwd || !agent.options?.provider || !agent.options?.model) throw new Error('Active Agent with cwd and model is required');
   return { agent, cwd, route: { provider: agent.options.provider, model: agent.options.model, ...(agent.options.reasoningEffort ? { reasoningEffort: agent.options.reasoningEffort } : {}) } };
 }
+/** Project one snapshot file into its preview shape; keeps the dense conditionals in one place. */
+function describeFile(file, snapshot) {
+  return {
+    path: file.path,
+    ...(file.workingSource ? { workingSource: file.workingSource } : {}),
+    ...(file.replacementSource ? { replacementSource: file.replacementSource, contentNotice: file.contentNotice } : {}),
+    eligibility: file.eligibility,
+    reason: file.reason,
+    ...(file.specialData ? { specialData: file.specialData, contentNotice: file.contentNotice } : {}),
+    ...(file.eolMapping ? { eolMapping: file.eolMapping, textNotice: file.textNotice } : {}),
+    ...(file.keywordMapping ? { keywordMapping: file.keywordMapping, textNotice: file.textNotice } : {}),
+    ...(file.rawStatus === 'replaced' && (snapshot.history?.vcs === 'svn' || file.replacementSource)
+      ? { oldKind: file.oldKind, newKind: file.newKind, nodeNotice: file.nodeNotice }
+      : {}),
+    ...(file.blockCode
+      ? { blockCode: file.blockCode, ...(svnDiagnostic(file.blockCode) ? { diagnostic: svnDiagnostic(file.blockCode) } : {}) }
+      : {}),
+    ...(file.copySource ? { copySource: file.copySource, copyNotice: file.copyNotice } : {}),
+  };
+}
+
+/** Compose the user-facing preview notice; text is verbatim from the original rules. */
+function buildPreviewNotice(snapshot, options, enableRiskPlanning) {
+  return (snapshot.history?.vcs==='svn'&&options.autoContext===true?'SVN历史autoContext为精确依赖定位读取固定版本父目录有界清单，包含同目录非匹配名字元数据；仅匹配捕获正文发送模型，不扫描全仓，不用工作树替代历史版本。':'') + (options.oldContextPaths !== undefined ? 'oldContextPaths仅为baseline旧侧正文，无目标侧替代；选中变更复用原old身份，旧侧不能证明新侧行为。' : '') + (snapshot.callerDiscovery ? 'callerScopePaths已授权预览读取限定目录内tracked候选正文，包括不匹配文件；非匹配正文不发送模型，匹配捕获上下文会发送。仅字面引用导航，不是函数调用或完整调用覆盖。' : '') + (enableRiskPlanning ? '执行按plan阈值决定风险假设规划，小变更可跳过独立规划但仍主审并复核；计划不是证据，所有阶段共享原预算。' : '') + '执行会向上述模型提供方发送可审查文件两侧内容、预览列出的显式/自动上下文、所选项目规则全文及预览业务需求文本。模型可在该快照范围内多轮只读检索，不读取范围外文件；候选生成后会进行证据与反证复核，两阶段各最多3轮检索，不设插件内部默认时间或总模型调用次数截止，遵循宿主/用户取消；输入字节和检索轮次保护仍保留；复核不能证明缺陷成立。plan.reviewRounds为独立审查工作量，非模型reasoning effort；后续轮不带首轮风险计划，所有轮共享原超时与预算。plan仅预检初始输入，ready不代表已审查；minimumCalls不含后续检索/复核/动态业务综合；多文件可先进行业务分组，分组失败保留原组并记录限制，动态综合数执行前未知，实际预算可能不足。请先向用户展示范围，获得确认后执行。';
+}
+
 function createSessionReviewService(llm, { capture = captureSnapshot, now = Date.now, ttlMs = 300000, maxPreviews = 8, allowModelSending = false, enableRiskPlanning = false, skipSmallRiskPlans = true, reviewRounds = 1, enableBusinessGrouping = false, enableAnchorCorrection = false, authorize = async () => false } = {}) {
   for (const value of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid preview limit');
   const lifetime = new AbortController();
@@ -52,7 +78,43 @@ function createSessionReviewService(llm, { capture = captureSnapshot, now = Date
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
         previews.set(previewId, { ...current, target, options, rounds, snapshotId: snapshot.id, expires: now() + ttlMs });
-        return { ...(options.businessRequirement!==undefined?{businessRequirement:{text:options.businessRequirement,hash:hash(options.businessRequirement),bytes:Buffer.byteLength(options.businessRequirement)}}:{}), previewId, plan, snapshotId: snapshot.id, repositoryRoot: snapshot.root, vcs: snapshot.vcs,...(snapshot.workingScope?{workingScope:snapshot.workingScope}:{}), ...(snapshot.history ? { history: snapshot.history } : {}), ...(snapshot.mergeSources ? {mergeSources:snapshot.mergeSources} : {}),...(snapshot.effectiveMergeSources?{effectiveMergeSources:snapshot.effectiveMergeSources}:{}), model: current.route, modelSendingEnabled: allowModelSending, files: snapshot.files.map(f => ({ path: f.path,...(f.workingSource?{workingSource:f.workingSource}:{}),...(f.replacementSource?{replacementSource:f.replacementSource,contentNotice:f.contentNotice}:{}), eligibility: f.eligibility, reason: f.reason,...(f.specialData?{specialData:f.specialData,contentNotice:f.contentNotice}:{}), ...(f.eolMapping?{eolMapping:f.eolMapping,textNotice:f.textNotice}:{}), ...(f.keywordMapping?{keywordMapping:f.keywordMapping,textNotice:f.textNotice}:{}), ...(f.rawStatus==='replaced'&&(snapshot.history?.vcs==='svn'||f.replacementSource)?{oldKind:f.oldKind,newKind:f.newKind,nodeNotice:f.nodeNotice}:{}), ...(f.blockCode ? {blockCode:f.blockCode,...(svnDiagnostic(f.blockCode)?{diagnostic:svnDiagnostic(f.blockCode)}:{})} : {}), ...(f.copySource ? {copySource:f.copySource,copyNotice:f.copyNotice} : {}) })), contextPaths: snapshot.context.map(c => c.path), ...(snapshot.context.some(c=>c.keywordMapping)?{contextKeywordMappings:snapshot.context.filter(c=>c.keywordMapping).map(c=>({path:c.path,keywordMapping:c.keywordMapping}))}:{}), ...(snapshot.context.some(c=>c.eolMapping)?{contextEolMappings:snapshot.context.filter(c=>c.eolMapping).map(c=>({path:c.path,eolMapping:c.eolMapping}))}:{}), ...(snapshot.history?.vcs==='svn'?{contextSources:snapshot.context.map(c=>({path:c.path,...(c.svnSource?{new:c.svnSource}:{}),...(c.oldSvnSource?{old:c.oldSvnSource}:{})}))}:{}), ...(options.oldContextPaths !== undefined ? {oldContextPaths:options.oldContextPaths,oldContextSources:snapshot.context.filter(c=>c.oldOnly).map(c=>({path:c.path,side:'context-old',revision:c.oldRevision,...(c.oldSvnSource?{svnSource:c.oldSvnSource}:{blobOid:c.oldBlobOid}),hash:c.oldHash}))} : {}), ...(snapshot.callerDiscovery ? {callerDiscovery:snapshot.callerDiscovery} : {}), ...(snapshot.autoContext ? { autoContext: snapshot.autoContext } : {}), rules: (snapshot.rules ?? []).map(({ path, hash }) => ({ path, hash })), notice: (snapshot.history?.vcs==='svn'&&options.autoContext===true?'SVN历史autoContext为精确依赖定位读取固定版本父目录有界清单，包含同目录非匹配名字元数据；仅匹配捕获正文发送模型，不扫描全仓，不用工作树替代历史版本。':'') + (options.oldContextPaths !== undefined ? 'oldContextPaths仅为baseline旧侧正文，无目标侧替代；选中变更复用原old身份，旧侧不能证明新侧行为。' : '') + (snapshot.callerDiscovery ? 'callerScopePaths已授权预览读取限定目录内tracked候选正文，包括不匹配文件；非匹配正文不发送模型，匹配捕获上下文会发送。仅字面引用导航，不是函数调用或完整调用覆盖。' : '') + (enableRiskPlanning ? '执行按plan阈值决定风险假设规划，小变更可跳过独立规划但仍主审并复核；计划不是证据，所有阶段共享原预算。' : '') + '执行会向上述模型提供方发送可审查文件两侧内容、预览列出的显式/自动上下文、所选项目规则全文及预览业务需求文本。模型可在该快照范围内多轮只读检索，不读取范围外文件；候选生成后会进行证据与反证复核，两阶段各最多3轮检索，不设插件内部默认时间或总模型调用次数截止，遵循宿主/用户取消；输入字节和检索轮次保护仍保留；复核不能证明缺陷成立。plan.reviewRounds为独立审查工作量，非模型reasoning effort；后续轮不带首轮风险计划，所有轮共享原超时与预算。plan仅预检初始输入，ready不代表已审查；minimumCalls不含后续检索/复核/动态业务综合；多文件可先进行业务分组，分组失败保留原组并记录限制，动态综合数执行前未知，实际预算可能不足。请先向用户展示范围，获得确认后执行。' };
+        return {
+  ...(options.businessRequirement !== undefined
+    ? { businessRequirement: { text: options.businessRequirement, hash: hash(options.businessRequirement), bytes: Buffer.byteLength(options.businessRequirement) } }
+    : {}),
+  previewId,
+  plan,
+  snapshotId: snapshot.id,
+  repositoryRoot: snapshot.root,
+  vcs: snapshot.vcs,
+  ...(snapshot.workingScope ? { workingScope: snapshot.workingScope } : {}),
+  ...(snapshot.history ? { history: snapshot.history } : {}),
+  ...(snapshot.mergeSources ? { mergeSources: snapshot.mergeSources } : {}),
+  ...(snapshot.effectiveMergeSources ? { effectiveMergeSources: snapshot.effectiveMergeSources } : {}),
+  model: current.route,
+  modelSendingEnabled: allowModelSending,
+  files: snapshot.files.map(f => describeFile(f, snapshot)),
+  contextPaths: snapshot.context.map(c => c.path),
+  ...(snapshot.context.some(c => c.keywordMapping)
+    ? { contextKeywordMappings: snapshot.context.filter(c => c.keywordMapping).map(c => ({ path: c.path, keywordMapping: c.keywordMapping })) }
+    : {}),
+  ...(snapshot.context.some(c => c.eolMapping)
+    ? { contextEolMappings: snapshot.context.filter(c => c.eolMapping).map(c => ({ path: c.path, eolMapping: c.eolMapping })) }
+    : {}),
+  ...(snapshot.history?.vcs === 'svn'
+    ? { contextSources: snapshot.context.map(c => ({ path: c.path, ...(c.svnSource ? { new: c.svnSource } : {}), ...(c.oldSvnSource ? { old: c.oldSvnSource } : {}) })) }
+    : {}),
+  ...(options.oldContextPaths !== undefined
+    ? {
+        oldContextPaths: options.oldContextPaths,
+        oldContextSources: snapshot.context.filter(c => c.oldOnly).map(c => ({ path: c.path, side: 'context-old', revision: c.oldRevision, ...(c.oldSvnSource ? { svnSource: c.oldSvnSource } : { blobOid: c.oldBlobOid }), hash: c.oldHash })),
+      }
+    : {}),
+  ...(snapshot.callerDiscovery ? { callerDiscovery: snapshot.callerDiscovery } : {}),
+  ...(snapshot.autoContext ? { autoContext: snapshot.autoContext } : {}),
+  rules: (snapshot.rules ?? []).map(({ path, hash }) => ({ path, hash })),
+  notice: buildPreviewNotice(snapshot, options, enableRiskPlanning),
+};
       } finally { busy = false; }
     },
     async execute(args, exec) {
@@ -87,8 +149,77 @@ function createSessionReviewService(llm, { capture = captureSnapshot, now = Date
   };
 }
 
-export function createReviewService(llm,options={}){
- const sessions=new Map();let disposed=false;
- const get=exec=>{if(disposed)throw new Error('Review service disposed');const agent=exec?.agent,key=agent?.session??agent;if(!key||typeof key!=='object')throw new Error('Active Agent required');if(!sessions.has(key)){const changes=createSessionReviewService(llm,options),project=createProjectReviewService(llm,options);let locked=false;const call=async(kind,args,exec)=>{if(locked)throw new Error('Review service busy');locked=true;try{return await (kind==='preview'?(args?.reviewMode==='project'?project.preview(args,exec):changes.preview(args?.reviewMode==='changes'?Object.fromEntries(Object.entries(args).filter(([key])=>key!=='reviewMode')):args,exec)):(project.owns(args?.previewId)?project.execute(args,exec):changes.execute(args,exec)));}finally{locked=false;}};sessions.set(key,{preview:(a,e)=>call('preview',a,e),execute:(a,e)=>call('execute',a,e),dispose(){changes.dispose();project.dispose();}});}return sessions.get(key);};
- return {preview:async(args,exec)=>{const started=Date.now();await exec?.reviewCheckpoint?.({stage:'preview-started',runtime:REVIEW_RUNTIME});const result=await get(exec).preview(args,exec);return {...result,runtime:REVIEW_RUNTIME,elapsedMs:Date.now()-started};},execute:async(args,exec)=>get(exec).execute(args,exec),dispose(){disposed=true;for(const service of sessions.values())service.dispose();sessions.clear();}};
+/** Strip reviewMode from change-mode preview args before routing to the changes service. */
+function normalizeChangesArgs(args) {
+  return args?.reviewMode === 'changes'
+    ? Object.fromEntries(Object.entries(args).filter(([key]) => key !== 'reviewMode'))
+    : args;
+}
+
+/** Route one preview/execute call to the matching per-mode service. */
+function routeCall(kind, args, exec, { changes, project }) {
+  if (kind === 'preview') {
+    return args?.reviewMode === 'project'
+      ? project.preview(args, exec)
+      : changes.preview(normalizeChangesArgs(args), exec);
+  }
+  return project.owns(args?.previewId)
+    ? project.execute(args, exec)
+    : changes.execute(args, exec);
+}
+
+export function createReviewService(llm, options = {}) {
+  const sessions = new Map();
+  let disposed = false;
+
+  function createSessionEntry() {
+    const changes = createSessionReviewService(llm, options);
+    const project = createProjectReviewService(llm, options);
+    let locked = false;
+
+    const call = async (kind, args, exec) => {
+      if (locked) throw new Error('Review service busy');
+      locked = true;
+      try {
+        return await routeCall(kind, args, exec, { changes, project });
+      } finally {
+        locked = false;
+      }
+    };
+
+    return {
+      preview: (args, exec) => call('preview', args, exec),
+      execute: (args, exec) => call('execute', args, exec),
+      dispose() {
+        changes.dispose();
+        project.dispose();
+      },
+    };
+  }
+
+  function get(exec) {
+    if (disposed) throw new Error('Review service disposed');
+    const agent = exec?.agent;
+    const key = agent?.session ?? agent;
+    if (!key || typeof key !== 'object') throw new Error('Active Agent required');
+    if (!sessions.has(key)) sessions.set(key, createSessionEntry());
+    return sessions.get(key);
+  }
+
+  return {
+    async preview(args, exec) {
+      const started = Date.now();
+      await exec?.reviewCheckpoint?.({ stage: 'preview-started', runtime: REVIEW_RUNTIME });
+      const result = await get(exec).preview(args, exec);
+      return { ...result, runtime: REVIEW_RUNTIME, elapsedMs: Date.now() - started };
+    },
+    async execute(args, exec) {
+      return get(exec).execute(args, exec);
+    },
+    dispose() {
+      disposed = true;
+      for (const service of sessions.values()) service.dispose();
+      sessions.clear();
+    },
+  };
 }

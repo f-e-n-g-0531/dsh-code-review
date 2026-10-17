@@ -2,6 +2,10 @@
 
 本文件介绍对使用者有意义的变化。安装与参数见 [README](README.md)，本次发布正文见 [发布说明](RELEASE-NOTES.md)。历史提交和安装包保留在 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-review/releases)；本文不把开发日志当作功能介绍。
 
+## 0.83.1 — 代码结构整理
+
+整理内部结构，不改变行为：模型指令集中到 src/prompts.mjs 并由原模块继续重导出；重复的工具输出 schema 抽到 src/tool-view.mjs；缺陷/协议指引的扩展名判定改为优先级查找表；超长单行与巨型函数拆成具名小函数，覆盖 service、dsh-model、git、git-history、snapshot、review 渲染、项目模式、会话/后台任务与 SVN 纯辅助模块。工具参数、协议字段和报告语义不变，升级前后输出一致。
+
 ## 0.83.0 — 后台等待与真实进度
 
 新增code_review_wait等待变化/终态，任务结果明确nextAction，避免只报任务启动就结束请求。进度以批准清单实际处理数计算，未知分母不伪造百分比；终态返回统一报告，预览确认不跳过。
