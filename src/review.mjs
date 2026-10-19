@@ -1,6 +1,7 @@
 import { REVIEW_INSTRUCTIONS, PROJECT_REVIEW_INSTRUCTIONS } from './prompts.mjs';
 import { reviewRounds } from './review-rounds.mjs';
 import { correctAnchor } from './anchor-correction.mjs';
+import { correctedResponse } from './response-correction.mjs';
 import { validateBusinessRequirement } from './business-requirement.mjs';
 import { riskReadCoverage } from './risk-read-coverage.mjs';
 import { BUSINESS_GROUP_INSTRUCTIONS, localBusinessGroups, prepareBusinessGroups, validateBusinessGroups } from './business-groups.mjs';
@@ -27,6 +28,7 @@ export { REVIEW_INSTRUCTIONS };
 export { PROJECT_REVIEW_INSTRUCTIONS };
 const nonempty = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 8000;
 const lines = text => text.replaceAll('\r\n', '\n').split('\n');
+const protocolError = (code, message) => Object.assign(new Error(message), { code });
 
 export function validateFindings(response, file) {
   return validateResponse(response, file);
@@ -35,20 +37,21 @@ export function validateFindings(response, file) {
 function validateResponse(response, file, knownChanges) {
   if (Buffer.byteLength(typeof response === 'string' ? response : JSON.stringify(response) ?? '') > 128 * 1024) throw new Error('Review response too large');
   if (typeof response === 'string') response = JSON.parse(response);
-  if (!response || !Array.isArray(response.findings) || response.findings.length > 50 || !Array.isArray(response.limitations) || response.limitations.length > 50 || response.limitations.some(s => !nonempty(s))) throw new Error('Invalid review response');
+  if (!response || !Array.isArray(response.findings) || response.findings.length > 50 || !Array.isArray(response.limitations) || response.limitations.length > 50 || response.limitations.some(s => !nonempty(s))) throw protocolError('MODEL_INVALID_REVIEW_RESPONSE', 'Invalid review response');
   const changes = knownChanges ?? changeMap(file.left.text, file.right.text);
   const findings = response.findings.map(raw => {
-    if (!raw || raw.fileId !== file.id || !['critical', 'high', 'medium', 'low'].includes(raw.severity)) throw new Error('Invalid finding identity or severity');
-    for (const key of ['title', 'evidence', 'trigger', 'impact', 'suggestion']) if (!nonempty(raw[key])) throw new Error('Missing finding field: ' + key);
+    if (!raw || raw.fileId !== file.id) throw protocolError('MODEL_INVALID_FINDING_IDENTITY', 'Invalid finding identity or severity');
+    if (!['critical', 'high', 'medium', 'low'].includes(raw.severity)) throw protocolError('MODEL_INVALID_FINDING_SEVERITY', 'Invalid finding identity or severity');
+    for (const key of ['title', 'evidence', 'trigger', 'impact', 'suggestion']) if (!nonempty(raw[key])) throw protocolError('MODEL_MISSING_FINDING_FIELD', 'Missing finding field: ' + key);
     const anchor = raw.anchor;
     if(file.reviewMode==='project'&&(anchor?.side==='old'||anchor?.kind==='property'))throw new Error('Project findings require current source evidence');
-    if (!anchor || !['line', 'property', 'file'].includes(anchor.kind)) throw new Error('Invalid anchor');
+    if (!anchor || !['line', 'property', 'file'].includes(anchor.kind)) throw protocolError('MODEL_INVALID_ANCHOR', 'Invalid anchor');
     let validated;
     if (anchor.kind === 'line') {
       const side = anchor.side === 'old' ? file.left : anchor.side === 'new' ? file.right : null;
-      if (!side || !Number.isSafeInteger(anchor.start) || !Number.isSafeInteger(anchor.end) || anchor.start < 1 || anchor.end < anchor.start || !nonempty(anchor.snippet)) throw new Error('Invalid line anchor');
+      if (!side || !Number.isSafeInteger(anchor.start) || !Number.isSafeInteger(anchor.end) || anchor.start < 1 || anchor.end < anchor.start || !nonempty(anchor.snippet)) throw protocolError('MODEL_INVALID_ANCHOR', 'Invalid line anchor');
       const source = lines(side.text);
-      if (anchor.end > source.length || source.slice(anchor.start - 1, anchor.end).join('\n') !== anchor.snippet.replaceAll('\r\n', '\n')) throw new Error('Finding snippet does not match snapshot');
+      if (anchor.end > source.length || source.slice(anchor.start - 1, anchor.end).join('\n') !== anchor.snippet.replaceAll('\r\n', '\n')) throw protocolError('MODEL_ANCHOR_MISMATCH', 'Finding snippet does not match snapshot');
       validated = { kind: 'line', side: anchor.side, start: anchor.start, end: anchor.end, snippet: anchor.snippet };
     } else if (anchor.kind === 'property') {
       if (!file.properties.some(p => p.name === anchor.name)) throw new Error('Unknown changed property');
@@ -128,7 +131,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     await options.onProgress?.({stage:'file-started',snapshotId:input.id,fileId:file.id,path:file.path,status:state.status});
     if (state.status !== 'pending') continue;
     if (signal?.aborted) { state.status = 'cancelled'; state.reason = '用户取消'; continue; }
-    if (report.modelCalls >= maxCalls) { state.reason = '模型调用预算耗尽'; continue; }
+    if (report.modelCalls >= maxCalls || options.remainingCalls?.() <= 0) { state.reason = '模型调用预算耗尽'; continue; }
     const prepared = preparePrimaryInput(input, file, { instructions, scope, grouping: report.grouping, maxInputBytes });
     const { changes, payload } = prepared;
     Object.assign(state, prepared.metadata);
@@ -141,13 +144,20 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     if (state.groupFallback) report.limitations.push({ fileId: file.id, text: '关联组上下文超过输入预算，回退单文件审查' });
     if (state.initialInputBytes > maxInputBytes) { state.status = 'blocked'; state.reason = '输入超过预算，未截断或提交模型'; continue; }
     try {
-      const beforeCall = () => {
+      const beforeCall = ({ reserved = false } = {}) => {
+        if (!reserved && options.remainingCalls?.() <= 0) throw Object.assign(new Error('Shared project model call limit exceeded'), { code: 'PROJECT_MODEL_CALL_LIMIT' });
         if (report.modelCalls >= maxCalls) throw new Error('Model call budget exceeded');
         report.modelCalls++;
       };
-      const trackedModel=request=>model({...request,onProtocolEvent:async info=>{await options.onProgress?.({stage:'protocol-correction',fileId:file.id,path:file.path,...info});},onProtocolCorrection:async info=>{beforeCall();await request.onProtocolCorrection?.(info);await options.onProgress?.({stage:'protocol-correction',fileId:file.id,path:file.path,...info});}});
+      const onBudgetLimited = info => {
+        state.retrievalLimited = true;
+        (state.retrievalLimits ??= []).push(info);
+        report.limitations.push({ fileId: file.id, text: '检索预算受限，已保留现有结果但不能视为完整审查：' + info.reason });
+      };
+      const onProtocolEvent = async info => { await options.onProgress?.({ stage: 'protocol-correction', fileId: file.id, path: file.path, ...info }); };
+      const trackedModel=request=>model({...request,onProtocolEvent,onProtocolCorrection:async info=>{beforeCall({ reserved: true });await request.onProtocolCorrection?.(info);await options.onProgress?.({stage:'protocol-correction',fileId:file.id,path:file.path,...info});}});
       const executor = scope
-        ? request => retrievalLoop(trackedModel, request, scope, { correctProtocol:options.correctProtocol===true,maxInputBytes, beforeCall, onRetrieved: records => {
+        ? (request, onLimited = () => {}) => retrievalLoop(trackedModel, { ...request, onProtocolEvent }, scope, { correctProtocol:options.correctProtocol===true,maxInputBytes, beforeCall, onBudgetLimited: info => { onBudgetLimited(info); onLimited(info); }, onRetrieved: records => {
           (state.retrievalAudit ??= []).push(...records);
         }, onTruncated: () => {
           if (!state.retrievalTruncated) report.limitations.push({ fileId: file.id, text: '检索结果达到数量上限，部分匹配未提供给模型' });
@@ -164,7 +174,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             const groupInput = prepareBusinessGroups(input.files);
             if (Buffer.byteLength(groupInput) + Buffer.byteLength(BUSINESS_GROUP_INSTRUCTIONS) > maxInputBytes) throw new Error('Business grouping input budget exceeded');
             beforeCall();
-            const response = await model({ ...enclosingRequest, instructions: BUSINESS_GROUP_INSTRUCTIONS, input: groupInput });
+            const response = await trackedModel({ ...enclosingRequest, instructions: BUSINESS_GROUP_INSTRUCTIONS, input: groupInput });
             enclosingRequest.signal.throwIfAborted();
             grouped = validateBusinessGroups(response, input.files);
             }
@@ -218,30 +228,48 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         if(report.modelCalls>=maxCalls)throw new Error('Model call budget exceeded before next review pass');
         if(rounds>1) state.reviewPasses[batchIndex].status='running';
         const request = { ...enclosingRequest, input: batchPayload };
-        const auditStart = state.retrievalAudit?.length ?? 0;
-        let response = await executor(request);
-        if (options.enableAnchorCorrection === true) {
-          if (Buffer.byteLength(typeof response === 'string' ? response : JSON.stringify(response)) > 128 * 1024) throw new Error('Review response too large');
-          const decoded = typeof response === 'string' ? JSON.parse(response) : structuredClone(response);
-          if (Array.isArray(decoded?.findings) && decoded.findings.length <= 50) {
-            decoded.findings = decoded.findings.map(raw => {
-              const target = batch.interaction ? input.files.find(f => f.id === raw?.fileId && batch.interaction.fileIds.includes(f.id) && f.eligibility === 'reviewable') : file;
-              if (!target) return raw;
-              const correction = correctAnchor(raw, target, target === file ? changes : changeMap(target.left.text,target.right.text), { signal: request.signal });
-              if (!['unchanged','not-applicable'].includes(correction.status)) (state.anchorCorrections ??= []).push(correction);
-              return correction.status === 'corrected' ? correction.candidate : raw;
-            });
-            response = decoded;
+        let auditStart = state.retrievalAudit?.length ?? 0;
+        let finalResponseOnly = false;
+        const generate = async attempt => {
+          if (!initialInputBudget(attempt, scope, maxInputBytes).fits) throw new Error('Review correction input budget exceeded');
+          return executor(attempt, () => { finalResponseOnly = true; });
+        };
+        const validate = response => {
+          if (options.enableAnchorCorrection === true) {
+            if (Buffer.byteLength(typeof response === 'string' ? response : JSON.stringify(response) ?? '') > 128 * 1024) throw new Error('Review response too large');
+            const decoded = typeof response === 'string' ? JSON.parse(response) : structuredClone(response);
+            if (Array.isArray(decoded?.findings) && decoded.findings.length <= 50) {
+              decoded.findings = decoded.findings.map(raw => {
+                const target = batch.interaction ? input.files.find(f => f.id === raw?.fileId && batch.interaction.fileIds.includes(f.id) && f.eligibility === 'reviewable') : file;
+                if (!target) return raw;
+                const correction = correctAnchor(raw, target, target === file ? changes : changeMap(target.left.text,target.right.text), { signal: request.signal });
+                if (!['unchanged','not-applicable'].includes(correction.status)) (state.anchorCorrections ??= []).push(correction);
+                return correction.status === 'corrected' ? correction.candidate : raw;
+              });
+              response = decoded;
+            }
           }
-        }
+          const generated = batch.interaction ? validateInteractionFindings(response, input, batch.interaction, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog()) : validateResponse(response, file, changes);
+          if (batch.synthesis) validateSynthesisReads(generated.findings, changes, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog(), file.id, input.id);
+          if (!batch.interaction && state.sourceMode === 'change-windows') validateWindowFindings(generated.findings, batch.synthesis ? prepared.synthesis.windows : JSON.parse(batch.payload).windows, batch.synthesis === true);
+          return generated;
+        };
+        const generated = await correctedResponse(generate, validate, request, {
+          enabled: options.correctProtocol === true,
+          canCorrect: () => !finalResponseOnly,
+          onCorrection: async info => {
+            // A fresh generation must establish its own synthesis/interaction read evidence.
+            auditStart = state.retrievalAudit?.length ?? 0;
+            (state.responseCorrections ??= []).push({ code: info.code, round: batch.round, phase });
+            report.limitations.push({ fileId: file.id, text: '主审响应校验失败，已请求一次显式纠正；原响应未接受，纠正不证明缺陷成立。' });
+            await options.onProgress?.({ stage: 'protocol-correction', fileId: file.id, path: file.path, ...info });
+          },
+        });
         if (options.enableRiskPlanning === true && !batch.synthesis && batch.round === 1) {
           const entry=state.riskPlans.at(-1);
           entry.sourceReadCoverage=riskReadCoverage(entry.risks,(state.retrievalAudit??[]).slice(auditStart),scope?.catalog()??[],input.id);
           if(entry.sourceReadCoverage.some(c=>c.unreadSourceIds.length)) report.limitations.push({fileId:file.id,text:'风险计划请求的部分来源未在本次生成阶段读取；不能视为已核查风险条件或排除问题'});
         }
-        const generated = batch.interaction ? validateInteractionFindings(response, input, batch.interaction, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog()) : validateResponse(response, file, changes);
-        if (batch.synthesis) validateSynthesisReads(generated.findings, changes, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog(), file.id, input.id);
-        if (!batch.interaction && state.sourceMode === 'change-windows') validateWindowFindings(generated.findings, batch.synthesis ? prepared.synthesis.windows : JSON.parse(batch.payload).windows, batch.synthesis === true);
         request.signal.throwIfAborted();
         if(rounds>1)generated.findings.forEach(f=>{f.reviewRound=batch.round;});
         report.findings.push(...generated.findings);
@@ -250,8 +278,8 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         if (options.enableVerification === true && generated.findings.length) {
           for (const finding of generated.findings) finding.verification = { status: 'pending', causality: 'unverified' };
           try {
-            const verdicts = await verificationLoop(trackedModel, request, generated.findings, scope, {
-              correctProtocol:options.correctProtocol===true,maxInputBytes, beforeCall,
+            const verdicts = await verificationLoop(trackedModel, { ...request, onProtocolEvent }, generated.findings, scope, {
+              correctProtocol:options.correctProtocol===true,maxInputBytes, beforeCall, onBudgetLimited,
               onRetrieved: records => { (state.retrievalAudit ??= []).push(...records); },
               onTruncated: () => { report.limitations.push({ fileId: file.id, text: '复核检索结果达到数量上限' }); },
             });
@@ -292,15 +320,17 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       }, { instructions, input: payload }, timeoutMs, signal);
       if (signal?.aborted) throw signal.reason;
 
-      state.status = 'completed';
+      state.status = state.retrievalLimited ? 'pending' : 'completed';
+      if (state.retrievalLimited) state.reason = '检索预算受限，未完成完整审查；已有发现保留，不表示通过';
 
     } catch (error) {
-      state.status = signal?.aborted ? 'cancelled' : 'failed';
+      state.status = signal?.aborted ? 'cancelled' : error?.code === 'PROJECT_MODEL_CALL_LIMIT' ? 'pending' : 'failed';
       state.reason = error?.message ?? String(error);
       if(error.attempts)state.protocolAttempts=error.attempts;
+      if(error.responseAttempts)state.responseAttempts=error.responseAttempts;
       if(error.diagnostic)state.protocolDiagnostic=error.diagnostic;
       for(const pass of state.reviewPasses??[])if(pass.status==='running')pass.status=signal?.aborted?'cancelled':'failed';
-      state.failureCode = signal?.aborted ? 'CANCELLED' : ['MODEL_INVALID_JSON','MODEL_INCOMPLETE_OUTPUT','MODEL_TIMEOUT','MODEL_INVALID_READ_REQUEST'].includes(error?.code) ? error.code : 'REVIEW_EXECUTION_FAILED';
+      state.failureCode = signal?.aborted ? 'CANCELLED' : ['MODEL_INVALID_JSON','MODEL_INCOMPLETE_OUTPUT','MODEL_TIMEOUT','MODEL_INVALID_READ_REQUEST','MODEL_OUTPUT_LIMIT','MODEL_PROTOCOL_ERROR','MODEL_INVALID_REVIEW_RESPONSE','MODEL_INVALID_FINDING_IDENTITY','MODEL_INVALID_FINDING_SEVERITY','MODEL_MISSING_FINDING_FIELD','MODEL_INVALID_ANCHOR','MODEL_ANCHOR_MISMATCH','READER_CALL_BUDGET_EXCEEDED','READER_OUTPUT_BUDGET_EXCEEDED','RETRIEVAL_ROUND_BUDGET_EXCEEDED','RETRIEVAL_FINAL_RESPONSE_REQUIRED','PROJECT_MODEL_CALL_LIMIT'].includes(error?.code) ? error.code : 'REVIEW_EXECUTION_FAILED';
     }
   }
   await options.onProgress?.({stage:'batch-complete',snapshotId:input.id,files:report.files,findings:report.findings,limitations:report.limitations});

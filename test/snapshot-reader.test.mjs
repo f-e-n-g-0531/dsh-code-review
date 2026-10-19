@@ -21,6 +21,30 @@ test('literal search shares call and serialized output budgets with reads', () =
   const small = createSnapshotReader('s', [], { maxOutputBytes: 1 });
   assert.throws(() => small.search({ query: 'x' }), /output budget/);
 });
+test('budget metadata is exact and preflight validates whole batches without consuming it', () => {
+  const reader = createSnapshotReader('s', [{ id: 'f', text: 'a\nb\n' }], { maxCalls: 2, maxOutputBytes: 1024 });
+  assert.deepEqual(reader.budget(), { maxCalls: 2, maxOutputBytes: 1024, remainingCalls: 2, remainingOutputBytes: 1024, maxResultBytes: 65536 });
+  assert.throws(() => reader.preflight([{ kind: 'read', id: 'f', start: 1, count: 1 }, { kind: 'read', id: 'f', start: 4, count: 1 }]), /outside source/);
+  assert.deepEqual(reader.usage(), { calls: 0, outputBytes: 0 });
+  reader.preflight([{ kind: 'read', id: 'f', start: 1, count: 1 }]);
+  assert.deepEqual(reader.usage(), { calls: 0, outputBytes: 0 });
+  const result = reader.read({ id: 'f', start: 1, count: 1 });
+  assert.equal(reader.budget().remainingCalls, 1);
+  assert.equal(reader.budget().remainingOutputBytes, 1024 - Buffer.byteLength(JSON.stringify(result)));
+});
+test('synchronous batch ledger commits only complete decorated output, without changing direct failure charging', () => {
+  const reader = createSnapshotReader('s', [{ id: 'f', text: 'body' }], { maxCalls: 2, maxOutputBytes: 400 });
+  assert.throws(() => reader.transaction(() => {
+    reader.read({ id: 'f', start: 1, count: 1 });
+    reader.read({ id: 'f', start: 1, count: 1 }, value => ({ ...value, extra: 'x'.repeat(400) }));
+  }), { code: 'READER_OUTPUT_BUDGET_EXCEEDED' });
+  assert.deepEqual(reader.usage(), { calls: 0, outputBytes: 0 });
+  assert.throws(() => reader.read({ id: 'private', start: 1, count: 1 }), /authorized/);
+  assert.equal(reader.usage().calls, 1);
+  reader.transaction(() => reader.read({ id: 'f', start: 1, count: 1 }));
+  assert.equal(reader.usage().calls, 2);
+  assert.throws(() => reader.read({ id: 'f', start: 1, count: 1 }), { code: 'READER_CALL_BUDGET_EXCEEDED' });
+});
 test('cancellation prevents further reads and searches', () => {
   const controller = new AbortController();
   const reader = createSnapshotReader('s', [], { signal: controller.signal });

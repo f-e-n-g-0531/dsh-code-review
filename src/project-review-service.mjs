@@ -5,10 +5,10 @@ import { hash } from './content.mjs';
 import { resolveWorkspaceRepository } from './workspace-repository.mjs';
 import { detectVcs } from './snapshot.mjs';
 import { projectInventory, captureProjectBatch } from './project-snapshot.mjs';
-import { reviewSnapshot } from './review.mjs';
+import { reviewProjectBatches, projectConcurrency as validateProjectConcurrency } from './project-execution.mjs';
 import { createDshModel } from './dsh-model.mjs';
 
-const PREVIEW_NOTICE_SUFFIX = ' Full current source audit, not regression-only diff. Shared session execution budget: no internal elapsed-time or model-call cutoff, 16MiB capture memory protection. Blocked/excluded/pending files are not reviewed successfully. No untracked/ignored/external bodies; no complete semantic call graph. Show scope and model before confirmed execute.';
+const PREVIEW_NOTICE_SUFFIX = ' Full current source audit, not regression-only diff. Shared session execution budget: no internal elapsed-time or model-call cutoff, 16MiB capture memory protection. Blocked/excluded/pending files are not reviewed successfully. No untracked/ignored/external bodies; no complete semantic call graph. Independent approved batches run with bounded concurrency; per-batch evidence and global model-call budgets remain enforced. Show scope and model before confirmed execute.';
 const REPORT_NOTICE_SUFFIX = ' Coverage counts processing of selected tracked files only, not proof of correctness. Excluded and blocked are never completed. No cross-batch whole-program semantic coverage is claimed.';
 
 function owner(exec) {
@@ -66,10 +66,11 @@ async function captureProject(cwd, args, signal) {
   return { ...result, id: hash(JSON.stringify(result)) };
 }
 
-export function createProjectReviewService(llm, { allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER } = {}) {
+export function createProjectReviewService(llm, { allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = 3 } = {}) {
   for (const n of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(n) || n < 1) throw new Error('Invalid project preview limit');
   if (!Number.isSafeInteger(projectMaxCalls) || projectMaxCalls < 1) throw new Error('Invalid project model call limit');
 
+  validateProjectConcurrency(projectConcurrency);
   const previews = new Map();
   const lifetime = new AbortController();
   let busy = false;
@@ -96,6 +97,7 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
           model: current.route, modelSendingEnabled: allowModelSending,
           totalTrackedNodes: s.totalTrackedNodes, selectedFiles: s.selectedFiles, selectionComplete: s.selectionComplete,
           inventoryComplete: s.inventoryComplete, batches: s.batches.length,
+          execution: { batchConcurrency: projectConcurrency },
           files: s.batches.flatMap(b => b.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason }))),
           notice: s.notice + PREVIEW_NOTICE_SUFFIX,
         };
@@ -127,23 +129,19 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
         let calls = 0;
         const adapter = createDshModel(llm, p.route, { correctJson: true });
         const model = request => {
-          if (calls >= projectMaxCalls) throw new Error('Shared project model call limit exceeded');
+          if (calls >= projectMaxCalls) throw Object.assign(new Error('Shared project model call limit exceeded'), { code: 'PROJECT_MODEL_CALL_LIMIT' });
           calls++;
           return adapter({ ...request, onProtocolCorrection: async info => {
-            if (calls >= projectMaxCalls) throw new Error('Shared project model call limit exceeded');
+            if (calls >= projectMaxCalls) throw Object.assign(new Error('Shared project model call limit exceeded'), { code: 'PROJECT_MODEL_CALL_LIMIT' });
             calls++;
             await request.onProtocolCorrection?.(info);
           }});
         };
 
-        const results = [];
-        for (const b of s.batches) {
-          if (signal.aborted || calls >= projectMaxCalls) {
-            results.push({ snapshotId: b.id, status: 'partial', files: b.files.map(f => ({ fileId: f.id, path: f.path, status: f.eligibility === 'reviewable' ? 'pending' : f.eligibility, reason: 'Session project budget exhausted or cancelled' })), findings: [], limitations: [] });
-            continue;
-          }
-          results.push(await reviewSnapshot(b, model, { signal, maxCalls: projectMaxCalls - calls, enableRetrieval: true, enableVerification: true, correctProtocol: true, onProgress: exec.reviewCheckpoint }));
-        }
+        const results = await reviewProjectBatches(s.batches, model, {
+          concurrency: projectConcurrency, signal, remainingCalls: () => projectMaxCalls - calls,
+          onProgress: exec.reviewCheckpoint,
+        });
 
         const files = results.flatMap(r => r.files.map(f => ({ ...f, batchSnapshotId: r.snapshotId })));
         const coverage = {
@@ -164,6 +162,7 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
           repositoryRoot: s.root, vcs: s.vcs, model: p.route, modelCalls: calls, maxModelCalls: projectMaxCalls,
           totalTrackedNodes: s.totalTrackedNodes, selectionComplete: s.selectionComplete, inventoryComplete: s.inventoryComplete,
           coverage, files, findings, batches: results,
+          execution: { batchConcurrency: projectConcurrency },
           notice: s.notice + REPORT_NOTICE_SUFFIX,
         };
 
