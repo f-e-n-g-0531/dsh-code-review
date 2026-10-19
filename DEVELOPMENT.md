@@ -24,6 +24,16 @@
 
 运行 `node scripts/review-speed-benchmark.mjs` 比较相同 12 个 mock 批次在串行与 3 路并发下的耗时；脚本模拟每次模型调用 40ms 延迟，不访问网络、不证明真实模型速度或质量。核对工作量、调用数、完成数和输出顺序一致，不把降低覆盖作为加速。
 
+## 模型响应失败与诊断
+
+当前核验的 DSH `llm.stream` 接口没有原生 JSON mode／response schema 参数；插件不发送会被忽略的 `responseFormat`，也不把工具参数 schema 当作结构化输出保证。先要求纯 JSON，再做本地解析和阶段 schema、证据校验。
+
+正常 stop 后的非法 JSON 最多重新生成两次，共享原调用预算与取消信号；纠正请求只带固定语法分类和可用的行列位置，不回放错误响应、不自动修补 JSON、不删减发现来换取通过。语法位置相对于去掉外层空白及完整代码围栏后的 JSON 正文，偏移单位为 UTF-16 code unit；未知运行时错误文本回退到通用分类，不推测位置。
+
+失败结果的 `protocolDiagnostic` 保留语法分类、行列位置（可用时）和响应 SHA-256 指纹，不存储响应片段或原生解析异常文本。宿主服务错误从 `finish.reason.failure` 读取，保留已知错误码、HTTP 状态、有效重试间隔和请求 ID 的哈希；未知码只存分类及哈希，不存提供方 message、原始 ID、URL、headers 或 body。已有工具链直接抛出的异常仍保持身份，不新增自动网络重试；AUTH、QUOTA、取消及 error 终态不能按格式错误重发。指纹只是对照线索，不是原文备份，也不构成跨模型确定性保证。
+
+执行 `node --test test/model-diagnostics.test.mjs test/model-json-correction.test.mjs test/model-protocol-diagnostics.test.mjs test/dsh-model.test.mjs` 可验证本地纠正、失败归类和脱敏；宿主检查另覆盖真实 ToolRuntime 的纠正和服务失败事件，均为受控离线模型，不证明真实服务失败率下降。
+
 ## 审查预算
 
 除 README 中的文件和输入上限外：

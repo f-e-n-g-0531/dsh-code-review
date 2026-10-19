@@ -33,12 +33,24 @@ ctx.provide('llm');
 ctx.provide('approval');
 ctx.set('systemPrompt', { tools() {}, section() {}, getSectionOrder() { return 0; } });
 const tools = new Tools(ctx, { mode: 'native' });
-let allowed = false, modelCalls = 0, approvalCalls = 0;
+let allowed = false, modelCalls = 0, approvalCalls = 0, responseMode = 'normal';
 ctx.set('llm', { async *stream(request) {
   assert.ok(allowed); modelCalls++;
   assert.equal(request.provider, 'offline-test');
   assert.equal(request.model, 'none');
   assert.deepEqual(request.tools, []);
+  if (responseMode === 'provider-error') {
+    yield { type:'finish', reason:{kind:'error',failure:{code:'RATE_LIMIT',status:429,providerRetryAfterMs:1000,requestId:'private-id',message:'PRIVATE raw provider message'}} };
+    return;
+  }
+  if (responseMode === 'bad-json-once') {
+    responseMode = 'correcting';
+    yield {type:'text-delta',text:'{PRIVATE:1}'};yield {type:'finish',reason:{kind:'stop'}};return;
+  }
+  if (responseMode === 'correcting') {
+    assert.match(request.system,/property-name/);
+    assert.ok(!request.system.includes('PRIVATE'));
+  }
   yield { type: 'text-delta', text: JSON.stringify(request.system.includes('仅制定审查计划') ? { risks: [] } : { findings: [], limitations: [] }) };
   yield { type: 'finish', reason: { kind: 'stop' } };
 } });
@@ -93,6 +105,16 @@ try {
   const beforeHistory=await checked('git',['status','--porcelain=v1'],{cwd:root});
   const historyReport=JSON.parse((await tools.get('code_review_execute').execute({previewId:historical.previewId,confirmed:true},exec)).json);assert.equal(historyReport.coverage.completed,1);assert.equal(historyReport.outdated,false);assert.equal(modelCalls,4);assert.equal(approvalCalls,0);assert.deepEqual(await checked('git',['status','--porcelain=v1'],{cwd:root}),beforeHistory);
   console.log('Host-invoked offline adapter completed single and explicit double review without additional approval via current Agent route without modifying Git content.');
+  responseMode = 'bad-json-once';
+  const retryPreview=JSON.parse((await previewTool.execute({commit:'HEAD'},exec)).json);
+  const corrected=JSON.parse((await tools.get('code_review_execute').execute({previewId:retryPreview.previewId,confirmed:true},exec)).json);
+  assert.equal(modelCalls,6);assert.equal(corrected.coverage.completed,1);
+  responseMode = 'provider-error';
+  const failPreview=JSON.parse((await previewTool.execute({commit:'HEAD'},exec)).json);
+  const failed=JSON.parse((await tools.get('code_review_execute').execute({previewId:failPreview.previewId,confirmed:true},exec)).json);
+  assert.equal(modelCalls,7);assert.equal(failed.files[0].status,'failed');assert.equal(failed.files[0].protocolDiagnostic.providerCode,'RATE_LIMIT');assert.equal(failed.files[0].protocolDiagnostic.providerStatus,429);assert.ok(!JSON.stringify(failed).includes('PRIVATE'));assert.ok(!JSON.stringify(failed).includes('private-id'));
+  assert.deepEqual(await checked('git',['status','--porcelain=v1'],{cwd:root}),beforeHistory);
+  console.log('Host ToolRuntime exercised targeted JSON regeneration and retained safe finish.reason.failure diagnostics; no real provider requests.');
 } finally {
   assert.ok(path.basename(root).startsWith('dsh-review-host-'));
   await rm(root, { recursive: true, force: true });
