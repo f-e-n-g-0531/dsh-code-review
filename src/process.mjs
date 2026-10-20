@@ -19,6 +19,11 @@ export function run(command, args, { cwd, signal, timeoutMs = 0, maxBytes = 8 * 
       failure ??= error;
       if (stopped) return;
       stopped = true;
+      // Descendants may retain these pipes after the direct child exits. On
+      // failure discard owned capture streams, but still join the child via close.
+      // Successful commands keep draining to EOF so no output is lost.
+      child.stdout?.destroy?.();
+      child.stderr?.destroy?.();
       child.kill();
       killer = setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); }, 1000);
       killer.unref?.();

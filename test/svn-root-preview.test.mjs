@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -16,8 +16,9 @@ test('relation root exception requires directory identity and never permits trav
  for(const change of [{kind:'file'},{kind:undefined},{path:'./a.js'},{path:'a/../b.js'}])assert.throws(()=>inferFileRelations([{...file,...change}]));
 });
 
-test('SVN root mergeinfo and three source changes preview without model sends', async () => {
+test('SVN root mergeinfo and three source changes preview without model sends', async t => {
  const dir=await mkdtemp(path.join(os.tmpdir(),'dsh-root-preview-'));
+ t.after(async()=>{assert.ok(path.basename(dir).startsWith('dsh-root-preview-'));await rm(dir,{recursive:true,force:true});});
  const repo=path.join(dir,'repo'),root=path.join(dir,'wc');
  await checked('svnadmin',['create',repo]);
  await checked('svn',['checkout','--non-interactive',pathToFileURL(repo).href,root]);

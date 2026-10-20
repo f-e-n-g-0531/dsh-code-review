@@ -4,6 +4,13 @@
 const BS = String.fromCharCode(96);
 const NL = String.fromCharCode(10);
 
+// Only a whole declaration with inert primitive arguments is proven here. In
+// particular, never exempt a constructor-line suffix or executable argument
+// from the class/instance mutation checks below. Strings are matched as tokens,
+// not stripped as comments (a quoted `);` must not end the declaration).
+const primitiveArgument = /(?:null|true|false|-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?|"(?:[^"\\\r\n]|\\[^\r\n])*"|'(?:[^'\\\r\n]|\\[^\r\n])*')/.source;
+const constructionDeclaration = new RegExp('^\\s*(?:const|let|var)\\s+([A-Za-z_$][A-Za-z0-9_$]*)\\s*=\\s*new\\s+([A-Za-z_$][A-Za-z0-9_$]*)\\s*\\(\\s*(?:' + primitiveArgument + '(?:\\s*,\\s*' + primitiveArgument + ')*\\s*,?)?\\s*\\)\\s*;?\\s*$');
+
 const escapeDollar = name => name.replaceAll('$', '\\$');
 function boundaryPattern(name, suffix, flags = '') {
   return new RegExp('(^|[^A-Za-z0-9_$])' + escapeDollar(name) + suffix, flags);
@@ -94,11 +101,11 @@ export function instanceMethodBindings(lines, importLine, targetText) {
   const body = classBody(targets, classLine);
   if (!body) return [];
   const decls = directMethods(body);
-  const names = {};
-  for (const d of decls) names[d.name] = (names[d.name] ?? 0) + 1;
+  const names = new Map();
+  for (const d of decls) names.set(d.name, (names.get(d.name) ?? 0) + 1);
   const result = [];
   for (const d of decls) {
-    if (names[d.name] !== 1) continue;
+    if (names.get(d.name) !== 1) continue;
     if (d.name === 'constructor') continue;
     const member = d.name;
     const token = boundaryPattern(member, '(?=[^A-Za-z0-9_$]|$)', 'g');
@@ -115,7 +122,7 @@ export function instanceMethodBindings(lines, importLine, targetText) {
     if (/[=,:.*#\[\]()]|\b(?:new|function|return|yield|case|throw|typeof|void|delete|instanceof)\b/.test(seg)) continue;
     let assign = null, inst = null;
     for (let i = 0; i < lines.length; i++) {
-      const a = /^\s*(?:const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*=\s*new\s+([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/.exec(lines[i]);
+      const a = constructionDeclaration.exec(lines[i]);
       if (a && a[2] === local) { if (assign !== null) return []; assign = i + 1; inst = a[1]; }
     }
     if (assign === null || inst === member || inst === klass || inst === local) continue;

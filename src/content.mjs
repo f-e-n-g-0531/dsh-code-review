@@ -1,6 +1,7 @@
 import { assertNonSecretPath } from './secret-path.mjs';
 import path from 'node:path';
 import { lstat, realpath, open } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { createHash } from 'node:crypto';
 
 export const hash = value => createHash('sha256').update(value).digest('hex');
@@ -44,7 +45,9 @@ export async function readLocal(root, name, { maxFileBytes = 256 * 1024, signal 
   if (rel.startsWith('..' + path.sep) || rel === '..' || path.isAbsolute(rel)) throw new Error('Path escapes repository');
   const opened = await lstat(filename);
   if (opened.isSymbolicLink() || !opened.isFile()) throw new Error(opened.isSymbolicLink() ? 'Symbolic links and junctions are excluded' : 'Not a regular file');
-  const handle = await open(canonical, 'r');
+  // A regular file may become a FIFO after lstat. Do not wait for a writer;
+  // validate the opened descriptor before reading. These flags never write/create.
+  const handle = await open(canonical, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
   try {
     const before = await handle.stat();
     if (!before.isFile() || before.dev !== expected.dev || before.ino !== expected.ino || before.dev !== opened.dev || before.ino !== opened.ino) throw new Error('File changed during capture');

@@ -1,7 +1,12 @@
 import { hash } from './content.mjs';
 import { keywordConfigurationTokens } from './svn-keyword-config.mjs';
 
-const STANDARD = new Set(['Date', 'LastChangedDate', 'Revision', 'Rev', 'LastChangedRevision', 'Author', 'LastChangedBy', 'HeadURL', 'URL', 'Id', 'Header']);
+// Each standard property spelling enables its complete native SVN alias group.
+const STANDARD_GROUPS = [
+  ['Date', 'LastChangedDate'], ['Revision', 'Rev', 'LastChangedRevision'],
+  ['Author', 'LastChangedBy'], ['HeadURL', 'URL'], ['Id'], ['Header'],
+];
+const STANDARD = new Map(STANDARD_GROUPS.flatMap(group => group.map(name => [name, group])));
 const CUSTOM_DEFINITION = /^([A-Za-z][A-Za-z0-9]*)=(.+)$/;
 const ALLOWED_FORMAT_FLAGS = 'radDuRPb_HI%';
 const ALLOWED_LITERAL = /[A-Za-z0-9_.:/ ()-]/;
@@ -23,11 +28,12 @@ function parseCustomFormat(format) {
 // never reimplemented here; raw source remains the only evidence.
 export function svnKeywordConfiguration(configuration) {
   if (typeof configuration !== 'string' || Buffer.byteLength(configuration) > 4096) throw new Error('Invalid SVN keyword configuration');
-  const enabled = new Set(), custom = [];
+  const enabled = new Set(), configured = new Set(), custom = [];
   for (const token of keywordConfigurationTokens(configuration)) {
     if (STANDARD.has(token)) {
-      if (enabled.has(token)) throw new Error('Duplicate SVN keyword configuration');
-      enabled.add(token);
+      if (configured.has(token)) throw new Error('Duplicate SVN keyword configuration');
+      configured.add(token);
+      for (const alias of STANDARD.get(token)) enabled.add(alias);
       continue;
     }
     const match = CUSTOM_DEFINITION.exec(token);
@@ -47,11 +53,11 @@ export function svnKeywordMapping(text, configuration) {
     if (!enabled.has(name)) return literal;
     if (separator === '::') {
       // SVN reserves the complete field width, including the initial space and
-      // final space (or # truncation marker); shrink values without changing width.
+      // final space (or # truncation marker); retain UTF-8 byte width, not UTF-16 length.
       if (value.length < 2 || value[0] !== ' ' || ![' ', '#'].includes(value.at(-1))) throw new Error('Ambiguous SVN fixed-width keyword expansion');
       fixedWidth++;
       if (/[^ ]/.test(value)) replacements++;
-      return '$' + name + '::' + ' '.repeat(value.length) + '$';
+      return '$' + name + '::' + ' '.repeat(Buffer.byteLength(value, 'utf8')) + '$';
     }
     if (!/^ .+ $/.test(value)) throw new Error('Ambiguous SVN keyword expansion');
     replacements++;

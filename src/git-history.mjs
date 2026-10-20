@@ -20,9 +20,17 @@ async function resolveCommit(root, ref, options) {
   return oid;
 }
 
-function parseCommitParents(objectText) {
-  const header = objectText.split('\n\n', 1)[0];
-  const parents = header.split('\n').filter(line => line.startsWith('parent ')).map(line => line.slice(7));
+function parseCommitParents(object) {
+  // Commit messages (and identities) need not be UTF-8. Decode only the header
+  // losslessly; parent object IDs themselves must still be strictly ASCII hex.
+  const end = object.indexOf(Buffer.from('\n\n'));
+  if (end < 0) throw new Error('Invalid commit header');
+  const lines = object.subarray(0, end).toString('latin1').split('\n');
+  if (!/^tree (?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(lines[0]) ||
+      lines.some(line => line.includes('\0') || !/^(?:[a-z][a-z0-9-]* | )/.test(line))) {
+    throw new Error('Invalid commit header');
+  }
+  const parents = lines.filter(line => line.startsWith('parent ')).map(line => line.slice(7));
   if (parents.some(oid => !SHA.test(oid))) throw new Error('Invalid commit parent');
   return parents;
 }
@@ -75,7 +83,7 @@ export async function captureGitHistory(cwd, options = {}) {
   if (commit !== undefined) {
     if (baseRevision !== undefined || targetRevision !== undefined) throw new Error('Commit and range are mutually exclusive');
     target = await resolveCommit(root, commit, options);
-    const object = utf8(await gitAt(root, ['cat-file', 'commit', target], options));
+    const object = await gitAt(root, ['cat-file', 'commit', target], options);
     const parents = parseCommitParents(object);
     if (parents.length > 1) throw new Error('Merge commit requires explicit revision range');
     base = parents[0] ?? null;

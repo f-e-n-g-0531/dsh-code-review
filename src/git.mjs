@@ -45,8 +45,15 @@ function changesInScope(changes, scope) {
   // Worktree compares HEAD to the current file once, retaining the tracked entry
   // (and its baseline/selection authority), not a second untracked identity.
   if (scope === 'worktree') {
-    const tracked = new Set(changes.filter(change => change.rawStatus !== '??').map(change => change.path));
-    return changes.filter(change => change.rawStatus !== '??' || !tracked.has(change.path));
+    // A staged rename whose destination was removed compares HEAD's source to
+    // that source's current worktree path, not to the absent index destination.
+    // Its source remains HEAD-authorized even if porcelain calls it untracked.
+    const trackedPaths = new Set(changes.filter(change => change.rawStatus !== '??').map(change => change.path));
+    const net = changes.flatMap(change => change.rawStatus === 'RD' && change.oldPath
+      ? (trackedPaths.has(change.oldPath) ? [] : [{ path: change.oldPath, rawStatus: 'D ' }])
+      : [change]);
+    const tracked = new Set(net.filter(change => change.rawStatus !== '??').map(change => change.path));
+    return net.filter(change => change.rawStatus !== '??' || !tracked.has(change.path));
   }
   if (scope === 'staged') return changes.filter(change => change.rawStatus[0] !== ' ' && change.rawStatus[0] !== '?');
   return changes.filter(change => change.rawStatus[1] !== ' ' || change.rawStatus === '??');
