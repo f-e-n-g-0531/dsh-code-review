@@ -37,6 +37,9 @@ export function createDshModel(llm, route, {
     signal?.throwIfAborted();
     let output = '';
     let size = 0;
+    // Completed blocks are authoritative snapshots, not additional text deltas.
+    // Track them by index so block-only streams work without counting snapshots twice.
+    const blocks = new Map();
     let finished = false;
     let finishKind = 'missing';
     const diagnostic = () => ({
@@ -59,10 +62,25 @@ export function createDshModel(llm, route, {
         signal?.throwIfAborted();
         if (finished) throw failure('Model emitted data after finish', 'MODEL_PROTOCOL_ERROR');
         if (isToolCall(chunk)) throw failure('Review model attempted a tool call', 'MODEL_PROTOCOL_ERROR');
-        if (chunk.type === 'text-delta' || chunk.type === 'reasoning-delta') {
-          size += Buffer.byteLength(chunk.text);
+        const delta = chunk.type === 'text-delta' || chunk.type === 'reasoning-delta';
+        const completed = chunk.type === 'block-end' &&
+          (chunk.block.type === 'text' || chunk.block.type === 'reasoning');
+        if (delta || completed) {
+          const type = completed ? chunk.block.type : chunk.type === 'text-delta' ? 'text' : 'reasoning';
+          // Unindexed delta-only streams remain supported for older callers.
+          const key = chunk.index ?? type;
+          const previous = blocks.get(key);
+          if (previous && previous.type !== type) throw failure('Model changed block type', 'MODEL_PROTOCOL_ERROR');
+          // Like the host BlockAssembler, first close wins; never append stragglers.
+          if (previous?.closed) continue;
+          const text = completed ? chunk.block.text : (previous?.text ?? '') + chunk.text;
+          const bytes = Buffer.byteLength(text);
+          // A shorter final snapshot must not refund previously consumed output budget.
+          const chargedBytes = Math.max(previous?.chargedBytes ?? 0, bytes);
+          size += chargedBytes - (previous?.chargedBytes ?? 0);
           if (size > maxOutputBytes) throw failure('Model output limit exceeded', 'MODEL_OUTPUT_LIMIT');
-          if (chunk.type === 'text-delta') output += chunk.text;
+          blocks.set(key, { type, text, chargedBytes, closed: completed });
+          output = [...blocks.values()].filter(block => block.type === 'text').map(block => block.text).join('');
         }
         if (chunk.type === 'finish') {
           finishKind = chunk.reason.kind;

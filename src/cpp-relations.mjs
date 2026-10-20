@@ -22,7 +22,7 @@ export function inferCppRelations(files) {
    // Conditional/macro includes are not resolved without a build configuration.
    if (lines.some(line => /^\s*#\s*(?:if|ifdef|ifndef|elif|else|endif|define|undef)\b/.test(line))) continue;
    for (let i=0;i<lines.length;i++) {
-    const match = /^\s*#\s*include\s+"([^"\\]+)"\s*(?:\/\/.*)?$/.exec(lines[i]);
+    const match = /^\s*#\s*include\s*"([^"\\]+)"\s*(?:\/\/.*)?$/.exec(lines[i]);
     if (!match || match[1].startsWith('/') || match[1].includes(':')) continue;
     const targetPath = path.posix.normalize(path.posix.join(path.posix.dirname(file.path),match[1]));
     if (targetPath.startsWith('../') || targetPath === '..') continue;

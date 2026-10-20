@@ -8,4 +8,34 @@ const raw=()=>({fileId:'f',anchor:{kind:'line',side:'new',start:1,end:1,snippet:
 test('optional primary correction retains original in report and runs normal validation without extra model call',async()=>{const f={...file('keep\nnew\nend'),path:'a.cpp',eligibility:'reviewable',properties:[]};const finding={...raw(),severity:'high',title:'defect',evidence:'new',trigger:'trigger',impact:'impact',suggestion:'review',attribution:{editIds:['e1'],properties:[],beforeBehavior:'old',afterBehavior:'new',reason:'change'}};const r=await reviewSnapshot({id:'s',vcs:'git',files:[f]},async()=>({findings:[finding],limitations:[]}),{enableAnchorCorrection:true});assert.equal(r.modelCalls,1);assert.equal(r.findings[0].anchor.start,2);assert.deepEqual(r.files[0].anchorCorrections[0].originalCandidate,finding);});
 test('unique exact same-side edit correction retains immutable original',()=>{const f=file('keep\nnew\nend'),r=raw(),before=structuredClone(r),result=correctAnchor(r,f,changeMap(f.left.text,f.right.text));assert.equal(result.status,'corrected');assert.equal(result.candidate.anchor.start,2);assert.deepEqual(result.originalCandidate,before);assert.deepEqual(r,before);});
 test('ambiguous text wrong side unknown references and unrelated context do not relocate',()=>{for(const [after,patch,reason] of [['keep\nnew\nnew',{},'ambiguous-exact-text'],['keep\nnew\nend',{fileId:'other'},'invalid-anchor'],['keep\nnew\nend',{attribution:{editIds:['fake']}},'unknown-or-duplicate-edit'],['keep\nnew\nend',{anchor:{kind:'line',side:'new',start:2,end:2,snippet:'keep'}},'does-not-overlap-referenced-edit']]){const f=file(after);assert.equal(correctAnchor({...raw(),...patch},f,changeMap(f.left.text,f.right.text)).reason,reason);}});
+test('past-end anchors still relocate unique exact changed text', () => {
+ const f=file('keep\nnew\nend'),changes=changeMap(f.left.text,f.right.text);
+ for(const [start,end] of [[20,20],[2,20]]) {
+  const candidate={...raw(),anchor:{...raw().anchor,start,end}};
+  const result=correctAnchor(candidate,f,changes);
+  assert.equal(result.status,'corrected');
+  assert.deepEqual(result.candidate.anchor,{...candidate.anchor,start:2,end:2});
+  assert.equal(result.originalCandidate.anchor.end,end);
+ }
+});
+test('truncated source slices cannot make past-end anchors already exact', () => {
+ const f=file('keep\nnew');
+ const candidate={...raw(),anchor:{...raw().anchor,start:2,end:50}};
+ const result=correctAnchor(candidate,f,changeMap(f.left.text,f.right.text));
+ assert.equal(result.status,'corrected');
+ assert.equal(result.candidate.anchor.end,2);
+ const project=correctAnchor({...candidate,attribution:undefined},{...f,reviewMode:'project'});
+ assert.equal(project.status,'corrected');
+ assert.equal(project.candidate.anchor.end,2);
+});
+test('past-end coordinates do not bypass ambiguity or edit attribution', () => {
+ for(const [text,patch,reason] of [
+  ['keep\nnew\nnew',{},'ambiguous-exact-text'],
+  ['keep\nnew\nend',{attribution:{editIds:['fake']}},'unknown-or-duplicate-edit'],
+  ['keep\nnew\nend',{attribution:undefined},'missing-exact-edit'],
+ ]) {
+  const f=file(text),candidate={...raw(),...patch,anchor:{...raw().anchor,start:50,end:50}};
+  assert.equal(correctAnchor(candidate,f,changeMap(f.left.text,f.right.text)).reason,reason);
+ }
+});
 test('exact anchors unchanged and abort honored',()=>{const f=file('keep\nnew\nend');assert.equal(correctAnchor({...raw(),anchor:{...raw().anchor,start:2,end:2}},f,changeMap(f.left.text,f.right.text)).status,'unchanged');assert.throws(()=>correctAnchor(raw(),f,changeMap(f.left.text,f.right.text),{signal:AbortSignal.abort()}));});

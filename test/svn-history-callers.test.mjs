@@ -26,6 +26,10 @@ test('historical callers enforce shared scans and context slots without silently
  await assert.rejects(svnHistoryCallers([target],history,['clients'],[],{...caps(bodies),read:async(_name,rev)=>({...source('x',rev),content:{text:'x',bytes:-1}})}),/size/);
  const many=Object.fromEntries(Array.from({length:129},(_,i)=>['clients/a'+i+'.js','no match']));await assert.rejects(svnHistoryCallers([target],history,['clients'],[],caps({'1':many,'2':{}})),/scan count/);
 });
+test('underreported raw bytes cannot bypass cumulative text scan budget',async()=>{
+ const text='x'.repeat(256*1024);const entries=Array.from({length:5},(_,i)=>({path:'clients/a'+i+'.js',kind:'file'}));let reads=0;
+ await assert.rejects(svnHistoryCallers([target],history,['clients'],[],{index:async()=>entries,lookup:async()=>null,read:async(_name,rev)=>{reads++;return {...source(text,rev),content:{text,bytes:0}};}}),/scan source limit/);assert.equal(reads,5);
+});
 test('index escapes read failures and ambiguous node competitors cannot become successful caller coverage',async()=>{
  const bodies={'1':{},'2':{'clients/use.js':'import "../lib/target";\n'}};
  await assert.rejects(svnHistoryCallers([target],history,['clients'],[],{...caps(bodies),index:async()=>[{path:'outside.js',kind:'file'}]}),/Unsafe/);

@@ -16,6 +16,7 @@ export function decode(bytes) {
   if (/[\x00-\x08\x0e-\x1f]/.test(text)) throw new Error('Binary content');
   return { text, hash: hash(bytes), encoding, bytes: bytes.length };
 }
+
 export async function readLocal(root, name, { maxFileBytes = 256 * 1024, signal } = {}) {
   relativePath(name);
   assertNonSecretPath(name);
@@ -24,19 +25,29 @@ export async function readLocal(root, name, { maxFileBytes = 256 * 1024, signal 
   const canonicalRoot = await realpath(root);
   const filename = path.resolve(canonicalRoot, ...name.split('/'));
   let cursor = canonicalRoot;
+  const ancestors = [];
+  let expected;
   for (const part of name.split('/')) {
     cursor = path.join(cursor, part);
     const stat = await lstat(cursor);
     if (stat.isSymbolicLink()) throw new Error('Symbolic links and junctions are excluded');
-    if (cursor === filename && !stat.isFile()) throw new Error('Not a regular file');
+    if (cursor === filename) {
+      if (!stat.isFile()) throw new Error('Not a regular file');
+      expected = stat;
+    } else {
+      if (!stat.isDirectory()) throw new Error('Not a directory');
+      ancestors.push({ path: cursor, stat });
+    }
   }
   const canonical = await realpath(filename);
   const rel = path.relative(canonicalRoot, canonical);
   if (rel.startsWith('..' + path.sep) || rel === '..' || path.isAbsolute(rel)) throw new Error('Path escapes repository');
-  const handle = await open(filename, 'r');
+  const opened = await lstat(filename);
+  if (opened.isSymbolicLink() || !opened.isFile()) throw new Error(opened.isSymbolicLink() ? 'Symbolic links and junctions are excluded' : 'Not a regular file');
+  const handle = await open(canonical, 'r');
   try {
     const before = await handle.stat();
-    if (!before.isFile()) throw new Error('Not a regular file');
+    if (!before.isFile() || before.dev !== expected.dev || before.ino !== expected.ino || before.dev !== opened.dev || before.ino !== opened.ino) throw new Error('File changed during capture');
     if (before.size > maxFileBytes) throw new Error('File size limit exceeded');
     const buffer = Buffer.alloc(maxFileBytes + 1);
     let length = 0;
@@ -47,8 +58,12 @@ export async function readLocal(root, name, { maxFileBytes = 256 * 1024, signal 
       length += bytesRead;
     }
     if (length > maxFileBytes) throw new Error('File size limit exceeded');
+    for (const ancestor of ancestors) {
+      const now = await lstat(ancestor.path);
+      if (now.isSymbolicLink() || !now.isDirectory() || now.dev !== ancestor.stat.dev || now.ino !== ancestor.stat.ino || now.ctimeMs !== ancestor.stat.ctimeMs) throw new Error('Ancestor changed during capture');
+    }
     const after = await handle.stat();
-    if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || canonical !== await realpath(filename)) throw new Error('File changed during capture');
+    if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs || before.ino !== after.ino || canonical !== await realpath(filename)) throw new Error('File changed during capture');
     return decode(buffer.subarray(0, length));
   } finally { await handle.close(); }
 }

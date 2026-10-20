@@ -5,7 +5,7 @@ export function correctAnchor(raw, file, changes, {signal}={}) {
  if(!raw||raw.fileId!==file.id||a?.kind!=='line'||!['old','new'].includes(a.side)||!Number.isSafeInteger(a.start)||!Number.isSafeInteger(a.end)||a.start<1||a.end<a.start||typeof a.snippet!=='string'||!a.snippet.trim()||a.snippet.length>8000)return result('not-applicable','invalid-anchor');
  const text=(a.side==='old'?file.left:file.right)?.text;if(typeof text!=='string'||Buffer.byteLength(text)>256*1024)return result('not-applicable','source-limit');
  const source=text.replaceAll('\r\n','\n').split('\n'),snippet=a.snippet.replaceAll('\r\n','\n').split('\n');
- if(source.slice(a.start-1,a.end).join('\n')===snippet.join('\n'))return result('unchanged','already-exact');
+ if(a.end<=source.length&&source.slice(a.start-1,a.end).join('\n')===snippet.join('\n'))return result('unchanged','already-exact');
  const currentSource = file.reviewMode === 'project' && a.side === 'new';
  if(file.reviewMode === 'project' && !currentSource)return result('rejected','project-requires-new-side');
  if(!currentSource&&(changes?.status!=='changed'||changes.precision!=='exact'||!Array.isArray(raw.attribution?.editIds)||!raw.attribution.editIds.length))return result('rejected','missing-exact-edit');

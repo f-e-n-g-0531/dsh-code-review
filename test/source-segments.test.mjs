@@ -1,2 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {sourceSegments} from '../src/source-segments.mjs';
+import test from 'node:test';
+import assert from 'node:assert/strict';import {sourceSegments} from '../src/source-segments.mjs';
+test('source segments reject nonpositive or noninteger limits before looping',()=>{for(const key of ['maxLines','maxBytes'])for(const value of [0,-1,0.5,NaN,Infinity,'100',null])assert.throws(()=>sourceSegments([],{[key]:value}),/Invalid source segment limits/);});
 test('source segments retain original lines and exact full text without fabricated alignment',()=>{const text=Array.from({length:250},(_,i)=>i+'\r\n').join('');const windows=sourceSegments([{id:'h1',editIds:['e1'],old:{start:7,count:250,text},new:{start:20,count:1,text:'new'}}]);assert.equal(windows.length,3);assert.equal(windows.map(w=>w.old.text).join(''),text);assert.equal(windows[1].old.start,107);assert.equal(windows[1].new.count,0);assert.equal(windows[2].new.start,21);});

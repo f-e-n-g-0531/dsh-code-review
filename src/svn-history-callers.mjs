@@ -24,7 +24,8 @@ export async function svnHistoryCallers(files,history,scopes,context,{index,look
    if(typeof value?.content?.text!=='string'||value.kind!=='file'||value.source?.operativeRevision!==revision)throw new Error('Invalid fixed SVN caller body');
    const bodyBytes=value.content.bytes??Buffer.byteLength(value.content.text);
    if(!Number.isSafeInteger(bodyBytes)||bodyBytes<0||bodyBytes>256*1024||Buffer.byteLength(value.content.text)>256*1024)throw new Error('Invalid fixed SVN caller size');
-   scanBytes+=bodyBytes;
+   // Raw encoding bytes may differ from UTF-8; never charge less than the text retained.
+   scanBytes+=Math.max(bodyBytes,Buffer.byteLength(value.content.text));
    if(scanBytes>1024*1024)throw new Error('SVN historical caller scan source limit exceeded');
    const source={path:name,...value.content,svnSource:value.source,side,revision};sources.push(source);scanned.push(source);
   }

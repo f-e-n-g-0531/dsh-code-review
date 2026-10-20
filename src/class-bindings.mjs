@@ -121,6 +121,9 @@ export function instanceMethodBindings(lines, importLine, targetText) {
     if (assign === null || inst === member || inst === klass || inst === local) continue;
     const newCount = [...caller.matchAll(new RegExp('(^|[^A-Za-z0-9_$])new\\s+' + escapeDollar(local) + '\\s*\\(', 'g'))].length;
     if (newCount !== 1) continue;
+    // Without lexical scope resolution only the import and construction may name the class.
+    const localToken = boundaryPattern(local, '(?=[^A-Za-z0-9_$]|$)', 'g');
+    if (lines.some((line,i) => i + 1 !== importLine && i + 1 !== assign && [...line.matchAll(localToken)].length)) continue;
     const instToken = boundaryPattern(inst, '(?=[^A-Za-z0-9_$]|$)', 'g');
     const instLines = [];
     for (let i = 0; i < lines.length; i++) {

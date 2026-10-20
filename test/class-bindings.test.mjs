@@ -17,7 +17,7 @@ test('unique plain instance method binds a single-use constructor call',()=>{
 });
 test('empty alias imports and unsupported class shapes refuse',()=>{
  assert.equal(instanceMethodBindings("import { a, b } from './svc';".split(N),1,svc).length,0);
- assert.equal(instanceMethodBindings("import Service from './svc';"+N+'new Service();'.split(N),1,svc).length,0);
+ assert.equal(instanceMethodBindings(("import Service from './svc';"+N+'new Service();').split(N),1,svc).length,0);
  assert.equal(hints(call,'export class Service extends Base {'+N+'  run() {}'+N+'}').length,0);
  assert.equal(hints(call,'export class Service {'+N+'  static run() {}'+N+'}').length,0);
  assert.equal(hints(call,'export class Service {'+N+'  get run() {}'+N+'}').length,0);
@@ -65,6 +65,11 @@ test('instance hints stay optional under input budget like namespace',()=>{
 test('multi-line static getter and assignment values refuse across newlines',()=>{
  for(const t of [N+'  static'+N+'  run(x) { return x; }',N+'  get'+N+'  run() { return 1; }',N+'  x ='+N+'    run();'])assert.equal(instanceMethodBindings(("import { Service } from './svc';"+N+'const s = new Service();'+N+'s.run(1);').split(N),1,'export class Service {'+t+N+'}').length,0,t);
  assert.equal(instanceMethodBindings(("import { Service } from './svc';"+N+'const s = new Service();'+N+'s.run(1);').split(N),1,'export class Service {'+N+'  x = 1'+N+'  run(v) { return v; }'+N+'}').length,1);
+});
+test('constructor shadowing and prototype replacement never become import bindings',()=>{
+ assert.equal(hints("import { Service } from './svc';"+N+'function invoke(Service) {'+N+'const s = new Service();'+N+'s.run(1);'+N+'}').length,0);
+ assert.equal(hints(call+N+'Service.prototype.run = other;').length,0);
+ assert.equal(hints(call+N+'Object.assign(Service.prototype, replacement);').length,0);
 });
 test('shadowing mutation escapes self-calls and duplicate instantiation refuse',()=>{
  for(const extra of [N+'s.run(); s.run();', N+'consume(s);', N+'s = other;', N+'function f(s) {}', N+'const copy = s;', N+'new Service();', N+'// s.run();'])assert.equal(hints(call.replace('s.run(1);','s.run(1);')+extra).length,0,extra);

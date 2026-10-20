@@ -5,7 +5,7 @@ import { hash } from './content.mjs';
 import { resolveWorkspaceRepository } from './workspace-repository.mjs';
 import { detectVcs } from './snapshot.mjs';
 import { projectInventory, captureProjectBatch } from './project-snapshot.mjs';
-import { reviewProjectBatches, projectConcurrency as validateProjectConcurrency } from './project-execution.mjs';
+import { reviewProjectBatches, projectConcurrency as validateProjectConcurrency, DEFAULT_PROJECT_CONCURRENCY } from './project-execution.mjs';
 import { createDshModel } from './dsh-model.mjs';
 
 const PREVIEW_NOTICE_SUFFIX = ' Full current source audit, not regression-only diff. Shared session execution budget: no internal elapsed-time or model-call cutoff, 16MiB capture memory protection. Blocked/excluded/pending files are not reviewed successfully. No untracked/ignored/external bodies; no complete semantic call graph. Independent approved batches run with bounded concurrency; per-batch evidence and global model-call budgets remain enforced. Show scope and model before confirmed execute.';
@@ -66,7 +66,7 @@ async function captureProject(cwd, args, signal) {
   return { ...result, id: hash(JSON.stringify(result)) };
 }
 
-export function createProjectReviewService(llm, { allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = 3 } = {}) {
+export function createProjectReviewService(llm, { allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = DEFAULT_PROJECT_CONCURRENCY } = {}) {
   for (const n of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(n) || n < 1) throw new Error('Invalid project preview limit');
   if (!Number.isSafeInteger(projectMaxCalls) || projectMaxCalls < 1) throw new Error('Invalid project model call limit');
 

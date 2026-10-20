@@ -21,6 +21,10 @@ test('unsupported competitors remain ambiguity blockers and approved hints reach
  assert.equal(report.status,'completed');assert.equal(report.modelCalls,plan.minimumCalls);
  assert.deepEqual(infer({...input,files:[primary,{path:'Service.cs',eligibility:'excluded'}]},primary),[]);
 });
+test('selected competing types block uniqueness regardless of filename on either side',()=>{
+ for(const side of ['left','right']){const competing={path:'DifferentName.cs',[side]:{text:target}};const caller={...primary,[side]:{text:source}};
+ assert.deepEqual(infer({...input,files:[caller,competing]},caller),[]);}
+});
 test('unbalanced outside-type and nested-method declarations cannot become binding hints',()=>{
  for(const text of [target.slice(0,-1),target+nl+'}', ['namespace App;','public static class Service','{','}', 'public static void Stop()','{','}'].join(nl), ['namespace App;','public static class Service','{','public static void Outer()','{','public static void Stop()','{','}','}','}'].join(nl)]) assert.deepEqual(infer({...input,context:[{path:'Service.cs',text}]},primary),[]);
 });

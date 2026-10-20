@@ -326,9 +326,9 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     } catch (error) {
       state.status = signal?.aborted ? 'cancelled' : error?.code === 'PROJECT_MODEL_CALL_LIMIT' ? 'pending' : 'failed';
       state.reason = error?.message ?? String(error);
-      if(error.attempts)state.protocolAttempts=error.attempts;
-      if(error.responseAttempts)state.responseAttempts=error.responseAttempts;
-      if(error.diagnostic)state.protocolDiagnostic=error.diagnostic;
+      if(error?.attempts)state.protocolAttempts=error.attempts;
+      if(error?.responseAttempts)state.responseAttempts=error.responseAttempts;
+      if(error?.diagnostic)state.protocolDiagnostic=error.diagnostic;
       for(const pass of state.reviewPasses??[])if(pass.status==='running')pass.status=signal?.aborted?'cancelled':'failed';
       state.failureCode = signal?.aborted ? 'CANCELLED' : ['MODEL_INVALID_JSON','MODEL_INCOMPLETE_OUTPUT','MODEL_TIMEOUT','MODEL_INVALID_READ_REQUEST','MODEL_OUTPUT_LIMIT','MODEL_PROTOCOL_ERROR','MODEL_INVALID_REVIEW_RESPONSE','MODEL_INVALID_FINDING_IDENTITY','MODEL_INVALID_FINDING_SEVERITY','MODEL_MISSING_FINDING_FIELD','MODEL_INVALID_ANCHOR','MODEL_ANCHOR_MISMATCH','READER_CALL_BUDGET_EXCEEDED','READER_OUTPUT_BUDGET_EXCEEDED','RETRIEVAL_ROUND_BUDGET_EXCEEDED','RETRIEVAL_FINAL_RESPONSE_REQUIRED','PROJECT_MODEL_CALL_LIMIT'].includes(error?.code) ? error.code : 'REVIEW_EXECUTION_FAILED';
     }

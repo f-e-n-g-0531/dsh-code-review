@@ -20,7 +20,11 @@ export function inferCsharpContext(input, primary) {
    if (lines.some((line,j) => j !== i && token.test(line))) continue;
    // Unsupported declarations still compete; filtering them out must not create uniqueness.
    const competitors = contexts.filter(c => typeof c.text !== 'string' || token.test(c.text));
-   if (competitors.length !== 1 || input.files.some(f => f !== primary && f.path.endsWith('.cs') && f.path.split('/').at(-1) === type + '.cs')) continue;
+   if (competitors.length !== 1 || input.files.some(f => {
+    if(f === primary || !f.path.endsWith('.cs'))return false;
+    const text=(side === 'old' ? f.left : f.right)?.text;
+    return f.path.split('/').at(-1) === type + '.cs' || typeof text !== 'string' || token.test(text);
+   })) continue;
    const candidates = competitors.filter(c => safe(c.text) && namespaceOf(c.text) === ns && !/\busing\b|\bpartial\b|\bvirtual\b|\boverride\b|\binterface\b/.test(c.text));
    const declarations = [];
    for (const context of candidates) {

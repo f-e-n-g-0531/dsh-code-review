@@ -21,8 +21,8 @@ test('project service exposes bounded concurrency and streams three approved bat
  }},{allowModelSending:true,authorize:async()=>true});
  t.after(()=>{gate.resolve();service.dispose();});
  const exec={agent:{session:{header:{cwd:root}},options:{provider:'p',model:'m'}},reviewCheckpoint:async e=>events.push(structuredClone(e))};
- const p=await service.preview({reviewMode:'project'},exec);assert.equal(p.execution.batchConcurrency,3);assert.equal(p.batches,3);
+ const p=await service.preview({reviewMode:'project'},exec);assert.equal(p.execution.batchConcurrency,8);assert.equal(p.batches,3);
  const running=service.execute({previewId:p.previewId,confirmed:true},exec);
  await allStarted.promise;assert.equal(peak,3);assert.equal(calls,3);await assert.rejects(service.preview({reviewMode:'project'},exec),/busy/);gate.resolve();
- const result=await running;assert.equal(result.report.execution.batchConcurrency,3);assert.equal(result.report.modelCalls,25);assert.equal(result.report.coverage.completed,25);assert.equal(result.report.files.length,25);assert.deepEqual(result.report.files.map(f=>f.path),Array.from({length:25},(_,i)=>String(i).padStart(2,'0')+'.js'));assert.ok(result.report.files.every(f=>f.status==='completed'));assert.equal(recoveryCoverage({checkpoints:events}).files.filter(f=>f.status==='completed').length,25);assert.equal(peak,3);
+ const result=await running;assert.equal(result.report.execution.batchConcurrency,8);assert.equal(result.report.modelCalls,25);assert.equal(result.report.coverage.completed,25);assert.equal(result.report.files.length,25);assert.deepEqual(result.report.files.map(f=>f.path),Array.from({length:25},(_,i)=>String(i).padStart(2,'0')+'.js'));assert.ok(result.report.files.every(f=>f.status==='completed'));assert.equal(recoveryCoverage({checkpoints:events}).files.filter(f=>f.status==='completed').length,25);assert.equal(peak,3);
 });

@@ -7,6 +7,15 @@ test('named aliases/default calls preserve original lines and local spellings', 
   assert.deepEqual(importedCallSites(lines, 1), [{ local: 'go', line: 2 }]);
   assert.deepEqual(importedCallSites(["import go from './run.js';", 'go();'], 1), [{ local: 'go', line: 2 }]);
 });
+test('named imports allow one trailing comma but reject comma holes', () => {
+  for (const binding of ['{ go, }', '{ run as go, }']) {
+    assert.deepEqual(importedCallSites(['import ' + binding + " from './run.js';", 'go();'], 1), [{ local: 'go', line: 2 }]);
+  }
+  for (const binding of ['{ , go }', '{ go,, other }', '{ go, , }', '{ go,, }', '{ }']) {
+    assert.deepEqual(importedCallSites(['import ' + binding + " from './run.js';", 'go();', 'other();'], 1), [], binding);
+  }
+});
+
 test('shared single-pass index preserves results for multiple imports', () => {
   const lines = ["import { one } from './one.js';", "import { two as other } from './two.js';", 'other();', 'one();'];
   const index = indexStandaloneCalls(lines);

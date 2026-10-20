@@ -39,6 +39,75 @@ test('fence compatibility retains strict review schema and reports failed covera
  const s={id:'s',vcs:'git',context:[],files:[{id:'f',path:'a.cpp',eligibility:'reviewable',properties:[],left:{text:'before();'},right:{text:'after();'}}]};
  for(const value of [{bugs:[]},{findings:[]},{findings:'not-array',limitations:[]}]){let calls=0;const model=createDshModel({async *stream(){calls++;yield {type:'text-delta',text:'```json\n'+JSON.stringify(value)+'\n```'};yield {type:'finish',reason:{kind:'stop'}};}},route);const report=await reviewSnapshot(s,model,{enableRetrieval:true});assert.equal(calls,1);assert.equal(report.status,'failed');assert.equal(report.files[0].status,'failed');assert.equal(report.findings.length,0);}
 });
+test('DSH bridge uses completed blocks once, including block-only text and reasoning', async () => {
+  const text = '{"findings":[],"limitations":[]}';
+  for (const withDeltas of [false, true]) {
+    let calls = 0;
+    const model = createDshModel({ async *stream() {
+      calls++;
+      yield { type: 'block-start', index: 0, blockType: 'reasoning' };
+      if (withDeltas) yield { type: 'reasoning-delta', index: 0, text: 'why' };
+      yield { type: 'block-end', index: 0, block: { type: 'reasoning', text: 'why' } };
+      yield { type: 'block-start', index: 1, blockType: 'text' };
+      if (withDeltas) {
+        yield { type: 'text-delta', index: 1, text: text.slice(0, 10) };
+        yield { type: 'text-delta', index: 1, text: text.slice(10) };
+      }
+      yield { type: 'block-end', index: 1, block: { type: 'text', text } };
+      yield { type: 'finish', reason: { kind: 'stop' } };
+    } }, route, { correctJson: true, maxOutputBytes: Buffer.byteLength(text) + 3 });
+    assert.equal(await model(request), text);
+    assert.equal(calls, 1);
+  }
+});
+
+test('DSH bridge honors authoritative completed text instead of stale partial deltas', async () => {
+  const text = '{"findings":[],"limitations":[]}';
+  const model = createDshModel({ async *stream() {
+    yield { type: 'text-delta', index: 0, text: '{"findings":' };
+    yield { type: 'block-end', index: 0, block: { type: 'text', text } };
+    yield { type: 'finish', reason: { kind: 'stop' } };
+  } }, route);
+  assert.equal(await model(request), text);
+});
+
+test('DSH bridge preserves block order and ignores already closed block stragglers', async () => {
+  const model = createDshModel({ async *stream() {
+    yield { type: 'text-delta', index: 0, text: '{"findings":' };
+    yield { type: 'text-delta', index: 1, text: '[],"limitations":[]}' };
+    yield { type: 'block-end', index: 1, block: { type: 'text', text: '[],"limitations":[]}' } };
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: '{"findings":' } };
+    yield { type: 'text-delta', index: 0, text: 'ignored' };
+    yield { type: 'block-end', index: 0, block: { type: 'text', text: 'ignored' } };
+    yield { type: 'finish', reason: { kind: 'stop' } };
+  } }, route);
+  assert.equal(await model(request), '{"findings":[],"limitations":[]}');
+});
+
+test('DSH bridge never deduplicates repeated JSON deltas or completed block content', async () => {
+  for (const completed of [false, true]) {
+    const model = createDshModel({ async *stream() {
+      yield { type: 'text-delta', index: 0, text: '{}{}' };
+      if (completed) yield { type: 'block-end', index: 0, block: { type: 'text', text: '{}{}' } };
+      yield { type: 'finish', reason: { kind: 'stop' } };
+    } }, route);
+    await assert.rejects(model(request), error => error.code === 'MODEL_INVALID_JSON' && error.diagnostic.syntaxCategory === 'trailing-content');
+  }
+});
+
+test('DSH bridge bounds block-only text and reasoning without JSON correction', async () => {
+  for (const type of ['text', 'reasoning']) {
+    let calls = 0;
+    const model = createDshModel({ async *stream() {
+      calls++;
+      yield { type: 'block-end', index: 0, block: { type, text: '汉汉' } };
+      yield { type: 'finish', reason: { kind: 'stop' } };
+    } }, route, { correctJson: true, maxOutputBytes: 5 });
+    await assert.rejects(model(request), { code: 'MODEL_OUTPUT_LIMIT' });
+    assert.equal(calls, 1);
+  }
+});
+
 test('DSH bridge bounds reasoning as well as visible output', async () => {
   const model = createDshModel({ async *stream() { yield { type: 'reasoning-delta', text: '12345' }; } }, route, { maxOutputBytes: 4 });
   await assert.rejects(model(request), /limit/);

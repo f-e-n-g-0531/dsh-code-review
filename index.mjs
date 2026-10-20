@@ -1,5 +1,6 @@
 import { registerBackgroundReview } from './src/background-review.mjs';
 import { createReviewService } from './src/service.mjs';
+import { DEFAULT_PROJECT_CONCURRENCY } from './src/project-execution.mjs';
 import { reviewToolOutput } from './src/tool-view.mjs';
 
 export const name = 'dsh-code-review';
@@ -13,7 +14,7 @@ const EXECUTE_PARAMETERS = { type: 'object', additionalProperties: false, proper
 export function apply(ctx, config = {}) {
   // This entry runs only when the host invokes the registered tool.
   // Host tool policy owns permission; do not request a second approval here.
-  const service = createReviewService(ctx.llm, { allowModelSending: true, enableRiskPlanning: true, enableBusinessGrouping: true, enableAnchorCorrection: true, projectConcurrency: config.projectConcurrency ?? 3, authorize: async () => true });
+  const service = createReviewService(ctx.llm, { allowModelSending: true, enableRiskPlanning: true, enableBusinessGrouping: true, enableAnchorCorrection: true, projectConcurrency: config.projectConcurrency ?? DEFAULT_PROJECT_CONCURRENCY, authorize: async () => true });
   ctx.tools.register({
     name: 'code_review_preview', description: PREVIEW_DESCRIPTION, parameters: PREVIEW_PARAMETERS, output: reviewToolOutput,
     async execute(args, exec) { const preview = await service.preview(args, exec); return { json: JSON.stringify(preview), markdown: '' }; },

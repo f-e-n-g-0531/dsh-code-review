@@ -17,7 +17,10 @@ export function importedCallSites(lines, importLine, callIndex = indexStandalone
   const identifier = /^[A-Za-z_$][A-Za-z0-9_$]*$/;
   if (identifier.test(match[1])) names.push(match[1]);
   else if (match[1].startsWith('{') && match[1].endsWith('}')) {
-    for (const part of match[1].slice(1, -1).split(',')) {
+    const parts = match[1].slice(1, -1).split(',');
+    // A single trailing comma is valid; leading or interior holes are not.
+    if (!parts.at(-1).trim()) parts.pop();
+    for (const part of parts) {
       const binding = /^\s*([A-Za-z_$][A-Za-z0-9_$]*)(?:\s+as\s+([A-Za-z_$][A-Za-z0-9_$]*))?\s*$/.exec(part);
       if (!binding) return [];
       names.push(binding[2] ?? binding[1]);

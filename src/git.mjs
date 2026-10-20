@@ -10,7 +10,7 @@ const git = (cwd, args, options) => checked('git', [...flags, ...args], { ...opt
 const text = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 
 async function resolveRoot(cwd, options) {
-  const top = text(await git(cwd, ['rev-parse', '--show-toplevel'], options)).trim();
+  const top = text(await git(cwd, ['rev-parse', '--show-toplevel'], options)).replace(/\r?\n$/, '');
   return realpath(top);
 }
 

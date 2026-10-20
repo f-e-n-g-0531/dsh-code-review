@@ -13,7 +13,7 @@ const INVENTORY_NOTICE = 'Tracked current working files only, including unchange
 
 async function inventoryGit(root, options) {
   const args = ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false'];
-  const actual = text(await checked('git', [...args, 'rev-parse', '--show-toplevel'], { ...options, cwd: root })).trim();
+  const actual = text(await checked('git', [...args, 'rev-parse', '--show-toplevel'], { ...options, cwd: root })).replace(/\r?\n$/, '');
   if (await realpath(actual) !== root) throw new Error('Full project requires explicit repository root');
   const index = await checked('git', [...args, 'ls-files', '--stage', '-z'], { ...options, cwd: root, maxBytes: 2 * 1024 * 1024 });
   const records = [];

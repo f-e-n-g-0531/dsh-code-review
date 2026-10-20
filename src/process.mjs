@@ -14,13 +14,21 @@ export function run(command, args, { cwd, signal, timeoutMs = 0, maxBytes = 8 * 
       env: childEnv,
     });
     const stdout = [], stderr = [];
-    let bytes = 0, failure;
-    const stop = error => { failure ??= error; child.kill(); };
+    let bytes = 0, failure, killer, stopped = false;
+    const stop = error => {
+      failure ??= error;
+      if (stopped) return;
+      stopped = true;
+      child.kill();
+      killer = setTimeout(() => { if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL'); }, 1000);
+      killer.unref?.();
+    };
     const abort = () => stop(signal.reason ?? new Error('Cancelled'));
     signal?.addEventListener('abort', abort, { once: true });
     if (signal?.aborted) abort();
     const timer = timeoutMs>0?setTimeout(() => stop(new Error('Command timeout')), timeoutMs):undefined;
     const capture = chunks => data => {
+      if (stopped) return;
       bytes += data.length;
       if (bytes > maxBytes) stop(new Error('Command output limit exceeded'));
       else chunks.push(data);
@@ -30,6 +38,7 @@ export function run(command, args, { cwd, signal, timeoutMs = 0, maxBytes = 8 * 
     child.on('error', error => { failure ??= error; });
     child.on('close', code => {
       clearTimeout(timer);
+      clearTimeout(killer);
       signal?.removeEventListener('abort', abort);
       if (failure) reject(failure);
       else resolve({ code, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr) });

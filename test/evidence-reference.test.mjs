@@ -30,7 +30,7 @@ test('mismatch diagnostics expose only fixed field names, not source or supplied
 test('malformed references fail before reading; shared budget exhaustion propagates', () => {
   const { ref } = fixture();
   for (const change of [{ extra: true }, { count: 0 }, { count: 201 }, { start: 1.5 }, { text: '' }, { hash: 'bad' }]) {
-    assert.throws(() => validateEvidenceReference({ ...ref, ...change }, () => assert.fail('unexpected read')));
+    assert.throws(() => validateEvidenceReference({ ...ref, ...change }, () => { throw new Error('unexpected read'); }), error => error.message !== 'unexpected read');
   }
   const reader = createSnapshotReader('snap', [{ id: 's1', text: 'old\r\nnew' }], { maxCalls: 1 });
   validateEvidenceReference(ref, reader.read);

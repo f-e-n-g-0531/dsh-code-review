@@ -1,6 +1,6 @@
 import { reviewSnapshot } from './review.mjs';
 
-export const DEFAULT_PROJECT_CONCURRENCY = 3;
+export const DEFAULT_PROJECT_CONCURRENCY = 8;
 export function projectConcurrency(value = DEFAULT_PROJECT_CONCURRENCY) {
   if (!Number.isSafeInteger(value) || value < 1 || value > 8) throw new Error('Project concurrency must be an integer from 1 to 8');
   return value;

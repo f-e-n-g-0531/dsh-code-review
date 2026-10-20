@@ -10,6 +10,7 @@ test('approved C++ literal include and unique header implementation names form b
  assert.ok(edges.some(e=>e.reason==='cpp-header-implementation-name'));assert.ok(edges.some(e=>e.from==='c'&&e.to==='b'&&e.line===1));
  assert.equal(buildReviewGroups(files,inferFileRelations(files)).groups[0].fileIds.length,3);assert.deepEqual(files,before);
 });
+test('quoted includes allow no whitespace after include keyword',()=>{const edges=infer([f('a','src/Other.cpp','#include"Skin.h"'),f('b','src/Skin.h')]);assert.equal(edges.length,1);assert.equal(edges[0].to,'b');});
 test('macro conditional system escaping excluded and ambiguous targets never resolve',()=>{
  for(const text of ['#include <Skin.h>','#include HEADER','#ifdef X'+String.fromCharCode(10)+'#include "Skin.h"','#include "../../Skin.h"','/*'+String.fromCharCode(10)+'#include "Skin.h"'])assert.deepEqual(infer([f('a','src/Other.cpp',text),f('b','src/Skin.h')]),[]);
  assert.deepEqual(infer([f('a','src/Skin.cpp'),f('b','src/Skin.h'),f('c','src/Skin.hpp')]),[]);

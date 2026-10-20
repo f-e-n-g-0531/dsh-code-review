@@ -13,6 +13,6 @@ async function measure(concurrency) {
  },{concurrency,remainingCalls:()=>100-calls});
  return {concurrency,elapsedMs:Math.round(performance.now()-start),modelCalls:calls,peakInFlight:peak,completed:results.reduce((n,r)=>n+r.coverage.completed,0),paths:results.flatMap(r=>r.files.map(f=>f.path))};
 }
-const serial=await measure(1),parallel=await measure(3);
-if(JSON.stringify(serial.paths)!==JSON.stringify(parallel.paths)||serial.completed!==parallel.completed||serial.modelCalls!==parallel.modelCalls)throw new Error('Benchmark work or output order differs');
-console.log(JSON.stringify({mock:true,network:false,simulatedModelLatencyMs:40,batches:12,serial,parallel,speedup:Number((serial.elapsedMs/parallel.elapsedMs).toFixed(2)),notice:'Offline latency simulation only; real speed depends on provider concurrency, rate limits and batch balance. Same model-call count, no token-cost reduction promised.'},null,2));
+const serial=await measure(1),previousDefault=await measure(3),parallel=await measure(8);
+for(const run of [previousDefault,parallel])if(JSON.stringify(serial.paths)!==JSON.stringify(run.paths)||serial.completed!==run.completed||serial.modelCalls!==run.modelCalls)throw new Error('Benchmark work or output order differs');
+console.log(JSON.stringify({mock:true,network:false,simulatedModelLatencyMs:40,batches:12,serial,previousDefault,parallel,previousDefaultSpeedup:Number((previousDefault.elapsedMs/parallel.elapsedMs).toFixed(2)),speedup:Number((serial.elapsedMs/parallel.elapsedMs).toFixed(2)),notice:'Offline latency simulation only; real speed depends on provider concurrency, rate limits and batch balance. Same model-call count, no token-cost reduction promised.'},null,2));

@@ -68,7 +68,7 @@ export async function captureGitHistory(cwd, options = {}) {
   if (!Number.isSafeInteger(maxFiles) || maxFiles < 1 || maxFiles > 200 || !Number.isSafeInteger(maxFileBytes) || maxFileBytes < 1 || maxFileBytes > 256 * 1024 || !Number.isSafeInteger(maxSnapshotBytes) || maxSnapshotBytes < 1 || maxSnapshotBytes > 4 * 1024 * 1024) throw new Error('Invalid historical capture limits');
   if (selectedPaths !== undefined && (!Array.isArray(selectedPaths) || selectedPaths.some(p => relativePath(p) !== p))) throw new Error('Invalid selected paths');
 
-  const root = await realpath(utf8(await gitAt(cwd, ['rev-parse', '--show-toplevel'], options)).trim());
+  const root = await realpath(utf8(await gitAt(cwd, ['rev-parse', '--show-toplevel'], options)).replace(/\r?\n$/, ''));
 
   // Resolve the two endpoints: commit compares against its sole parent; range uses explicit endpoints.
   let base, target;

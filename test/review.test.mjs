@@ -23,6 +23,11 @@ test('deletion old-side and properties are valid anchors', () => {
   value.anchor = { kind: 'property', name: 'svn:externals' };
   assert.equal(validateFindings({ findings: [value], limitations: [] }, file()).findings.length, 1);
 });
+test('null and undefined model rejections retain prior file results and continue',async()=>{
+ for(const reason of [null,undefined]){const input=snapshot();input.files.push({...file(),id:'f2',path:'b.js'},{...file(),id:'f3',path:'c.js'});let calls=0;
+ const result=await reviewSnapshot(input,async()=>{if(++calls===2)throw reason;return ok();});
+ assert.equal(calls,3);assert.equal(result.coverage.completed,2);assert.equal(result.coverage.failed,1);assert.equal(result.files[1].reason,String(reason));}
+});
 test('invalid JSON is failed, not clean', async () => {
   const result = await reviewSnapshot(snapshot(), async () => 'not JSON');
   assert.equal(result.status, 'failed'); assert.match(markdownReport(result), /不能视为通过/);
