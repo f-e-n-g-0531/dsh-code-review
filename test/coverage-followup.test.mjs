@@ -57,6 +57,14 @@ test('cancelled and failed execution preserve exact remaining suggestions', asyn
   assert.equal(failed.coverage.completed, 1);
   assert.deepEqual(failed.followup.suggestedPaths, ['a.js']);
 });
+test('unfinished synthesis remains actionable after primary completion', () => {
+  const statuses = ['completed', 'blocked', 'failed', 'pending', 'cancelled'];
+  const files = statuses.map((synthesisStatus, i) => ({ fileId: String(i), path: i + '.js', status: 'completed', synthesisStatus }));
+  const result = coverageFollowup({ snapshotId: 's', files, findings: [] });
+  assert.deepEqual(result.suggestedPaths, ['1.js', '2.js', '3.js', '4.js']);
+  assert.equal(result.items[0].incompleteSynthesis, false);
+  assert.ok(result.items.slice(1).every(item => item.incompleteSynthesis));
+});
 test('invalid or ambiguous coverage does not produce suggestions', () => {
   const file = { fileId: 'f', path: 'a', status: 'completed' };
   for (const files of [[file,file], [{...file,status:'unknown'}], Array(201).fill(file)]) assert.throws(() => coverageFollowup({ snapshotId: 's', files, findings: [] }), /Invalid/);

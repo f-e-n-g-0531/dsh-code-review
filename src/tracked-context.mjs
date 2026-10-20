@@ -16,7 +16,10 @@ export async function gitContextIndex(root, options = {}) {
  let bytes;
  if(options.probePaths !== undefined){
   if(!Array.isArray(options.probePaths)||options.probePaths.length>512||new Set(options.probePaths).size!==options.probePaths.length)throw new Error('Invalid Git context probes');
-  const chunks=[];let totalBytes=0;for(const name of [...options.probePaths].sort()){relativePath(name);const chunk=await checked('git',['--no-optional-locks','--literal-pathspecs','-c','core.fsmonitor=false','-c','core.untrackedCache=false','ls-files','--stage','-z','--',name],{...options,cwd:root,maxBytes:64*1024});const records=new TextDecoder('utf-8',{fatal:true}).decode(chunk).split('\0').filter(Boolean);for(const record of records)if(record.slice(record.indexOf('\t')+1)!==name)throw new Error('Git context probe expanded beyond literal path');totalBytes+=chunk.length;if(totalBytes>1024*1024)throw new Error('Tracked context index limit exceeded');chunks.push(chunk);}
+  // A literal pathspec alone still recursively matches a directory. Exclude
+  // its literal trailing-slash subtree before output, so directory probes are
+  // exact misses without enumerating or authorizing unrequested descendants.
+  const chunks=[];let totalBytes=0;for(const name of [...options.probePaths].sort()){relativePath(name);const chunk=await checked('git',['--no-optional-locks','-c','core.fsmonitor=false','-c','core.untrackedCache=false','ls-files','--stage','-z','--',':(top,literal)'+name,':(top,literal,exclude)'+name+'/'],{...options,cwd:root,maxBytes:64*1024});const records=new TextDecoder('utf-8',{fatal:true}).decode(chunk).split('\0').filter(Boolean);for(const record of records)if(record.slice(record.indexOf('\t')+1)!==name)throw new Error('Git context probe expanded beyond literal path');totalBytes+=chunk.length;if(totalBytes>1024*1024)throw new Error('Tracked context index limit exceeded');chunks.push(chunk);}
   bytes=Buffer.concat(chunks);if(bytes.length>1024*1024)throw new Error('Tracked context index limit exceeded');
  }else bytes = await checked('git', ['--no-optional-locks','-c','core.fsmonitor=false','-c','core.untrackedCache=false','ls-files','--stage','-z'], {...options,cwd:root,maxBytes:1024*1024});
  const records = new TextDecoder('utf-8',{fatal:true}).decode(bytes).split('\0').filter(Boolean);

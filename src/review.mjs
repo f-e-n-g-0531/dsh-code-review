@@ -136,8 +136,8 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     const { changes, payload } = prepared;
     Object.assign(state, prepared.metadata);
     if (state.contextMode === 'approved-retrieval') report.limitations.push({ fileId: file.id, text: '窗口初始输入仅带上下文身份目录，全文须按需读取；不声明所有上下文已核查。' });
-    if (prepared.synthesis) state.synthesisStatus = prepared.synthesis.budget.fits ? 'pending' : 'blocked';
-    if (prepared.synthesis && !prepared.synthesis.budget.fits) report.limitations.push({ fileId: file.id, text: '跨窗口综合输入超限，未发送；单窗口完成不表示交互影响已检查' });
+    if (prepared.synthesis) state.synthesisStatus = prepared.synthesis.status === 'ready' ? 'pending' : 'blocked';
+    if (prepared.synthesis?.status === 'blocked') report.limitations.push({ fileId: file.id, text: (prepared.synthesis.reason === 'batch-limit' ? '跨窗口综合批次数超过上限（20），未发送；全部主窗口仍独立审查' : '跨窗口综合输入超限，未发送') + '；单窗口完成不表示交互影响已检查' });
     if (state.sourceMode === 'change-windows') state.windowCoverage = { completed: [], pending: [...state.windowIds] };
     if(changes.precision==='envelope')report.limitations.push({fileId:file.id,text:'精确差异不可得，按保守包络分段检查；包络包含可能未变的行，不证明精确编辑或回归因果。'});
     if (changes.status === 'limited') report.limitations.push({ fileId: file.id, text: '精确变更分析受限：' + changes.reason + '；仍按完整两侧内容审查' });
@@ -192,7 +192,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           }
         }
         const batches = [...(prepared.batches ?? [{ payload, windowIds: state.windowIds ?? [] }])];
-        if (prepared.synthesis?.budget.fits) batches.push({ payload: prepared.synthesis.payload, windowIds: [], synthesis: true });
+        if (prepared.synthesis?.status === 'ready') batches.push({ payload: prepared.synthesis.payload, windowIds: [], synthesis: true });
         const matchingInteractionPlans = interactionPlans.filter(p => input.files.filter(f => p.group.fileIds.includes(f.id)).at(-1)?.id === file.id);
         for (const interactionPlan of matchingInteractionPlans.filter(p => p.prepared.status === 'ready')) batches.push({ payload: interactionPlan.prepared.payload, windowIds: [], interaction: interactionPlan.group });
         const scheduled = Array.from({length:rounds},(_,i)=>batches.map(b=>({...b,round:i+1}))).flat();

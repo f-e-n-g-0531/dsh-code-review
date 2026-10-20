@@ -6,10 +6,18 @@ import {readReplacementSource} from './svn-replacement-source.mjs';
 import {svnWorkingIdentity} from './svn-working-identity.mjs';
 import {hash,decode,relativePath,readLocal} from './content.mjs';
 import {isSecretPath} from './secret-path.mjs';
+import {canonicalSvnUrl} from './svn-url.mjs';
 import {svnKeywordMapping} from './svn-keyword-mapping.mjs';
 import {svnEolMapping} from './svn-eol-mapping.mjs';
 import {svnSpecialData} from './svn-special.mjs';
 import {readWorkingSvnSpecial} from './svn-working-special.mjs';
+
+// Copy provenance is not permission to capture credential bytes at a safe target name.
+function assertCopySource(source,suffix=''){
+ if(source===null||source===undefined)return;
+ const url=canonicalSvnUrl(source),name=decodeURIComponent(new URL(url).pathname);
+ if(isSecretPath(name)||isSecretPath(name+(suffix?'/'+suffix:'')))throw new Error('Credential replacement copy source excluded');
+}
 
 // Fixed repository tree versus explicitly selected working replacement tree.
 // Every descendant is a separate source/coverage unit, never an implicit approval.
@@ -26,13 +34,14 @@ export async function captureReplacementTree(root,rootInfo,name,options={}){
  const ancestors=async p=>{
   const parts=p.split('/').slice(0,-1),names=['.',...parts.map((_,i)=>parts.slice(0,i+1).join('/'))],records=[];
   for(const name of names){
-   if(!verifying&&ancestorReceipts.has(name)){records.push(ancestorReceipts.get(name));continue;}
+   if(!verifying&&ancestorReceipts.has(name)){const record=ancestorReceipts.get(name);assertCopySource(record.copyFromUrl,name==='.'?p:p.slice(name.length+1));records.push(record);continue;}
    const stat=await lstat(name==='.'?root:path.join(root,name));if(stat.isSymbolicLink()||!stat.isDirectory())throw new Error('Replacement ancestor is not a real directory');
    const node=xml(await run(['info','--xml','--',name+'@'])).info?.entry?.[0],identity=svnWorkingIdentity(node,rootInfo,name);
    const entries=xml(await run(['status','--xml','--verbose','--ignore-externals','--depth','empty','--',name+'@'])).status?.target?.flatMap(t=>t.entry??[])??[],s=entries[0]?.['wc-status'];
    if(entries.length!==1||!s||!['normal','modified','added','replaced'].includes(s['@_item'])||s['@_props']==='conflicted'||['@_switched','@_file-external','@_tree-conflicted'].some(k=>s[k]==='true'))throw new Error('Unsafe replacement ancestor state');
+   assertCopySource(identity.source.copyFromUrl,name==='.'?p:p.slice(name.length+1));
    const properties=await props(name);if(Object.hasOwn(properties,'svn:externals')||Object.hasOwn(properties,'svn:special'))throw new Error('Unsafe replacement ancestor properties');
-   const record={path:name,fingerprint:hash(JSON.stringify([identity.fingerprint,properties]))};
+   const record={path:name,copyFromUrl:identity.source.copyFromUrl,fingerprint:hash(JSON.stringify([identity.fingerprint,properties]))};
    if(verifying){if(ancestorReceipts.get(name)?.fingerprint!==record.fingerprint)throw new Error('Replacement ancestor changed during capture');}else ancestorReceipts.set(name,record);records.push(record);
   }return records;
  };
@@ -40,6 +49,7 @@ export async function captureReplacementTree(root,rootInfo,name,options={}){
   if(['@_switched','@_file-external','@_tree-conflicted'].some(k=>s[k]==='true')||!['normal','modified','added','replaced'].includes(s['@_item'])||s['@_props']==='conflicted')throw new Error('Unsafe replacement descendant state');
   const ancestorEvidence=await ancestors(p);
   const node=xml(await run(['info','--xml','--',p+'@'])).info?.entry?.[0],identity=svnWorkingIdentity(node,rootInfo,p);if(!['file','dir'].includes(node['@_kind']))throw new Error('Unsupported replacement descendant kind');
+  assertCopySource(identity.source.copyFromUrl);
   if(node['@_kind']==='dir'&&identity.source.depth!=='infinity')throw new Error('Sparse replacement target cannot prove descendant inventory');
   const properties=await props(p);if(Object.hasOwn(properties,'svn:externals'))throw new Error('Replacement externals require independent scope');
   const content=node['@_kind']==='dir'?decode(Buffer.alloc(0)):Object.hasOwn(properties,'svn:special')?(await readWorkingSvnSpecial(root,p,properties,options)).content:await readLocal(root,p,options);

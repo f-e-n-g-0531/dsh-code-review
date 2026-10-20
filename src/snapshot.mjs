@@ -147,7 +147,13 @@ export async function captureSnapshot(cwd, options = {}) {
 
   // Re-capture verifies both selected sides while collecting explicit context.
   if ((await capture(cwd, indexOptions)).id !== snapshot.id) throw new Error('Snapshot changed while collecting context');
-  for (const item of context) if ((await readLocal(snapshot.root, item.path, indexOptions)).hash !== item.hash) throw new Error('Context changed during capture');
+  for (const item of context) {
+    // Overlapping staged context reuses the approved index side, not local bytes.
+    // The same-side re-capture above verifies its content and index identity,
+    // including when the working file differs or no longer exists.
+    if (type === 'git' && snapshot.changeScope === 'staged' && snapshot.files.some(file => file.path === item.path)) continue;
+    if ((await readLocal(snapshot.root, item.path, indexOptions)).hash !== item.hash) throw new Error('Context changed during capture');
+  }
   if (index && (await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, indexOptions)).fingerprint !== index.fingerprint) throw new Error('Tracked context index changed during capture');
   const verifiedRules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
   if (JSON.stringify(verifiedRules) !== JSON.stringify(rules)) throw new Error('Rules changed during capture');

@@ -21,7 +21,7 @@ export function buildCoveragePlan(input, options) {
     if (file.eligibility !== 'reviewable') return item;
     const prepared = preparePrimaryInput(input, file, options);
     const riskPlanning = options.enableRiskPlanning === true ? options.skipSmallRiskPlans === true ? riskPlanningDecision([file]) : {required:true,reason:'unconditional'} : {required:false,reason:'disabled'};
-    return { ...item, ...prepared.metadata, riskPlanning, status: prepared.budget.fits ? 'ready' : 'input-blocked', minimumCalls: prepared.budget.fits ? ((prepared.batches?.length ?? 1) * (rounds + (riskPlanning.required ? 1 : 0)) + (prepared.synthesis?.budget.fits ? rounds : 0)) : 0 };
+    return { ...item, ...prepared.metadata, riskPlanning, status: prepared.budget.fits ? 'ready' : 'input-blocked', minimumCalls: prepared.budget.fits ? ((prepared.batches?.length ?? 1) * (rounds + (riskPlanning.required ? 1 : 0)) + (prepared.synthesis?.status === 'ready' ? rounds : 0)) : 0 };
   });
   const local = options.enableBusinessGrouping === true ? localBusinessGroups(input.files) : null;
   const groups = [...(options.grouping?.groups ?? [])];

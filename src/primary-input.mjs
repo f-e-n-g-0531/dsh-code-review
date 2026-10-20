@@ -167,8 +167,9 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
 
   if (batches?.length > 1) {
     synthesis = prepareWindowSynthesis(batches.map(batch => batch.payload), measure);
-    metadata.synthesisStatus = synthesis.budget.fits ? 'ready' : 'input-blocked';
-    metadata.synthesisInputBytes = synthesis.budget.bytes;
+    metadata.synthesisStatus = synthesis.status === 'ready' ? 'ready' : 'blocked';
+    if (synthesis.reason) metadata.synthesisBlockedReason = synthesis.reason;
+    if (synthesis.budget) metadata.synthesisInputBytes = synthesis.budget.bytes;
   }
 
   const budget = measure(payload);

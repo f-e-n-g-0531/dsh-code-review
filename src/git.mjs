@@ -41,7 +41,13 @@ function parseChanges(bytes) {
 
 /** Keep only the entries the requested comparison actually observes. */
 function changesInScope(changes, scope) {
-  if (scope === 'worktree') return changes;
+  // Porcelain reports a staged deletion and its untracked recreation separately.
+  // Worktree compares HEAD to the current file once, retaining the tracked entry
+  // (and its baseline/selection authority), not a second untracked identity.
+  if (scope === 'worktree') {
+    const tracked = new Set(changes.filter(change => change.rawStatus !== '??').map(change => change.path));
+    return changes.filter(change => change.rawStatus !== '??' || !tracked.has(change.path));
+  }
   if (scope === 'staged') return changes.filter(change => change.rawStatus[0] !== ' ' && change.rawStatus[0] !== '?');
   return changes.filter(change => change.rawStatus[1] !== ' ' || change.rawStatus === '??');
 }
