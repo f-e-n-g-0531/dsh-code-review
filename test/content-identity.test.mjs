@@ -16,7 +16,7 @@ test('opened identity mismatch is rejected before any read and handle closes', a
 
 test('ancestor identity changes are rejected before returning captured text',async t=>{
  const root=await mkdtemp(path.join(os.tmpdir(),'dsh-content-identity-'));t.after(()=>rm(root,{recursive:true,force:true}));
- const dir=path.join(root,'sub');await mkdir(dir);await writeFile(path.join(dir,'a.js'),'safe');const original=fs.promises.lstat;let checks=0;
- t.mock.method(fs.promises,'lstat',async(...args)=>{const stat=await original(...args);if(path.resolve(args[0]).toLowerCase()===path.resolve(dir).toLowerCase()&&++checks>1)return {isSymbolicLink:()=>false,isDirectory:()=>true,dev:stat.dev,ino:stat.ino+4096,ctimeMs:stat.ctimeMs};return stat;});
+ const dir=path.join(root,'sub');await mkdir(dir);await writeFile(path.join(dir,'a.js'),'safe');const canonicalDir=await fs.promises.realpath(dir);const original=fs.promises.lstat;let checks=0;
+ t.mock.method(fs.promises,'lstat',async(...args)=>{const stat=await original(...args);if(path.resolve(args[0]).toLowerCase()===path.resolve(canonicalDir).toLowerCase()&&++checks>1)return {isSymbolicLink:()=>false,isDirectory:()=>true,dev:stat.dev,ino:stat.ino+4096,ctimeMs:stat.ctimeMs};return stat;});
  syncBuiltinESMExports();try{await assert.rejects(readLocal(root,'sub/a.js'),/Ancestor changed during capture/);assert.equal(checks,2);}finally{t.mock.restoreAll();syncBuiltinESMExports();}
 });

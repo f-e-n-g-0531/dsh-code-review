@@ -11,6 +11,6 @@ test('working special link record never opens its outside target',async t=>{
 });
 test('special link capture rejects changed ancestor identity',async t=>{
  const root=await mkdtemp(path.join(os.tmpdir(),'dsh-special-identity-'));t.after(()=>rm(root,{recursive:true,force:true}));const dir=path.join(root,'sub');await mkdir(dir);await symlink('outside',path.join(dir,'link'));
- const original=fs.promises.lstat;let checks=0;t.mock.method(fs.promises,'lstat',async(...args)=>{const stat=await original(...args);if(path.resolve(args[0]).toLowerCase()===path.resolve(dir).toLowerCase()&&++checks>1)return {isSymbolicLink:()=>false,isDirectory:()=>true,dev:stat.dev,ino:stat.ino+4096,ctimeMs:stat.ctimeMs};return stat;});
+ const canonicalDir=await fs.promises.realpath(dir);const original=fs.promises.lstat;let checks=0;t.mock.method(fs.promises,'lstat',async(...args)=>{const stat=await original(...args);if(path.resolve(args[0]).toLowerCase()===path.resolve(canonicalDir).toLowerCase()&&++checks>1)return {isSymbolicLink:()=>false,isDirectory:()=>true,dev:stat.dev,ino:stat.ino+4096,ctimeMs:stat.ctimeMs};return stat;});
  syncBuiltinESMExports();try{await assert.rejects(readWorkingSvnSpecial(root,'sub/link',{'svn:special':'*'}),/ancestor changed/);assert.equal(checks,2);}finally{t.mock.restoreAll();syncBuiltinESMExports();}
 });
