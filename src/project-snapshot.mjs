@@ -15,7 +15,29 @@ async function inventoryGit(root, options) {
   const args = ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false'];
   const actual = text(await checked('git', [...args, 'rev-parse', '--show-toplevel'], { ...options, cwd: root })).replace(/\r?\n$/, '');
   if (await realpath(actual) !== root) throw new Error('Full project requires explicit repository root');
-  const index = await checked('git', [...args, 'ls-files', '--stage', '-z'], { ...options, cwd: root, maxBytes: 2 * 1024 * 1024 });
+  const selected = options.selectedPaths;
+  let index;
+  if (selected === undefined) {
+    index = await checked('git', [...args, 'ls-files', '--stage', '-z'], { ...options, cwd: root, maxBytes: 2 * 1024 * 1024 });
+  } else {
+    const chunks = [];
+    let bytes = 0;
+    for (const name of [...selected].sort()) {
+      // Literal pathspecs still recurse. Exclude descendants, not the node:
+      // a trailing-slash literal exclusion would also hide an exact gitlink.
+      const escaped = Array.from(name, c => '*?[]'.includes(c) ? String.fromCharCode(92) + c : c).join('');
+      const chunk = await checked('git', [...args, 'ls-files', '--stage', '-z', '--',
+        ':(top,literal)' + name, ':(top,glob,exclude)' + escaped + '/**'],
+      { ...options, cwd: root, maxBytes: 64 * 1024 });
+      for (const row of text(chunk).split(String.fromCharCode(0)).filter(Boolean)) {
+        if (row.slice(row.indexOf(String.fromCharCode(9)) + 1) !== name) throw new Error('Git project selection expanded beyond literal path');
+      }
+      bytes += chunk.length;
+      if (bytes > 2 * 1024 * 1024) throw new Error('Selected project inventory exceeds shared 2MiB limit');
+      chunks.push(chunk);
+    }
+    index = Buffer.concat(chunks);
+  }
   const records = [];
   for (const row of text(index).split(String.fromCharCode(0)).filter(Boolean)) {
     const m = /^(\d{6}) ([a-f0-9]+) ([0-3])\t([\s\S]+)$/.exec(row);
@@ -47,6 +69,11 @@ async function inventorySvn(root, options) {
 }
 
 export async function projectInventory(cwd, vcs, options = {}) {
+  const selected = options.selectedPaths;
+  if (selected !== undefined) {
+    if (!Array.isArray(selected) || selected.length > 1000 || new Set(selected).size !== selected.length) throw new Error('Invalid tracked project selection');
+    selected.forEach(relativePath);
+  }
   const root = await realpath(cwd);
   const source = vcs === 'git' ? await inventoryGit(root, options)
     : vcs === 'svn' ? await inventorySvn(root, options)
@@ -58,7 +85,14 @@ export async function projectInventory(cwd, vcs, options = {}) {
   const grouped = new Map();
   for (const r of records) { if (grouped.has(r.path)) { grouped.get(r.path).duplicate = true; } else grouped.set(r.path, r); }
   records = [...grouped.values()];
-  const inventory = { root, vcs, records, identity: source.identity, notice: INVENTORY_NOTICE };
+  const scoped = vcs === 'git' && selected !== undefined;
+  const inventory = {
+    root, vcs, records, identity: source.identity,
+    inventoryScope: scoped ? 'selected' : 'repository',
+    inventoryComplete: vcs === 'git' && !scoped,
+    totalTrackedNodes: scoped ? null : records.length,
+    notice: INVENTORY_NOTICE + (scoped ? ' Explicit Git selection only: repository total is unknown; unrelated index entries are not enumerated or bound to this snapshot.' : ''),
+  };
   return { ...inventory, id: hash(JSON.stringify(canonical(inventory))) };
 }
 
@@ -100,7 +134,7 @@ export async function captureProjectBatch(inventory, paths, options = {}) {
       delete file.left; delete file.right;
     }
   }
-  const scope = { mode: 'project', inventoryId: inventory.id, totalTrackedNodes: inventory.records.length, batchPaths: paths, untrackedIncluded: false, inventoryComplete: inventory.vcs === 'git', scopeCompleteness: inventory.vcs === 'svn' ? 'observed-working-copy-only' : 'tracked-index-only', notice: inventory.notice };
+  const scope = { mode: 'project', inventoryId: inventory.id, inventoryScope: inventory.inventoryScope, inventoryNodes: inventory.records.length, totalTrackedNodes: inventory.totalTrackedNodes, batchPaths: paths, untrackedIncluded: false, inventoryComplete: inventory.inventoryComplete, scopeCompleteness: inventory.vcs === 'svn' ? 'observed-working-copy-only' : inventory.inventoryScope === 'selected' ? 'selected-index-only' : 'tracked-index-only', notice: inventory.notice };
   const snapshot = { schemaVersion: 1, vcs: inventory.vcs, root: inventory.root, files, context: [], projectScope: scope };
   return { ...snapshot, id: hash(JSON.stringify(snapshot)) };
 }

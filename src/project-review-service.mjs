@@ -31,7 +31,7 @@ function makeCaptureBudget(signal) {
 
 async function captureProject(cwd, args, signal) {
   const captureBudget = makeCaptureBudget(signal);
-  const captureOptions = { signal, svnCaptureBudget: captureBudget };
+  const captureOptions = { signal, svnCaptureBudget: captureBudget, selectedPaths: args.selectedPaths };
   const root = await realpath(await resolveWorkspaceRepository(cwd, args.repositoryPath));
   const vcs = await detectVcs(root);
   const inventory = await projectInventory(root, vcs, captureOptions);
@@ -59,9 +59,10 @@ async function captureProject(cwd, args, signal) {
   }
 
   const result = {
-    root, vcs, inventoryId: inventory.id, inventoryComplete: inventory.vcs === 'git',
-    totalTrackedNodes: inventory.records.length, selectedFiles: paths.length,
-    selectionComplete: paths.length === inventory.records.length, notice: inventory.notice, batches,
+    root, vcs, inventoryId: inventory.id, inventoryComplete: inventory.inventoryComplete,
+    inventoryScope: inventory.inventoryScope, inventoryNodes: inventory.records.length,
+    totalTrackedNodes: inventory.totalTrackedNodes, selectedFiles: paths.length,
+    selectionComplete: inventory.inventoryScope !== 'selected' && paths.length === inventory.records.length, notice: inventory.notice, batches,
   };
   return { ...result, id: hash(JSON.stringify(result)) };
 }
@@ -96,7 +97,7 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
           previewId, snapshotId: s.id, reviewMode: 'project', repositoryRoot: s.root, vcs: s.vcs,
           model: current.route, modelSendingEnabled: allowModelSending,
           totalTrackedNodes: s.totalTrackedNodes, selectedFiles: s.selectedFiles, selectionComplete: s.selectionComplete,
-          inventoryComplete: s.inventoryComplete, batches: s.batches.length,
+          inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes, batches: s.batches.length,
           execution: { batchConcurrency: projectConcurrency },
           files: s.batches.flatMap(b => b.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason }))),
           notice: s.notice + PREVIEW_NOTICE_SUFFIX,
@@ -160,7 +161,7 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
             : results.every(r => r.status === 'completed') && files.every(f => ['completed', 'excluded'].includes(f.status)) ? 'completed'
             : 'partial',
           repositoryRoot: s.root, vcs: s.vcs, model: p.route, modelCalls: calls, maxModelCalls: projectMaxCalls,
-          totalTrackedNodes: s.totalTrackedNodes, selectionComplete: s.selectionComplete, inventoryComplete: s.inventoryComplete,
+          totalTrackedNodes: s.totalTrackedNodes, selectionComplete: s.selectionComplete, inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes,
           coverage, files, findings, batches: results,
           execution: { batchConcurrency: projectConcurrency },
           notice: s.notice + REPORT_NOTICE_SUFFIX,
