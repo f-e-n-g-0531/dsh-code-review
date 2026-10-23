@@ -138,7 +138,8 @@ test('lifecycle counts every actual call including JSON corrections without leak
     assert.equal(event.inputBytes, Buffer.byteLength('PRIVATE_SOURCE'));
     assert.ok(event.durationMs >= event.firstChunkMs && event.firstChunkMs >= 0);
     assert.ok(event.totalOutputBytes >= event.visibleBytes);
-    assert.deepEqual(Object.keys(event).sort(), ['action', 'attempt', 'durationMs', 'firstChunkMs', 'inputBytes', 'status', 'totalOutputBytes', 'visibleBytes']);
+    assert.deepEqual(Object.keys(event).sort(), ['action', ...(event.attempt > 1 ? ['callPurpose'] : []), 'attempt', 'durationMs', 'firstChunkMs', 'inputBytes', 'status', 'totalOutputBytes', 'visibleBytes'].sort());
+    if (event.attempt > 1) assert.equal(event.callPurpose, 'json-correction');
   }
 });
 

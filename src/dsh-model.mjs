@@ -38,7 +38,17 @@ export function createDshModel(llm, route, {
     try { await callback?.(event); } catch { /* Metrics are not model/budget authority. */ }
   }
 
-  async function once({ instructions, input, signal, onModelEvent, attempt }, contract) {
+  const purposes = new Set(['primary-initial', 'retrieval-followup', 'budget-finalization', 'json-correction', 'business-grouping', 'risk-planning', 'window-synthesis', 'file-interaction', 'verification']);
+  function checkInputBudget(request, contract) {
+    if (request.maxInputBytes === undefined) return;
+    if (!Number.isSafeInteger(request.maxInputBytes) || request.maxInputBytes < 1) throw new Error('Invalid model input budget');
+    const wireInputBytes = Buffer.byteLength(request.instructions + '\n' + contract) + Buffer.byteLength(request.input);
+    if (wireInputBytes > request.maxInputBytes) {
+      throw Object.assign(new Error('Model wire input budget exceeded'), { code: 'MODEL_INPUT_BUDGET_EXCEEDED', diagnostic: { wireInputBytes, maxInputBytes: request.maxInputBytes } });
+    }
+  }
+
+  async function once({ instructions, input, signal, onModelEvent, attempt, callPurpose }, contract) {
     signal?.throwIfAborted();
     let output = '';
     let size = 0;
@@ -48,7 +58,8 @@ export function createDshModel(llm, route, {
     let finished = false;
     let finishKind = 'missing';
     let startedAt, firstChunkMs = null, status = 'failed';
-    const event = { attempt, inputBytes: Buffer.byteLength(input) };
+    const purpose = attempt > 1 ? 'json-correction' : purposes.has(callPurpose) ? callPurpose : undefined;
+    const event = { attempt, inputBytes: Buffer.byteLength(input), ...(purpose ? { callPurpose: purpose } : {}) };
     const diagnostic = () => ({
       visibleBytes: Buffer.byteLength(output), totalOutputBytes: size, finishKind,
       inputBytes: Buffer.byteLength(input), requestedMaxTokens: maxTokens, maxOutputBytes,
@@ -148,16 +159,20 @@ export function createDshModel(llm, route, {
 
   return async function invoke(request) {
     // Snapshot these before an async budget/progress hook can mutate the request.
-    const original = { instructions: request.instructions, input: request.input, signal: request.signal, onModelEvent: request.onModelEvent };
+    const original = { instructions: request.instructions, input: request.input, signal: request.signal, onModelEvent: request.onModelEvent, callPurpose: request.callPurpose, maxInputBytes: request.maxInputBytes };
     const onProtocolCorrection = request.onProtocolCorrection, onProtocolEvent = request.onProtocolEvent;
     const contract = modelContract(original.input, original.instructions);
     const correctionLimit = correctJson ? maxJsonCorrections : 0;
     const attempts = [];
+    const prepared = attempt => ({ ...original, attempt, instructions: original.instructions +
+      (attempt > 1 ? JSON_CORRECTION_SUFFIX + jsonCorrectionHint(attempts.at(-1)?.diagnostic) + ' 纠正次数：' + (attempt - 1) + '/' + correctionLimit + '。' : '') });
     for (let attempt = 1; ; attempt++) {
+      original.signal?.throwIfAborted();
+      const next = prepared(attempt);
+      checkInputBudget(next, contract);
       let result;
       try {
-        result = await once({ ...original, attempt, instructions: original.instructions +
-          (attempt > 1 ? JSON_CORRECTION_SUFFIX + jsonCorrectionHint(attempts.at(-1)?.diagnostic) + ' 纠正次数：' + (attempt - 1) + '/' + correctionLimit + '。' : '') }, contract);
+        result = await once(next, contract);
         original.signal?.throwIfAborted();
       } catch (error) {
         const metadata = failureMetadata.get(error) ?? {};
@@ -177,6 +192,8 @@ export function createDshModel(llm, route, {
           throw error;
         }
         original.signal?.throwIfAborted();
+        // Do not reserve or announce a correction that cannot fit the wire budget.
+        checkInputBudget(prepared(attempt + 1), contract);
         // Exactly one reservation per extra call; a thrown budget/cancellation veto is final.
         await onProtocolCorrection?.({
           ...structuredClone(metadata), attempts: structuredClone(attempts),

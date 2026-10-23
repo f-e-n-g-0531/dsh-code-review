@@ -34,7 +34,9 @@ test('global call limit stops retrieval follow-up and preserves failure state', 
   const result = await reviewSnapshot(snapshot(), async () => read, { enableRetrieval: true, maxCalls: 1 });
   assert.equal(result.modelCalls, 1); assert.equal(result.status, 'failed');
   assert.match(result.files[0].reason, /call budget/);
-  assert.equal(result.files[0].retrievalAudit[0].stage, 'retrieved-locally');
+  // The local reader spent budget, but the vetoed follow-up never received it.
+  assert.equal(result.retrievalUsage.calls, 1);
+  assert.deepEqual(result.files[0].retrievalAudit ?? [], []);
 });
 test('one timeout spans the entire retrieval loop and awaits cancellation', async () => {
   let calls = 0;

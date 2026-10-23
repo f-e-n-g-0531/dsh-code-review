@@ -14,7 +14,7 @@ const EXECUTE_PARAMETERS = { type: 'object', additionalProperties: false, proper
 export function apply(ctx, config = {}) {
   // This entry runs only when the host invokes the registered tool.
   // Host tool policy owns permission; do not request a second approval here.
-  const service = createReviewService(ctx.llm, { allowModelSending: true, enableRiskPlanning: true, enableBusinessGrouping: true, enableAnchorCorrection: true, projectConcurrency: config.projectConcurrency ?? DEFAULT_PROJECT_CONCURRENCY, changesConcurrency: config.changesConcurrency ?? 2, maxRetrievalRounds: config.maxRetrievalRounds ?? 3, authorize: async () => true });
+  const service = createReviewService(ctx.llm, { allowModelSending: true, enableRiskPlanning: true, enableBusinessGrouping: true, enableAnchorCorrection: true, projectConcurrency: config.projectConcurrency ?? DEFAULT_PROJECT_CONCURRENCY, riskPlanningMode: config.riskPlanningMode ?? 'auto', readerBudgetPolicy: config.readerBudgetPolicy ?? 'scaled', optimizeReviewCalls: true, enablePrimarySeeds: true, changesConcurrency: config.changesConcurrency ?? 2, maxRetrievalRounds: config.maxRetrievalRounds ?? 3, authorize: async () => true });
   ctx.tools.register({
     name: 'code_review_preview', description: PREVIEW_DESCRIPTION, parameters: PREVIEW_PARAMETERS, output: reviewToolOutput,
     async execute(args, exec) { const preview = await service.preview(args, exec); return { json: JSON.stringify(preview), markdown: '' }; },

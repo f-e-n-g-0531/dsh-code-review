@@ -1,6 +1,7 @@
 import {reviewRounds} from './review-rounds.mjs';
 import {riskPlanningDecision, RISK_PLAN_INSTRUCTIONS} from './risk-plan.mjs';
 import { canonicalRiskInput } from './risk-scope.mjs';
+import { chooseRiskStrategy, riskPlanningMode } from './risk-strategy.mjs';
 import {localBusinessGroups} from './business-groups.mjs';
 import { prepareInteractionInput } from './interaction-input.mjs';
 import { initialInputBudget } from './input-budget.mjs';
@@ -9,6 +10,7 @@ import { preparePrimaryInput } from './primary-input.mjs';
 // Metadata only. No retained payload, file reads, model calls, or approval grants.
 export function buildCoveragePlan(input, options) {
   const rounds=reviewRounds(options?.reviewRounds);
+  riskPlanningMode(options?.riskPlanningMode);
   if (!input || typeof input.id !== 'string' || !input.id || !Array.isArray(input.files) || input.files.length > 200) throw new Error('Invalid planning snapshot');
   if (!options || typeof options.instructions !== 'string' || !Number.isSafeInteger(options.maxInputBytes) || options.maxInputBytes < 1) throw new Error('Invalid planning budget');
   const ids = new Set(), paths = new Set();
@@ -21,11 +23,12 @@ export function buildCoveragePlan(input, options) {
     const item = { fileId: file.id, path: file.path, status: file.eligibility, minimumCalls: 0 };
     if (file.eligibility !== 'reviewable') return item;
     const prepared = preparePrimaryInput(input, file, options);
-    const riskPlanning = options.enableRiskPlanning === true ? options.skipSmallRiskPlans === true ? riskPlanningDecision([file]) : {required:true,reason:'unconditional'} : {required:false,reason:'disabled'};
+    const strategy = chooseRiskStrategy(input, file, prepared, options);
+    const riskPlanning = prepared.inlineRisk ? { ...strategy.decision, mode: 'inline' } : strategy.decision;
     const primaryCalls = prepared.batches?.length ?? 1;
-    const canonical = riskPlanning.required && prepared.budget.fits
+    const canonical = riskPlanning.required && !prepared.inlineRisk && prepared.budget.fits
       ? canonicalRiskInput(input, file, prepared, { ...options, instructions: RISK_PLAN_INSTRUCTIONS }) : null;
-    const planningCalls = riskPlanning.required ? (canonical?.cacheable ? 1 : primaryCalls) : 0;
+    const planningCalls = riskPlanning.required && !prepared.inlineRisk ? (canonical?.cacheable ? 1 : primaryCalls) : 0;
     return { ...item, ...prepared.metadata, riskPlanning, status: prepared.budget.fits ? 'ready' : 'input-blocked', minimumCalls: prepared.budget.fits ? (primaryCalls * rounds + planningCalls + (prepared.synthesis?.status === 'ready' ? rounds : 0)) : 0 };
   });
   const local = options.enableBusinessGrouping === true ? localBusinessGroups(input.files) : null;

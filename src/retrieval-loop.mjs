@@ -44,7 +44,7 @@ function roundBudgetError() {
   return error;
 }
 
-export async function retrievalLoop(model, request, scope, { correctProtocol = false, maxRounds = Number.MAX_SAFE_INTEGER, maxInputBytes = 96 * 1024, beforeCall = () => {}, onTruncated = () => {}, onRetrieved = () => {}, onBudgetLimited = () => {}, initialRetrieved = [] } = {}) {
+export async function retrievalLoop(model, request, scope, { correctProtocol = false, maxRounds = Number.MAX_SAFE_INTEGER, maxInputBytes = 96 * 1024, beforeCall = () => {}, onTruncated = () => {}, onRetrieved = () => {}, onBudgetLimited = () => {}, initialRetrieved = [], allowExhaustedInitial = false } = {}) {
   if (!Number.isSafeInteger(maxRounds) || maxRounds < 0 || !Number.isSafeInteger(maxInputBytes) || maxInputBytes < 1) throw new Error('Invalid retrieval loop budget');
   // Only internal callers can seed this loop; the public model response cannot supply it.
   const allowedSeeds = new Set(scope.catalog().map(item => item.id));
@@ -53,8 +53,9 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
   if (retrieved.length) {
     const seeded = retrievalRequest(request, scope, retrieved);
     if (Buffer.byteLength(seeded.input) + Buffer.byteLength(seeded.instructions) > maxInputBytes) throw new Error('Initial retrieval input budget exceeded');
-    for (const item of retrieved) recordRetrieval(item.request, item.result, onTruncated, onRetrieved);
+    // Publish only fragments admitted to an actual outgoing prompt below.
   }
+  const delivered = new Set();
   let protocolCorrection, finalization;
   const finalize = async error => {
     finalization = { code: error.code, reason: error.message, ...(scope.budget ? { budget: scope.budget() } : {}) };
@@ -82,14 +83,22 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
   };
   for (let round = 0; ; round++) {
     request.signal?.throwIfAborted();
-    await checkExhausted(round);
+    if (round > 0 || !allowExhaustedInitial) await checkExhausted(round);
     let { input, instructions } = nextRequest(retrieved);
     if (correctProtocol && retrieved.length && Buffer.byteLength(input) + Buffer.byteLength(instructions) > maxInputBytes) input = compactFollowup(input);
     if (Buffer.byteLength(input) + Buffer.byteLength(instructions) > maxInputBytes) throw new Error('Retrieval input budget exceeded');
     request.signal?.throwIfAborted();
     beforeCall();
     request.signal?.throwIfAborted();
-    const response = await model({ ...request, instructions, input });
+    for (const item of retrieved) {
+      if (!item.result.omitted && !delivered.has(item)) {
+        recordRetrieval(item.request, item.result, onTruncated, onRetrieved);
+        delivered.add(item);
+      }
+    }
+    request.signal?.throwIfAborted();
+    const callPurpose = finalization ? 'budget-finalization' : round === 0 ? 'primary-initial' : 'retrieval-followup';
+    const response = await model({ ...request, instructions, input, callPurpose });
     request.signal?.throwIfAborted();
     const serialized = typeof response === 'string' ? response : JSON.stringify(response);
     if (typeof serialized !== 'string' || Buffer.byteLength(serialized) > 128 * 1024) throw new Error('Retrieval response too large');
@@ -107,6 +116,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
         error.code = 'RETRIEVAL_FINAL_RESPONSE_REQUIRED';
         throw error;
       }
+      if (round >= maxRounds) throw roundBudgetError();
       scope.preflight?.(operations);
       const execute = () => executeRetrievalBatch(parsed, scope, request.signal);
       batch = scope.transaction ? scope.transaction(execute) : execute();
@@ -118,7 +128,6 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
       await request.onProtocolEvent?.({ action: 'retrieval-protocol-correction', code: protocolCorrection.code });
       continue;
     }
-    for (const item of batch) recordRetrieval(item.request, item.result, onTruncated, onRetrieved);
     await checkExhausted(round + 1);
     for (const item of batch) {
       let candidate = [...retrieved, item];

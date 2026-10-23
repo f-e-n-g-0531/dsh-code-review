@@ -14,13 +14,15 @@ import { changeWindows } from './change-windows.mjs';
 import { changeMap } from './change-map.mjs';
 import { initialInputBudget } from './input-budget.mjs';
 import { changeScopeNotice } from './git-change-scope.mjs';
+import { chooseRiskStrategy, riskPlanningMode as validateRiskPlanningMode } from './risk-strategy.mjs';
 
 const CPP_FILE = /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/;
 const RELATION_NOTICE = '命名和相对导入关系仅为源码线索，可能被同名局部变量遮蔽，不证明绑定、调用可达或因果；只报告主file的问题，不为relatedFiles重复生成发现。';
 const optional = h => h.confidence === 'namespace-member-syntax-only' || h.confidence === 'instance-method-syntax-only';
 
 // Pure preparation over already captured data. No model calls or new reads.
-export function preparePrimaryInput(input, file, { instructions, scope, grouping, maxInputBytes }) {
+export function preparePrimaryInput(input, file, { instructions, scope, grouping, maxInputBytes, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, round }) {
+  validateRiskPlanningMode(riskPlanningMode);
   let changes = changeMap(file.left.text, file.right.text);
   if (changes.status === 'limited') {
     const region = changeRegion(file.left.text, file.right.text);
@@ -125,6 +127,14 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
       }
     }
   }
+
+  const strategy = chooseRiskStrategy(input, file, { payload, metadata }, {
+    instructions, scope, maxInputBytes, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, round,
+  });
+  if (strategy.mode === 'inline') return {
+    changes, payload, batches, synthesis, inlineRisk: true, instructions: strategy.instructions, budget: strategy.budget,
+    metadata: { ...metadata, initialInputBytes: strategy.budget.bytes, riskPlanningMode: 'inline' },
+  };
 
   if (!measure(payload).fits && scope) {
     const exactWindows = changeWindows(file, changes);
