@@ -36,7 +36,7 @@ export function readerAdmission(prepared, remaining) {
   if (!required) return { permitted: true };
   const calls = remaining?.remainingCalls, bytes = remaining?.remainingOutputBytes;
   if (!Number.isSafeInteger(calls) || !Number.isSafeInteger(bytes)) return { permitted: false, code: 'READER_BUDGET_UNAVAILABLE' };
-  if (calls <= 0) return { permitted: false, code: 'READER_CALL_BUDGET_EXCEEDED' };
+  if (calls <= 0 && !remaining.reusableResults) return { permitted: false, code: 'READER_CALL_BUDGET_EXCEEDED' };
   if (bytes <= 0) return { permitted: false, code: 'READER_OUTPUT_BUDGET_EXCEEDED' };
   return { permitted: true };
 }

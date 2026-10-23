@@ -59,41 +59,65 @@ test('configured service preview and actual execution share scaled reader limits
  const {report}=await service.execute({previewId:preview.previewId,confirmed:true},exec);assert.equal(calls,18);assert.equal(report.modelCalls,preview.plan.minimumCalls);assert.equal(report.readerBudget.maxCalls,preview.execution.readerBudget.maxCalls);assert.equal(report.readerBudget.maxOutputBytes,preview.execution.readerBudget.maxOutputBytes);assert.equal(report.readerBudget.calls,0);assert.equal(report.coverage.completed,18);
 });
 
-for(const tailRequests of [false,true])test('shared fixed reader exhaustion rejects hidden-context stage but admits later full body; tail requests='+tailRequests,async()=>{
+for(const tailRequests of [false,true])test('duplicate batches materialize once while later hidden context and tail keep reader capacity; tail requests='+tailRequests,async()=>{
  const input=snapshot(7),large=windowed().files[0];large.id='window';large.path='main.js';input.files.push(large,{...snapshot().files[0],id:'tail',path:'tail.js'});input.context=windowed().context;
  const seen=[];const report=await reviewSnapshot(input,request=>{
   const p=JSON.parse(request.input);seen.push({request,p});
-  assert.notEqual(p.file.id,'window','unreadable hidden-context stage must never call model');
+  if(p.file.id==='window'){
+   assert.equal(p.contextMode,'approved-retrieval');
+   if(!p.retrieved.length){assert.ok(p.retrievalBudget.remainingCalls>0);return {requests:[{kind:'read',id:p.catalog.find(s=>s.path==='dep.js').id,start:46,count:40}]};}
+   const result=p.retrieved[0].result;assert.equal(result.start,46);assert.equal(result.count,40);assert.equal(result.text,input.context[0].text.split('\n').slice(45,85).join('\n')+'\n');
+   return empty();
+  }
   if(p.file.id==='tail'){
    assert.equal(p.contextMode,undefined);assert.equal(p.file.right.text,'unsafe();\n');
-   if(tailRequests&&!p.retrievalFinalization)return {requests:[{kind:'read',id:p.catalog[0].id,start:1,count:1}]};
+   if(tailRequests&&!p.retrieved.length){assert.ok(p.retrievalBudget.remainingCalls>0);return {requests:[{kind:'read',id:p.catalog.find(s=>s.fileId==='tail'&&s.side==='new').id,start:1,count:1}]};}
+   if(tailRequests)assert.equal(p.retrieved[0].result.text,'unsafe();\n');
    return empty();
   }
   if(p.retrieved.length||p.retrievalFinalization)return empty();
   const index=Number(p.file.id.slice(1)),count=index<6?8:2;
   return {requests:Array.from({length:count},()=>({kind:'read',id:p.catalog.find(s=>s.fileId===p.file.id&&s.side==='new').id,start:1,count:1}))};
  },{...options,enableRiskPlanning:false,enablePrimarySeeds:false,maxInputBytes:18000,maxRetrievalRounds:2});
- assert.equal(report.retrievalUsage.calls,50);assert.equal(report.readerBudget.maxCalls,50);assert.equal(report.readerBudget.remainingCalls,0);
+ const calls=8+Number(tailRequests);
+ assert.equal(report.retrievalUsage.calls,calls);assert.equal(report.retrievalUsage.cacheHits,43);assert.equal(report.retrievalUsage.deliveries,51+Number(tailRequests));
+ assert.equal(report.readerBudget.maxCalls,50);assert.equal(report.readerBudget.remainingCalls,50-calls);assert.equal(report.readerBudget.maxOutputBytes,256*1024);
+ for(let i=0;i<7;i++){
+  const turns=seen.filter(x=>x.p.file.id==='f'+i);assert.equal(turns.length,2);
+  const first=turns[0].p,last=turns[1].p,count=i<6?8:2;
+  assert.equal(last.retrieved.length,count);assert.equal(first.retrievalBudget.remainingCalls-last.retrievalBudget.remainingCalls,1,'duplicate batch consumes one materialization');
+  assert.equal(first.retrievalBudget.remainingOutputBytes-last.retrievalBudget.remainingOutputBytes,last.retrieved.reduce((n,item)=>n+Buffer.byteLength(JSON.stringify(item.result)),0),'every duplicate delivery is still charged');
+ }
  const hidden=report.files.find(f=>f.fileId==='window'),tail=report.files.find(f=>f.fileId==='tail');
- assert.equal(hidden.contextMode,'approved-retrieval');assert.equal(hidden.status,'pending');assert.equal(hidden.failureCode,'READER_CALL_BUDGET_EXCEEDED');assert.equal(hidden.readerAdmission.code,'READER_CALL_BUDGET_EXCEEDED');assert.equal(hidden.windowCoverage.completed.length,0);
- assert.equal(tail.status,tailRequests?'pending':'completed',JSON.stringify(tail));assert.equal(seen.filter(x=>x.p.file.id==='tail').length,tailRequests?2:1);assert.equal(report.status,'partial');assert.equal(seen.some(x=>x.p.file.id==='window'),false);
+ assert.equal(hidden.contextMode,'approved-retrieval');assert.equal(hidden.status,'completed');assert.equal(hidden.failureCode,undefined);assert.equal(hidden.windowCoverage.completed.length,1);assert.deepEqual(hidden.windowCoverage.pending,[]);
+ assert.equal(tail.status,'completed');assert.equal(seen.filter(x=>x.p.file.id==='tail').length,tailRequests?2:1);assert.equal(seen.filter(x=>x.p.file.id==='window').length,2);
+ assert.equal(hidden.retrievalAudit.length,1);assert.equal(hidden.retrievalAudit[0].start,46);assert.equal(hidden.retrievalAudit[0].stage,'retrieved-locally');
+ assert.ok(!report.limitations.some(l=>l.text.includes('Reader call budget exceeded')));
 });
 
-
-test('exhausted grouped interaction skips both standalone plan and synthesis model while owner primary completes',async()=>{
+test('fifty duplicate primary reads do not starve a grouped interaction that obtains its own fresh source',async()=>{
  const input=snapshot(2);input.files[0].path='src/a.js';input.files[1].path='test/a.test.js';
  const seen=[];let requested=0;
  const report=await reviewSnapshot(input,request=>{
-  const p=JSON.parse(request.input);seen.push({request,p});assert.notEqual(p.sourceMode,'file-interaction','unreadable interaction must not start planning or final-only model');
+  const p=JSON.parse(request.input);seen.push({request,p});
   if(request.reviewPhase==='risk-planning')return {risks:[]};
+  if(p.sourceMode==='file-interaction'){
+   if(!p.retrieved.length){assert.ok(p.retrievalBudget.remainingCalls>0);return {requests:[{kind:'read',id:p.catalog.find(s=>s.fileId==='f1'&&s.side==='new').id,start:1,count:1}]};}
+   assert.equal(p.retrieved.length,1);assert.equal(p.retrieved[0].result.sourceId,p.catalog.find(s=>s.fileId==='f1'&&s.side==='new').id);assert.equal(p.retrieved[0].result.text,'unsafe();\n');
+   return {...empty(),risks:[]};
+  }
   if(p.file.id==='f1')return {...empty(),risks:[]};
   if(requested===50||p.retrievalFinalization)return {...empty(),risks:[]};
   const count=Math.min(8,50-requested);requested+=count;
   return {requests:Array.from({length:count},()=>({kind:'read',id:p.catalog.find(s=>s.fileId==='f0'&&s.side==='new').id,start:1,count:1}))};
  },{...options,enableGrouping:true,enablePrimarySeeds:false,maxRetrievalRounds:10});
- assert.equal(report.grouping.groups.length,1);assert.deepEqual(report.grouping.groups[0].fileIds,['f0','f1']);assert.equal(report.retrievalUsage.calls,50);
- assert.equal(report.files[1].status,'completed');assert.equal(seen.filter(x=>x.p.file?.id==='f1').length,1);
- assert.equal(report.interactions.length,1);assert.equal(report.interactions[0].status,'failed');assert.equal(report.interactions[0].failureCode,'READER_CALL_BUDGET_EXCEEDED');
- assert.equal(report.files[1].riskPlans.length,1);assert.equal(report.files[1].riskPlans[0].method,'inline');assert.equal(report.modelCalls,9);assert.equal(report.status,'partial');
- assert.ok(report.limitations.some(l=>l.text.includes('跨文件综合未完成')));
+ assert.equal(requested,50);assert.equal(report.grouping.groups.length,1);assert.deepEqual(report.grouping.groups[0].fileIds,['f0','f1']);
+ assert.equal(report.retrievalUsage.calls,2);assert.equal(report.retrievalUsage.cacheHits,49);assert.equal(report.retrievalUsage.deliveries,51);assert.equal(report.readerBudget.maxCalls,50);assert.equal(report.readerBudget.remainingCalls,48);
+ assert.equal(report.files[0].retrievalAudit.length,50);assert.equal(report.files[1].status,'completed');assert.equal(seen.filter(x=>x.p.file?.id==='f1').length,1);
+ assert.equal(report.interactions.length,1);assert.equal(report.interactions[0].status,'completed');assert.equal(report.interactions[0].failureCode,undefined);
+ const interaction=seen.filter(x=>x.p.sourceMode==='file-interaction'&&x.request.reviewPhase!=='risk-planning');assert.equal(seen.filter(x=>x.p.sourceMode==='file-interaction'&&x.request.reviewPhase==='risk-planning').length,1);assert.equal(interaction.length,2);assert.equal(interaction[1].p.retrievalBudget.remainingCalls,interaction[0].p.retrievalBudget.remainingCalls-1);
+ const primarySource=seen.find(x=>x.p.file?.id==='f0'&&x.p.retrieved.length).p.retrieved[0].result.sourceId;assert.notEqual(interaction[1].p.retrieved[0].result.sourceId,primarySource,'later interaction reads a distinct approved source, not earlier bodies as evidence');
+ assert.equal(report.retrievalUsage.outputBytes,report.files[0].retrievalAudit.reduce((n,item)=>n+item.resultBytes,0)+Buffer.byteLength(JSON.stringify(interaction[1].p.retrieved[0].result)));
+ assert.equal(report.files[1].riskPlans.length,2);assert.equal(report.files[1].riskPlans[0].method,'inline');assert.equal(report.files[1].riskPlans[1].sourceMode,'file-interaction');assert.equal(report.files[1].riskPlans[1].status,'completed');assert.equal(report.files[1].riskPlans[1].groupId,report.grouping.groups[0].id);assert.equal(report.modelCalls,12);assert.equal(report.status,'completed');
+ assert.ok(!report.limitations.some(l=>l.text.includes('跨文件综合未完成')));
 });

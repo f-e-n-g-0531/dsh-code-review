@@ -35,8 +35,10 @@ export function verificationSeeds(candidates, scope, { signal, fits, onReceipt =
     const budget = scope.budget?.();
     // At least one exact final validation read per candidate must remain. This
     // reserves no new authority; additional evidence can still exhaust budgets.
-    if (budget && (budget.remainingCalls <= candidates.length || budget.remainingOutputBytes <= finalEvidenceBytes)) break;
+    if (budget && budget.remainingOutputBytes <= finalEvidenceBytes) break;
     try {
+      const cached = budget?.reusableResults === true && scope.preflight?.([request])?.calls === 0 && scope.canServe?.([request]) === true;
+      if (budget && !cached && budget.remainingCalls <= candidates.length) continue;
       // Failed transactions discard their receipt table too, not just the ledger.
       const receipts = createEvidenceReceipts(scope.read, { limit: 1 });
       const item = scope.transaction(() => {
@@ -48,7 +50,22 @@ export function verificationSeeds(candidates, scope, { signal, fits, onReceipt =
         const proposed = [...seeds, { request, result }];
         const nextBudget = scope.budget?.();
         const reserve = finalEvidenceBytes + Buffer.byteLength(JSON.stringify(result)) * references;
+        if (cached) {
+          // Validation reads the actual returned count, not the seed's requested
+          // EOF-clamped count. These are different exact cache keys. Reserve all
+          // final reads explicitly before admitting a zero-call cached seed.
+          let calls = 0;
+          for (const item of proposed) {
+            const validation = { kind: 'read', id: item.result.sourceId, start: item.result.start, count: item.result.count };
+            const cost = scope.preflight([validation]);
+            if (!Number.isSafeInteger(cost?.calls) || cost.calls < 0) throw capacityError();
+            const matching = [...ranges.values()].find(range => JSON.stringify(range.request) === JSON.stringify(item.request));
+            calls += cost.calls * (matching?.references ?? 1);
+          }
+          if (nextBudget && calls > nextBudget.remainingCalls) throw capacityError();
+        }
         if (Buffer.byteLength(JSON.stringify(proposed)) > MAX_SEED_BYTES || !fits(proposed) || (nextBudget && nextBudget.remainingOutputBytes < reserve)) throw capacityError();
+        signal?.throwIfAborted();
         return { request, result };
       });
       // Publish only after the approved reader has committed the transaction.

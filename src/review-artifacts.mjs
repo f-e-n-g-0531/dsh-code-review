@@ -40,7 +40,7 @@ async function projectedRealpath(name) {
 }
 
 // Artifacts are untrusted private evidence, never approved source or confirmed findings.
-export function createReviewArtifacts({ directory, maxArtifactBytes = 1048576, maxJobBytes = 8388608, maxArtifacts = 64 } = {}) {
+export function createReviewArtifacts({ directory, maxArtifactBytes = 1048576, maxJobBytes = 8388608, maxArtifacts = 4096 } = {}) {
   if (typeof directory !== 'string' || !path.isAbsolute(directory)) throw fail('INVALID_REVIEW_ARTIFACT_DIRECTORY');
   if (![maxArtifactBytes, maxJobBytes, maxArtifacts].every(n => Number.isSafeInteger(n) && n > 0) || maxArtifactBytes > 16777216 || maxJobBytes > 268435456 || maxArtifacts > 10000) throw fail('INVALID_REVIEW_ARTIFACT_LIMIT');
   let canonical;

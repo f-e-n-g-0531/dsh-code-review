@@ -66,7 +66,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
   };
   const checkExhausted = async round => {
     const budget = scope.budget?.();
-    if (!finalization && budget && (budget.remainingCalls === 0 || budget.remainingOutputBytes === 0)) {
+    if (!finalization && budget && ((budget.remainingCalls === 0 && !budget.reusableResults) || budget.remainingOutputBytes === 0)) {
       const error = new Error(budget.remainingCalls === 0 ? 'Reader call budget exceeded' : 'Reader output budget exceeded');
       error.code = budget.remainingCalls === 0 ? 'READER_CALL_BUDGET_EXCEEDED' : 'READER_OUTPUT_BUDGET_EXCEEDED';
       await finalize(error);

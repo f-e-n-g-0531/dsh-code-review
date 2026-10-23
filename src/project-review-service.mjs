@@ -123,7 +123,7 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
           model: current.route, modelSendingEnabled: allowModelSending,
           totalTrackedNodes: s.totalTrackedNodes, selectedFiles: s.selectedFiles, selectionComplete: s.selectionComplete,
           inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes, batches: s.batches.length,
-          privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 64, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
+          privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 4096, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
           execution: { nativeOutputTools, enableGroupPrimary, batchConcurrency: projectConcurrency, maxRetrievalRounds },
           files: s.batches.flatMap(b => b.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason }))),
           notice: s.notice + PREVIEW_NOTICE_SUFFIX + ' Each stage allows at most ' + maxRetrievalRounds + ' retrieval rounds; exhaustion requires a final-only response and explicit unfinished coverage.',
@@ -202,7 +202,7 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
           repositoryRoot: s.root, vcs: s.vcs, model: p.route, modelCalls: calls, maxModelCalls: projectMaxCalls,
           totalTrackedNodes: s.totalTrackedNodes, selectionComplete: s.selectionComplete, inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes,
           coverage, files, findings, artifacts: results.flatMap(result => result.artifacts ?? []), batches: results, resume: { reusedFiles: files.filter(file => file.reused).length },
-          privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 64, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
+          privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 4096, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
           execution: { nativeOutputTools, enableGroupPrimary, batchConcurrency: projectConcurrency, maxRetrievalRounds },
           notice: s.notice + REPORT_NOTICE_SUFFIX,
         };

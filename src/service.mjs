@@ -97,7 +97,7 @@ function createSessionReviewService(llm, { capture = captureSnapshot, now = Date
         if (owner(exec).cwd !== current.cwd) throw new Error('Agent directory changed; preview again');
         const resumeState = savedResume === undefined ? undefined : validateResumeState(savedResume, snapshot, resumeOptions(options, current.route, rounds));
         const readerBudget = reviewReaderBudget(snapshot, readerBudgetPolicy);
-        const plan = buildCoveragePlan(snapshot, { enableGroupPrimary, resumeState, focusPrimaryContext, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:rounds, enableBusinessGrouping, instructions: REVIEW_INSTRUCTIONS, scope: configureWireBudget(createRetrievalScope(snapshot, { ...readerBudget, signal: exec.signal }), { nativeOutputTools }), grouping: buildReviewGroups(snapshot.files, inferFileRelations(snapshot.files)), maxInputBytes: 96 * 1024, signal: exec.signal });
+        const plan = buildCoveragePlan(snapshot, { enableGroupPrimary, resumeState, focusPrimaryContext, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:rounds, enableBusinessGrouping, instructions: REVIEW_INSTRUCTIONS, scope: configureWireBudget(createRetrievalScope(snapshot, { ...readerBudget, signal: exec.signal, ...(optimizeReviewCalls ? { reuseResults: true } : {}) }), { nativeOutputTools }), grouping: buildReviewGroups(snapshot.files, inferFileRelations(snapshot.files)), maxInputBytes: 96 * 1024, signal: exec.signal });
         prune();
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
@@ -110,7 +110,7 @@ function createSessionReviewService(llm, { capture = captureSnapshot, now = Date
   ...(resumeState ? { resume: resumePreview(resumeState, sourceJobId) } : {}),
   plan,
   snapshotId: snapshot.id,
-  privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 64, notice: 'Background jobs retain bounded untrusted model output outside the reviewed workspace; omissions/truncation explicit. Never included in ordinary status or reused as evidence; explicit consent required to read.' },
+  privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 4096, notice: 'Background jobs retain bounded untrusted model output outside the reviewed workspace; omissions/truncation explicit. Never included in ordinary status or reused as evidence; explicit consent required to read.' },
   execution: { nativeOutputTools, enableGroupPrimary, fileConcurrency: changesConcurrency, maxRetrievalRounds, ...(optimizeReviewCalls ? { riskPlanningMode, readerBudget: { policy: readerBudgetPolicy, ...readerBudget }, missingContextSeeds: enablePrimarySeeds, focusPrimaryContext, searchContextSeeds: enableSearchSeeds } : {}) },
   repositoryRoot: snapshot.root,
   vcs: snapshot.vcs,
@@ -141,7 +141,7 @@ function createSessionReviewService(llm, { capture = captureSnapshot, now = Date
   ...(snapshot.callerDiscovery ? { callerDiscovery: snapshot.callerDiscovery } : {}),
   ...(snapshot.autoContext ? { autoContext: snapshot.autoContext } : {}),
   rules: (snapshot.rules ?? []).map(({ path, hash }) => ({ path, hash })),
-  notice: buildPreviewNotice(snapshot, options, enableRiskPlanning, changesConcurrency, maxRetrievalRounds) + (optimizeReviewCalls ? ` 完整正文或覆盖全部精确编辑的单批窗口可将风险问题合并入主审（非独立规划）；仅对批准上下文的确定坐标预取小片段，不代表完整核查。${focusPrimaryContext ? " 主审优先保留主文件全文，仅附带有关联的有界完整上下文；其余批准来源保留目录按需读，不表示不存在或已核查。" : ""}${enableSearchSeeds ? " 可将模型搜索命中的批准原行小片段与搜索结果同轮提供，每阶段最多2次额外读取，共用原预算；不猜测另侧坐标，不增加检索轮次。" : ""}共享检索上限按本次范围计算：${readerBudget.maxCalls}次操作／${readerBudget.maxOutputBytes}字节，所有阶段共用、不逐文件重置；无法取得必要证据的阶段不再无效启动。` : ''),
+  notice: buildPreviewNotice(snapshot, options, enableRiskPlanning, changesConcurrency, maxRetrievalRounds) + (optimizeReviewCalls ? ` 完整正文或覆盖全部精确编辑的单批窗口可将风险问题合并入主审（非独立规划）；仅对批准上下文的确定坐标预取小片段，不代表完整核查。${focusPrimaryContext ? " 主审优先保留主文件全文，仅附带有关联的有界完整上下文；其余批准来源保留目录按需读，不表示不存在或已核查。" : ""}${enableSearchSeeds ? " 可将模型搜索命中的批准原行小片段与搜索结果同轮提供，每阶段最多2次额外读取，共用原预算；不猜测另侧坐标，不增加检索轮次。" : ""}共享检索上限按本次范围计算：${readerBudget.maxCalls}次唯一操作结果生成／${readerBudget.maxOutputBytes}交付字节，所有阶段共用、不逐文件重置；同快照相同请求可复用原始结果，每次交付仍计字节并重新签发复核回执；主审、综合及复核按权重预留最低额度，未用额度释放，额度不足仍如实标记未完成。` : ''),
 };
       } finally { busy = false; }
     },

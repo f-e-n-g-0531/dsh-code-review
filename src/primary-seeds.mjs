@@ -65,13 +65,17 @@ export function primarySeeds(scope, request, { maxInputBytes = 96 * 1024, onRetr
     if (attempted.size >= MAX_READS) break;
     if (seeds.some(item => item.request.id === source.id && item.result.start <= coordinate && coordinate < item.result.start + item.result.count)) continue;
     const budget = scope.budget();
-    if (budget.remainingCalls <= RESERVE_CALLS || budget.remainingOutputBytes <= RESERVE_BYTES) break;
+    if (budget.remainingOutputBytes <= RESERVE_BYTES) break;
     const operation = { kind: 'read', id: source.id, start: Math.max(1, coordinate - 4), count: MAX_LINES };
     const key = JSON.stringify(operation);
     if (attempted.has(key)) continue;
     attempted.add(key);
     let item;
     try {
+      // A cached raw delivery costs no new materialization call, but still uses
+      // output bytes and must pass the exact operation's approved preflight.
+      const cached = budget.reusableResults === true && scope.preflight([operation])?.calls === 0 && scope.canServe?.([operation]) === true;
+      if (!cached && budget.remainingCalls <= RESERVE_CALLS) continue;
       item = scope.transaction(() => {
         checkSignal();
         scope.preflight([operation]);
@@ -79,7 +83,7 @@ export function primarySeeds(scope, request, { maxInputBytes = 96 * 1024, onRetr
         checkSignal();
         const next = retrievalRequest(request, scope, [...seeds, { request: operation, result }]);
         const remaining = scope.budget();
-        if (result.start + result.count <= coordinate || remaining.remainingCalls < RESERVE_CALLS || remaining.remainingOutputBytes < RESERVE_BYTES || (request.nativeOutputTools === true ? !modelWireBudget(next, maxInputBytes).fits : Buffer.byteLength(next.input) + Buffer.byteLength(next.instructions) > maxInputBytes)) throw optionalError();
+        if (result.start + result.count <= coordinate || (!cached && remaining.remainingCalls < RESERVE_CALLS) || remaining.remainingOutputBytes < RESERVE_BYTES || (request.nativeOutputTools === true ? !modelWireBudget(next, maxInputBytes).fits : Buffer.byteLength(next.input) + Buffer.byteLength(next.instructions) > maxInputBytes)) throw optionalError();
         return { request: operation, result };
       });
     } catch (error) {

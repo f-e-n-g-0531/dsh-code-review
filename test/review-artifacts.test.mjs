@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, readFile, readdir, lstat, symlink, writeFile, rename, link } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, readdir, lstat, symlink, writeFile, rename, link, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
@@ -102,4 +102,31 @@ test('invalid budgets and byte boundary reject explicitly without hidden truncat
   const value=artifact('é😀'),bytes=Buffer.byteLength(JSON.stringify(value));
   const s=await setup({maxArtifactBytes:bytes-1});const ref=await s.store.record(s.job,s.owner,value);
   assert.equal(ref.bytes,bytes);assert.equal(ref.omitted,true);assert.equal((await s.store.read(s.job,s.owner)).artifacts[0].artifact,undefined);
+});
+
+test('default capacity retains 128 small synthetic outputs with unchanged bounded byte limits',async t=>{
+ const s=await setup();t.after(()=>rm(s.base,{recursive:true,force:true}));const refs=[];
+ for(let i=0;i<128;i++)refs.push(await s.store.record(s.job,s.owner,artifact('synthetic-output-'+i)));
+ assert.ok(refs.every(ref=>ref.recorded===true&&ref.omitted===false));
+ const first=await s.store.read(s.job,s.owner,{offset:0,limit:100}),last=await createReviewArtifacts({directory:s.directory}).read(s.job,s.owner,{offset:100,limit:100});
+ assert.equal(first.totalArtifacts,128);assert.equal(first.artifacts.length,100);assert.equal(last.artifacts.length,28);
+ assert.equal(last.artifacts[27].artifact.blocks[0].text,'synthetic-output-127');
+ const disk=JSON.parse(await readFile(path.join(s.directory,s.job+'.json'),'utf8'));
+ assert.ok(disk.retainedBytes<8388608);assert.equal(disk.retainedBytes,refs.reduce((n,r)=>n+r.bytes,0));
+});
+
+test('default job byte cap still omits explicitly before 128 outputs and never stores omitted source',async t=>{
+ const s=await setup();t.after(()=>rm(s.base,{recursive:true,force:true}));const value=artifact('x'.repeat(950000)),refs=[];
+ for(let i=0;i<10;i++)refs.push(await s.store.record(s.job,s.owner,value));
+ assert.equal(refs.filter(r=>!r.omitted).length,8);assert.equal(refs.filter(r=>r.omitted).length,2);
+ for(const ref of refs.slice(8)){assert.equal(ref.recorded,true);assert.equal(ref.diagnostic,'REVIEW_ARTIFACT_LIMIT_EXCEEDED');assert.equal(ref.artifact,undefined);}
+ const page=await s.store.read(s.job,s.owner);assert.equal(page.totalArtifacts,10);assert.equal(page.artifacts[8].artifact,undefined);
+ const oversized=await s.store.record(s.job,s.owner,artifact('OMITTED_SECRET'.repeat(90000)));assert.equal(oversized.omitted,true);
+ const disk=JSON.parse(await readFile(path.join(s.directory,s.job+'.json'),'utf8'));assert.ok(disk.retainedBytes<=8388608);assert.ok(!JSON.stringify(disk).includes('OMITTED_SECRET'));
+});
+
+test('artifact count configuration rejects invalid or above-10000 limits and accepts the inclusive bound',()=>{
+ for(const maxArtifacts of [0,-1,NaN,Infinity,1.5,10001])assert.throws(()=>createReviewArtifacts({directory:os.tmpdir(),maxArtifacts}),{code:'INVALID_REVIEW_ARTIFACT_LIMIT'});
+ assert.doesNotThrow(()=>createReviewArtifacts({directory:os.tmpdir(),maxArtifacts:10000}));
+ for(const maxJobBytes of [0,-1,Infinity,1.5,268435457])assert.throws(()=>createReviewArtifacts({directory:os.tmpdir(),maxJobBytes}),{code:'INVALID_REVIEW_ARTIFACT_LIMIT'});
 });

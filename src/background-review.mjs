@@ -15,10 +15,46 @@ const CANCEL_PARAMETERS = { type: 'object', additionalProperties: false, propert
 const WAIT_DESCRIPTION = 'Wait for review progress or terminal result without ending the user request. Prefer waitFor=terminal to ignore intermediate checkpoints; progress preserves checkpoint-by-checkpoint compatibility. Reuse the exact returned waitRevision as after; never guess increments or call status after every event. Timeout defaults to 60000ms and is bounded to 60000ms; changed=false means timeout, not completion or cancellation. Call again while queued/running. Preview completion requires confirmation; execute completion returns one final consolidated report.';
 const WAIT_PARAMETERS = { type: 'object', additionalProperties: false, properties: { jobId: { type: 'string' }, after: { type: 'integer', minimum: 0, description: 'Exact waitRevision returned by start/status/wait; do not increment it yourself.' }, waitFor: { type: 'string', enum: ['progress', 'terminal'], default: 'progress', description: 'Use terminal to wait through intermediate saves; progress wakes on each durable checkpoint.' }, timeoutMs: { type: 'integer', minimum: 1, maximum: 60000, default: 60000 } }, required: ['jobId'] };
 
+const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled', 'interrupted'];
+const REPORT_STATUSES = ['completed', 'partial', 'failed', 'cancelled'];
+const COVERAGE_FIELDS = ['completed', 'excluded', 'blocked', 'failed', 'cancelled', 'pending'];
+const LIMIT_CODES = ['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED', 'RETRIEVAL_ROUND_BUDGET_EXCEEDED'];
+const count = value => Number.isSafeInteger(value) && value >= 0 ? value : '不可用';
+function terminalSummary(value) {
+  const report = value.resultSummary;
+  const lines = ['审查任务已结束：' + value.status, 'jobId: ' + value.jobId];
+  if (value.progress) lines.push('elapsedMs: ' + count(value.progress.elapsedMs));
+  if (report && REPORT_STATUSES.includes(report.status)) {
+    lines.push('报告状态：' + report.status + '；任务结束不等于所有审查通过。');
+    lines.push('文件覆盖：' + COVERAGE_FIELDS.map(key => key + ' ' + count(report.coverage?.[key])).join('；'));
+    lines.push('总文件：' + count(report.totalFiles) + '；总发现：' + count(report.totalFindings) + '；限制项：' + count(report.totalLimitations));
+    lines.push('模型调用：' + count(report.modelCalls ?? report.diagnostics?.modelCalls));
+    const d = report.diagnostics;
+    if (d?.readerBudget) {
+      const b = d.readerBudget;
+      lines.push('共享读取预算：调用 ' + count(b.calls) + '/' + count(b.maxCalls) + '，输出字节 ' + count(b.outputBytes) + '/' + count(b.maxOutputBytes) + '；剩余调用 ' + count(b.remainingCalls) + '，剩余字节 ' + count(b.remainingOutputBytes));
+    }
+    const reasons = Array.isArray(d?.readerLimitReasons) ? d.readerLimitReasons : [];
+    const bounded = LIMIT_CODES.flatMap(code => { const row = reasons.find(item => item?.code === code); return row ? [code + ' ' + count(row.calls)] : []; });
+    if (bounded.length) lines.push('读取限制原因：' + bounded.join('；'));
+    if (d?.readerLimits) lines.push('每阶段最大检索轮次：' + count(d.readerLimits.maxRounds));
+    if (d?.artifacts) lines.push('私有工件计数：留存 ' + count(d.artifacts.retained) + '，未留存 ' + count(d.artifacts.omitted) + '（不包含原始正文）');
+    if (value.resultPage) lines.push('当前页：文件 ' + (value.resultPage.files?.length ?? 0) + '/' + count(value.resultPage.totalFiles) + '，发现 ' + (value.resultPage.findings?.length ?? 0) + '/' + count(value.resultPage.totalFindings) + '；code_review_status 的 offset/limit 仅切换结果页。');
+    lines.push('完整报告：调用一次 code_review_wait（jobId 同上，waitFor=terminal）立即取得最终报告；无需继续轮询。');
+  } else if (report?.previewId) {
+    lines.push('预览已完成，尚未执行审查；请展示批准范围并取得用户确认后再执行。');
+    lines.push('预览文件总量：' + count(report.filePage?.total ?? report.files?.length) + '；计划最少调用：' + count(report.plan?.minimumCalls));
+  } else {
+    lines.push('未提供完整报告摘要；终态不会自动恢复或重新发送源码。请检查已保存检查点和未完成范围。');
+  }
+  return lines.join('\n');
+}
+
 function respond(value) {
   if (value.finalMarkdown !== null && value.finalMarkdown !== undefined) {
     return { json: JSON.stringify(value), markdown: value.finalMarkdown };
   }
+  if (TERMINAL_STATUSES.includes(value.status)) return { json: JSON.stringify(value), markdown: terminalSummary(value) };
   const p = value.progress;
   if (p) {
     const progress = p.total === null

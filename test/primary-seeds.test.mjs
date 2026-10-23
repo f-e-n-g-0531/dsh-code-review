@@ -5,6 +5,7 @@ import { createRetrievalScope } from '../src/retrieval-scope.mjs';
 import { preparePrimaryInput } from '../src/primary-input.mjs';
 import { retrievalRequest } from '../src/retrieval-loop.mjs';
 import { approvedCallerBindings } from '../src/caller-binding-input.mjs';
+import { createReviewReaderAllocation } from '../src/review-reader-allocation.mjs';
 
 const main = { id: 'f1', path: 'main.js', eligibility: 'reviewable', left: { text: 'old' }, right: { text: 'new' } };
 const current = (count = 100) => Array.from({ length: count }, (_, i) => 'source line ' + (i + 1) + '\r\n').join('');
@@ -212,6 +213,48 @@ test('provided historical body suppresses only its own version and synthesis pha
   const synth = fixture().scope;
   assert.deepEqual(primarySeeds(synth, { ...request(), reviewPhase: 'interaction-synthesis' }), []);
   assert.equal(synth.usage().calls, 0);
+});
+
+test('exact cached context seed remains usable with zero root calls and no evidence receipt reuse', () => {
+  const { scope } = fixture({ reuseResults: true, maxCalls: 1 });
+  const operation = { kind: 'read', id: 's3', start: 16, count: 40 };
+  scope.read(operation); const before = scope.usage(), audit = [];
+  assert.equal(scope.budget().remainingCalls, 0);
+  const seeds = primarySeeds(scope, request(), { onRetrieved: records => audit.push(...records) });
+  assert.equal(seeds.length, 1); assert.equal(seeds[0].result.receiptId, undefined);
+  assert.deepEqual(seeds[0].request, operation);
+  assert.equal(scope.usage().calls, before.calls); assert.equal(scope.usage().cacheHits, before.cacheHits + 1);
+  assert.ok(scope.usage().outputBytes > before.outputBytes); assert.equal(audit.length, 1);
+});
+
+test('allocated exact cache seed is not blocked by a two-call quota while misses retain original reserve', () => {
+  const { scope: root } = fixture({ reuseResults: true, maxCalls: 5 });
+  root.read({ id: 's3', start: 16, count: 40 });
+  const allocation = createReviewReaderAllocation(root, [{ id: 'first', weight: 1 }, { id: 'later', weight: 1 }]);
+  const scope = allocation.scope('first'), before = root.usage();
+  assert.equal(scope.budget().remainingCalls, 2);
+  assert.equal(primarySeeds(scope, request()).length, 1);
+  assert.equal(root.usage().calls, before.calls);
+  const miss = request({ contextRelations: [relation(80)] }), after = root.usage();
+  assert.deepEqual(primarySeeds(scope, miss), []); assert.deepEqual(root.usage(), after);
+});
+
+test('cache metadata never authorizes different range or source-side misses at zero calls', () => {
+  for (const warm of [{ kind: 'read', id: 's3', start: 16, count: 39 }, { kind: 'read', id: 's3', start: 17, count: 40 }, { kind: 'read', id: 's2', start: 1, count: 1 }]) {
+    const { scope } = fixture({ reuseResults: true, maxCalls: 1 }); scope.read(warm); const before = scope.usage();
+    assert.deepEqual(primarySeeds(scope, request()), []); assert.deepEqual(scope.usage(), before);
+  }
+});
+
+test('cached seed overflow and mid-delivery cancellation atomically preserve cache bytes and audits', () => {
+  for (const mode of ['fit', 'bytes', 'cancel']) {
+    const { scope } = fixture({ reuseResults: true, maxCalls: 1, ...(mode === 'bytes' ? { maxOutputBytes: 17000 } : {}) });
+    scope.read({ id: 's3', start: 16, count: 40 }); const before = scope.usage(), audit = [], controller = new AbortController();
+    const wrapped = mode === 'cancel' ? { ...scope, read(operation, decorate) { const result = scope.read(operation, decorate); controller.abort(Error('cancel cached primary')); return result; } } : scope;
+    const execute = () => primarySeeds(wrapped, request(), { maxInputBytes: mode === 'fit' ? 1 : 98304, signal: controller.signal, onRetrieved: records => audit.push(...records) });
+    if (mode === 'cancel') assert.throws(execute, /cancel cached primary/); else assert.deepEqual(execute(), []);
+    assert.deepEqual(scope.usage(), before); assert.equal(audit.length, 0);
+  }
 });
 
 test('authorization errors propagate and model supplied retrieved bodies are never reused as evidence', () => {

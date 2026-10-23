@@ -1,7 +1,7 @@
 import { REVIEW_RUNTIME } from './runtime-identity.mjs';
 const PHASES = ['business-grouping', 'risk-planning', 'primary', 'group-primary', 'file-interaction', 'window-synthesis', 'verification'];
 const PURPOSES = ['primary-initial', 'retrieval-followup', 'budget-finalization', 'json-correction', 'business-grouping', 'risk-planning', 'group-primary', 'window-synthesis', 'file-interaction', 'verification'];
-const READER_FIELDS = ['calls', 'outputBytes', 'maxCalls', 'maxOutputBytes', 'remainingCalls', 'remainingOutputBytes', 'maxResultBytes'];
+const READER_FIELDS = ['calls', 'outputBytes', 'maxCalls', 'maxOutputBytes', 'remainingCalls', 'remainingOutputBytes', 'maxResultBytes', 'cacheHits', 'deliveries', 'cacheEntries', 'cacheBytes'];
 const JSON_ISSUES = ['property-name', 'colon', 'separator', 'invalid-escape', 'control-character', 'unterminated-string', 'unexpected-end', 'trailing-content', 'syntax'];
 const CORRECTION_CODES = ['MODEL_INVALID_JSON', 'MODEL_INVALID_REVIEW_RESPONSE', 'MODEL_INVALID_FINDING_IDENTITY', 'MODEL_INVALID_FINDING_SEVERITY', 'MODEL_MISSING_FINDING_FIELD', 'MODEL_INVALID_ANCHOR', 'MODEL_ANCHOR_MISMATCH', 'RETRIEVAL_PROTOCOL_ERROR'];
 const LIMIT_CODES = ['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED', 'RETRIEVAL_ROUND_BUDGET_EXCEEDED'];
@@ -67,6 +67,7 @@ export function diagnosticsMarkdown(d) {
     const n = field => number(d.readerBudget[field]) ?? '不可用';
     output.push('- 共享读取预算：调用 ' + n('calls') + '/' + n('maxCalls') + '，序列化输出字节 ' + n('outputBytes') + '/' + n('maxOutputBytes') + '；剩余调用 ' + n('remainingCalls') + '，剩余输出字节 ' + n('remainingOutputBytes') + '。');
   }
+  if (number(d.readerBudget?.cacheHits) !== null) output.push('- 快照内取证复用：缓存命中 ' + d.readerBudget.cacheHits + '，实际交付 ' + (number(d.readerBudget.deliveries) ?? '不可用') + '；calls 计唯一操作结果生成，重复交付仍计输出字节，复核回执每次重新签发。');
   if (d.correctionReasons?.length) output.push('- 纠正原因（仅实际纠正调用，不重复计失败／完成通知）：' + d.correctionReasons.filter(r => CORRECTION_CODES.includes(r.code)).map(r => r.code + (JSON_ISSUES.includes(r.jsonIssue) ? '/' + r.jsonIssue : '') + ' ' + (number(r.calls) ?? '不可用')).join('；') + '。');
   if (d.readerLimitReasons?.length) output.push('- 读取限制原因：' + d.readerLimitReasons.filter(r => LIMIT_CODES.includes(r.code)).map(r => r.code + ' ' + (number(r.calls) ?? '不可用')).join('；') + '。');
   if (number(d.readerLimits?.maxRounds) !== null) output.push('- 每阶段最大检索轮次：' + number(d.readerLimits.maxRounds) + '；调用数／输出字节耗尽与轮次耗尽分别记录，不能混同。');
