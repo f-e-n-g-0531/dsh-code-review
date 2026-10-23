@@ -1,4 +1,5 @@
 import { renderProjectReport } from './project-report.mjs';
+import { reviewDiagnostics } from './review-diagnostics.mjs';
 import { realpath } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { hash } from './content.mjs';
@@ -177,6 +178,7 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
           catch { signal.throwIfAborted(); report.outdated = true; }
           signal.throwIfAborted();
         }
+        report.diagnostics = reviewDiagnostics(report);
         return { report, markdown: renderProjectReport(report) };
       } finally { busy = false; }
     },

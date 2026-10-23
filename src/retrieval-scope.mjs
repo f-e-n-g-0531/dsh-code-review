@@ -2,6 +2,19 @@ import { contextSources } from './context-identity.mjs';
 import { assertNonSecretPath } from './secret-path.mjs';
 import { createSnapshotReader } from './snapshot-reader.mjs';
 
+// Match snapshot-reader physical ranges: empty text has zero lines and a final
+// newline terminates the last line instead of creating an extra one.
+function lineCount(text) {
+  let count = 0, start = 0;
+  while (start < text.length) {
+    count++;
+    const newline = text.indexOf('\n', start);
+    if (newline < 0) break;
+    start = newline + 1;
+  }
+  return count;
+}
+
 // Call only after authorization of this exact snapshot; this function grants nothing.
 export function createRetrievalScope(snapshot, options) {
   if (!snapshot || !Array.isArray(snapshot.files) || snapshot.files.length > 200 || !Array.isArray(snapshot.context) || snapshot.context.length > 100) throw new Error('Invalid retrieval snapshot');
@@ -11,7 +24,7 @@ export function createRetrievalScope(snapshot, options) {
     assertNonSecretPath(path);
     const id = 's' + (entries.length + 1);
     entries.push({ id, text, path, side });
-    catalog.push({ id, path, side, ...(fileId ? { fileId } : {}) });
+    catalog.push({ id, path, side, lineCount: lineCount(text), ...(fileId ? { fileId } : {}) });
   };
   for (const file of snapshot.files) {
     if (!file || typeof file.path !== 'string' || !file.path || paths.has(file.path) || typeof file.id !== 'string' || !file.id || identities.has(file.id) || !['reviewable', 'blocked', 'excluded'].includes(file.eligibility)) throw new Error('Invalid retrieval file');

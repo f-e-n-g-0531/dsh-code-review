@@ -1,0 +1,31 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
+import { registerBackgroundReview } from '../src/background-review.mjs';
+const deferred = () => { let resolve; const promise = new Promise(r => resolve = r); return { resolve, promise }; };
+for (const fail of [false, true]) test('terminal-save timeout never exposes uncommitted final report; fail=' + fail, async t => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), 'review-final-visibility-'));
+  const gate = deferred(), workEntered = deferred(), entered = deferred(), release = deferred(), definitions = [];
+  let block = false;
+  const exec = { agent: { session: { header: { id: 's', cwd: path.join(root, 'workspace') } }, options: { provider: 'offline', model: 'fake' } } };
+  const jobs = registerBackgroundReview({ tools: { register: d => definitions.push(d) }, on() {} }, { execute: async () => { workEntered.resolve(); await gate.promise; return { report: { status: 'partial', files: [], findings: [] }, markdown: '# Final partial' }; } }, { directory: path.join(root, 'reports') });
+  const tool = suffix => definitions.find(d => d.name === 'code_review_' + suffix);
+  const start = JSON.parse((await tool('start').execute({ phase: 'execute', previewId: 'p', confirmed: true }, exec)).json);
+  await workEntered.promise;
+  const original = fs.rename;
+  t.mock.method(fs, 'rename', async (...args) => { if (block) { entered.resolve(); await release.promise; if (fail) throw new Error('final-save-test'); } return original(...args); }); syncBuiltinESMExports();
+  t.after(async () => { release.resolve(); gate.resolve(); await jobs.dispose(); t.mock.restoreAll(); syncBuiltinESMExports(); await fs.rm(root, { recursive: true, force: true }); });
+  // Ensure startup/running saves have drained before holding the final rename.
+  await jobs.status(start.jobId, exec); block = true; gate.resolve(); await entered.promise;
+  const output = await tool('wait').execute({ jobId: start.jobId, waitFor: 'terminal', timeoutMs: 5 }, exec), status = JSON.parse(output.json);
+  assert.equal(status.changed, false); assert.equal(status.status, 'running'); assert.equal(status.stage, 'finalizing');
+  assert.equal(status.resultSummary, undefined); assert.equal(status.resultPage, undefined); assert.equal(status.finalMarkdown, undefined); assert.doesNotMatch(output.markdown, /# Final partial/);
+  assert.equal((await jobs.status(start.jobId, exec)).result, undefined);
+  release.resolve(); await jobs.dispose();
+  const terminal = JSON.parse((await tool('wait').execute({ jobId: start.jobId, waitFor: 'terminal', timeoutMs: 1 }, exec)).json);
+  assert.equal(terminal.status, fail ? 'failed' : 'completed'); assert.equal(terminal.resultSummary.status, 'partial');
+  if (fail) assert.match(terminal.persistenceError, /final-save-test/);
+});

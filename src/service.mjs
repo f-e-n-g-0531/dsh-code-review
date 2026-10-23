@@ -1,4 +1,5 @@
 import {REVIEW_RUNTIME} from './runtime-identity.mjs';
+import { reviewDiagnostics } from './review-diagnostics.mjs';
 import {createProjectReviewService} from './project-review-service.mjs';
 import {svnDiagnostic} from './svn-diagnostics.mjs';
 import { reviewRounds as validateReviewRounds } from './review-rounds.mjs';
@@ -229,7 +230,11 @@ export function createReviewService(llm, options = {}) {
       return { ...result, runtime: REVIEW_RUNTIME, elapsedMs: Date.now() - started };
     },
     async execute(args, exec) {
-      return get(exec).execute(args, exec);
+      const started = performance.now();
+      const result = await get(exec).execute(args, exec);
+      result.report.diagnostics ??= reviewDiagnostics(result.report);
+      result.report.diagnostics.executionWallMs = Math.round(performance.now() - started);
+      return { ...result, markdown: result.markdown + '\n执行工具墙钟（含批准快照复核、审查和末尾来源复核，不含预览／用户确认等待）：' + (result.report.diagnostics.executionWallMs / 1000).toFixed(1) + ' 秒。\n' };
     },
     dispose() {
       disposed = true;

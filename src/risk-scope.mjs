@@ -39,7 +39,7 @@ export function canonicalRiskInput(input, file, prepared, { instructions, scope,
       ...(input.businessRequirement !== undefined ? { businessRequirement: input.businessRequirement, requirementNotice: REQUIREMENT_NOTICE } : {}),
       rules: input.rules ?? [],
       catalog: scope?.catalog() ?? [],
-      notice: 'One planning scope for every listed edit in this approved file, including edits in later windows. Metadata and source hashes are navigation, not source evidence. Bodies must be read from the approved catalog with matching side/version. Risks remain unverified hypotheses and do not grant reads or prove coverage. Unknown existence is null; never infer absence from an empty source.',
+      notice: 'One planning scope for every listed edit in this approved file, including edits in later windows. Metadata and source hashes are navigation, not source evidence. Planning only names questions and sourceIds for later primary-stage reads; it must not request bodies or claim source evidence. Risks remain unverified hypotheses and do not grant reads or prove coverage. Unknown existence is null; never infer absence from an empty source.',
     });
   }
   return initialInputBudget({ instructions, input: payload }, scope, maxInputBytes).fits

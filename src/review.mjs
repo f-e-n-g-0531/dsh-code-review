@@ -20,6 +20,7 @@ import { buildReviewGroups } from './review-groups.mjs';
 import { changeMap } from './change-map.mjs';
 import { createRetrievalScope } from './retrieval-scope.mjs';
 import { retrievalLoop } from './retrieval-loop.mjs';
+import { reviewDiagnostics, diagnosticsMarkdown } from './review-diagnostics.mjs';
 import { preparePrimaryInput } from './primary-input.mjs';
 import { validateAttribution } from './attribution.mjs';
 import { changeScopeLabel } from './git-change-scope.mjs';
@@ -86,6 +87,7 @@ async function invoke(model, request, timeoutMs, parentSignal) {
 }
 
 export async function reviewSnapshot(snapshot, model, options = {}) {
+  const startedAt = performance.now();
   const rounds = reviewRounds(options.reviewRounds);
   const controller = new AbortController();
   const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
@@ -245,7 +247,12 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             if (decision.required) {
               try {
                 const planningPayload = reusable ? riskInput.payload : batch.payload;
-                const response = await executor({ ...enclosingRequest, input: planningPayload, instructions: RISK_PLAN_INSTRUCTIONS, reviewPhase: 'risk-planning' });
+                // Planning names unverified questions; it is not a second source investigation.
+                // Leave all approved reads and independent evidence checks to the review stages.
+                const planningInput = scope ? JSON.stringify({ ...JSON.parse(planningPayload), catalog: scope.catalog() }) : planningPayload;
+                if (Buffer.byteLength(planningInput) + Buffer.byteLength(RISK_PLAN_INSTRUCTIONS) > maxInputBytes) throw new Error('Risk planning input budget exceeded');
+                beforeCall();
+                const response = await trackedModel({ ...enclosingRequest, input: planningInput, instructions: RISK_PLAN_INSTRUCTIONS, reviewPhase: 'risk-planning' });
                 const riskFiles = batch.interaction ? JSON.parse(batch.payload).files : [{ fileId: file.id, edits: changes.edits ?? [] }];
                 const risks = validateRiskPlan(response, riskFiles, scope?.catalog() ?? []);
                 if (batch.interaction && risks.some(r=>new Set(r.editRefs.map(ref=>ref.fileId)).size<2)) throw new Error('Interaction risk requires edits across at least two files');
@@ -421,6 +428,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   report.regressionCoverage = Object.fromEntries(['introduced', 'preexisting', 'uncertain', 'unassessed'].map(classification => [classification, report.findings.filter(f => (f.verification?.regression?.classification ?? 'unassessed') === classification).length]));
   report.findingGroups = groupDuplicateFindings(report.findings);
   report.followup = coverageFollowup(report);
+  report.diagnostics = reviewDiagnostics(report, { reviewWallMs: performance.now() - startedAt });
   return report;
 }
 const safe = text => Array.from(String(text ?? '')).map(c => {
@@ -489,6 +497,7 @@ export function markdownReport(report) {
   if (report.followup?.suggestedPaths.length) output.push('', '## 后续选择建议', '仅为原快照未完成项；不会自动续审。再次执行需新预览、新审批，并显式选择规则和上下文。阻断项需先处理原因；关联上下文不等于主文件已审查。', ...report.followup.items.filter(item => item.followup).map(item => '- ' + safe(item.path) + '：' + item.status + (item.incompleteVerification ? '（候选复核未完成）' : '')));
   output.push('', '## 审查发现');
   if (!report.findings.length) output.push(report.status === 'completed' ? '在已审查范围内未发现具体问题；不代表代码已被证明正确。' : '当前没有有效问题记录，但审查存在未完成项或限制，不能视为通过。');
+  output.push(...diagnosticsMarkdown(report.diagnostics));
   // Recompute from exact data rather than trusting potentially stale group metadata.
   const duplicates = new Map();
   for (const group of groupDuplicateFindings(report.findings)) {

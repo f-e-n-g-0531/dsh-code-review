@@ -32,7 +32,7 @@ function recordRetrieval(operation, result, onTruncated, onRetrieved) {
   }]);
 }
 
-const CORRECTION_SUFFIX = ' 本次是检索协议纠正：上次请求整批未执行。只返回requests数组，不带findings/limitations；read使用catalog的id和整数start/count，不用path/end。或直接返回当前阶段最终schema。不得扩大批准来源。';
+const CORRECTION_SUFFIX = ' 本次是检索协议纠正：上次请求整批未执行。只返回requests数组，不带findings/limitations；read使用catalog的id和整数start/count，不用path/end。read的start不得超过该catalog来源lineCount，空源不可read；旧新侧行号必须分别核对。或直接返回当前阶段最终schema。不得扩大批准来源。';
 
 const BUDGET_SUFFIX = ' retrievalBudget为宿主共享检索预算的当前余量，不是新授权。每项操作消耗一次call及实际序列化输出字节；不要请求超过余量的整批操作。预算将尽请及时按本阶段schema最终答复，只引用已提供证据，证据不足须保留限制或uncertain。';
 const FINAL_SUFFIX = ' 检索预算最终答复：本次仅有一次最终schema答复机会，不得再返回requests。不得把缺证据变成无问题/已核查；只保留已提供且可严格验证的证据，其余说明限制或uncertain。不增加reader、模型调用、输入或超时预算。';
@@ -71,8 +71,13 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
   };
   const nextRequest = records => {
     const next = retrievalRequest(request, scope, records);
-    if (finalization) next.input = JSON.stringify({ ...JSON.parse(next.input), retrievalFinalization: finalization });
-    next.instructions += (protocolCorrection ? CORRECTION_SUFFIX : '') + (finalization ? FINAL_SUFFIX : '');
+    if (finalization) {
+      // The live ledger is already present in retrievalBudget. Do not duplicate it
+      // or stack contradictory read/final guidance on a nearly full source envelope.
+      next.input = JSON.stringify({ ...JSON.parse(next.input), retrievalFinalization: { code: finalization.code } });
+      next.instructions = request.instructions + '\n' + RETRIEVAL_INSTRUCTIONS + FINAL_SUFFIX;
+    }
+    next.instructions += protocolCorrection && !finalization ? CORRECTION_SUFFIX : '';
     return next;
   };
   for (let round = 0; ; round++) {

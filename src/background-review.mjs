@@ -12,8 +12,8 @@ const STATUS_PARAMETERS = { type: 'object', additionalProperties: false, propert
 const CANCEL_DESCRIPTION = 'Cancel a background review task owned by this session. Does not discard saved checkpoints. No source is sent by cancellation.';
 const CANCEL_PARAMETERS = { type: 'object', additionalProperties: false, properties: { jobId: { type: 'string' } }, required: ['jobId'] };
 
-const WAIT_DESCRIPTION = 'Wait for review progress or terminal result without ending the user request. Call again while queued/running; show concise progress, not partial findings. A wait timeout does not cancel review or mean task completion. Preview completion requires confirmation; execute completion requires one final consolidated report.';
-const WAIT_PARAMETERS = { type: 'object', additionalProperties: false, properties: { jobId: { type: 'string' }, after: { type: 'integer', minimum: 0 } }, required: ['jobId'] };
+const WAIT_DESCRIPTION = 'Wait for review progress or terminal result without ending the user request. Prefer waitFor=terminal to ignore intermediate checkpoints; progress preserves checkpoint-by-checkpoint compatibility. Reuse the exact returned waitRevision as after; never guess increments or call status after every event. Timeout defaults to 60000ms and is bounded to 60000ms; changed=false means timeout, not completion or cancellation. Call again while queued/running. Preview completion requires confirmation; execute completion returns one final consolidated report.';
+const WAIT_PARAMETERS = { type: 'object', additionalProperties: false, properties: { jobId: { type: 'string' }, after: { type: 'integer', minimum: 0, description: 'Exact waitRevision returned by start/status/wait; do not increment it yourself.' }, waitFor: { type: 'string', enum: ['progress', 'terminal'], default: 'progress', description: 'Use terminal to wait through intermediate saves; progress wakes on each durable checkpoint.' }, timeoutMs: { type: 'integer', minimum: 1, maximum: 60000, default: 60000 } }, required: ['jobId'] };
 
 function respond(value) {
   if (value.finalMarkdown !== null && value.finalMarkdown !== undefined) {
@@ -24,7 +24,7 @@ function respond(value) {
     const progress = p.total === null
       ? '正在准备，文件总量尚未确定'
       : p.processed + '/' + p.total + ' 个文件已处理（' + p.percent + '%），其中主审完成 ' + p.counts.completed + '、失败 ' + p.counts.failed + '、阻断 ' + p.counts.blocked + '；处理比例不等于通过率';
-    return { json: JSON.stringify(value), markdown: ['审查任务：' + value.status, '当前阶段：' + p.stage, '进度：' + progress, value.nextAction ?? ''].join(String.fromCharCode(10)) };
+    return { json: JSON.stringify(value), markdown: ['审查任务：' + value.status, 'jobId: ' + value.jobId, 'waitRevision: ' + value.waitRevision, 'elapsedMs: ' + p.elapsedMs, '当前阶段：' + p.stage, '进度：' + progress, '继续调用 code_review_wait，优先 waitFor=terminal；after 原样复用上述 waitRevision，不要猜测递增，也无需每个事件后调用 code_review_status。', value.nextAction ?? ''].join(String.fromCharCode(10)) };
   }
   return { json: JSON.stringify(value), markdown: value.jobId ? '后台任务已接受，尚未完成。继续调用 code_review_wait 等待终态；不要以任务启动作为最终审核结论。' : '' };
 }
@@ -72,13 +72,13 @@ export function registerBackgroundReview(ctx, service, { directory } = {}) {
   ctx.tools.register({
     name: 'code_review_wait', description: WAIT_DESCRIPTION, parameters: WAIT_PARAMETERS, output: reviewToolOutput,
     async execute(args, exec) {
-      await jobs.wait(args.jobId, exec, { after: args.after, signal: exec.signal });
+      const change = await jobs.wait(args.jobId, exec, { after: args.after, waitFor: args.waitFor, timeoutMs: args.timeoutMs, signal: exec.signal });
       const status = await jobs.status(args.jobId, exec, { offset: 0, limit: 20 });
       if (!['queued', 'running'].includes(status.status)) {
         const full = await jobs.status(args.jobId, exec);
         if (full.result?.markdown) status.finalMarkdown = full.result.markdown;
       }
-      return respond(status);
+      return respond({ ...status, ...change });
     },
   });
 
