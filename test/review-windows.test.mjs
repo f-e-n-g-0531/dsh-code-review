@@ -85,8 +85,14 @@ test('synthesis retrieves both windows and verifies exact before-after receipts 
  const report = await reviewSnapshot(s, async r => {
   firstSignal ??= r.signal; assert.equal(r.signal, firstSignal); const p = JSON.parse(r.input);
   if (p.candidates) {
-   if (!p.retrieved.length) return { requests: [{ kind: 'read', id: 's1', start: 11, count: 1 }, { kind: 'read', id: 's2', start: 11, count: 1 }] };
-   return { verdicts: [{ candidateId: 'c1', verdict: 'supported', reason: 'old/new compared', evidence: p.retrieved.map(record => ({ receiptId: record.result.receiptId })), regression: { classification: 'introduced', reason: 'both changes break shared invariant', oldEvidence: [0], newEvidence: [1] } }] };
+   // Prefetched approved evidence may already contain one side. Still read every
+   // missing side and prove the same old/new attribution rather than assuming order.
+   const sides = ['s1', 's2'];
+   const missing = sides.filter(id => !p.retrieved.some(record => record.result.sourceId === id));
+   if (missing.length) return { requests: missing.map(id => ({ kind: 'read', id, start: 11, count: 1 })) };
+   const oldIndex = p.retrieved.findIndex(record => record.result.sourceId === 's1');
+   const newIndex = p.retrieved.findIndex(record => record.result.sourceId === 's2');
+   return { verdicts: [{ candidateId: 'c1', verdict: 'supported', reason: 'old/new compared', evidence: p.retrieved.map(record => ({ receiptId: record.result.receiptId })), regression: { classification: 'introduced', reason: 'both changes break shared invariant', oldEvidence: [oldIndex], newEvidence: [newIndex] } }] };
   }
   if (p.sourceMode !== 'window-synthesis') return { findings: [], limitations: [] };
   if (!p.retrieved.length) return { requests: [{ kind: 'read', id: 's2', start: 11, count: 1 }, { kind: 'read', id: 's2', start: 81, count: 1 }] };

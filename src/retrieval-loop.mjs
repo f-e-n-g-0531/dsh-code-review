@@ -44,9 +44,17 @@ function roundBudgetError() {
   return error;
 }
 
-export async function retrievalLoop(model, request, scope, { correctProtocol = false, maxRounds = Number.MAX_SAFE_INTEGER, maxInputBytes = 96 * 1024, beforeCall = () => {}, onTruncated = () => {}, onRetrieved = () => {}, onBudgetLimited = () => {} } = {}) {
+export async function retrievalLoop(model, request, scope, { correctProtocol = false, maxRounds = Number.MAX_SAFE_INTEGER, maxInputBytes = 96 * 1024, beforeCall = () => {}, onTruncated = () => {}, onRetrieved = () => {}, onBudgetLimited = () => {}, initialRetrieved = [] } = {}) {
   if (!Number.isSafeInteger(maxRounds) || maxRounds < 0 || !Number.isSafeInteger(maxInputBytes) || maxInputBytes < 1) throw new Error('Invalid retrieval loop budget');
-  const retrieved = [];
+  // Only internal callers can seed this loop; the public model response cannot supply it.
+  const allowedSeeds = new Set(scope.catalog().map(item => item.id));
+  if (!Array.isArray(initialRetrieved) || initialRetrieved.length > 50 || initialRetrieved.some(item => item?.request?.kind !== 'read' || !allowedSeeds.has(item.request.id) || item.result?.sourceId !== item.request.id || typeof item.result?.text !== 'string')) throw new Error('Invalid initial retrieval evidence');
+  const retrieved = structuredClone(initialRetrieved);
+  if (retrieved.length) {
+    const seeded = retrievalRequest(request, scope, retrieved);
+    if (Buffer.byteLength(seeded.input) + Buffer.byteLength(seeded.instructions) > maxInputBytes) throw new Error('Initial retrieval input budget exceeded');
+    for (const item of retrieved) recordRetrieval(item.request, item.result, onTruncated, onRetrieved);
+  }
   let protocolCorrection, finalization;
   const finalize = async error => {
     finalization = { code: error.code, reason: error.message, ...(scope.budget ? { budget: scope.budget() } : {}) };

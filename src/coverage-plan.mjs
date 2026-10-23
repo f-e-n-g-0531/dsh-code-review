@@ -1,5 +1,6 @@
 import {reviewRounds} from './review-rounds.mjs';
-import {riskPlanningDecision} from './risk-plan.mjs';
+import {riskPlanningDecision, RISK_PLAN_INSTRUCTIONS} from './risk-plan.mjs';
+import { canonicalRiskInput } from './risk-scope.mjs';
 import {localBusinessGroups} from './business-groups.mjs';
 import { prepareInteractionInput } from './interaction-input.mjs';
 import { initialInputBudget } from './input-budget.mjs';
@@ -21,7 +22,11 @@ export function buildCoveragePlan(input, options) {
     if (file.eligibility !== 'reviewable') return item;
     const prepared = preparePrimaryInput(input, file, options);
     const riskPlanning = options.enableRiskPlanning === true ? options.skipSmallRiskPlans === true ? riskPlanningDecision([file]) : {required:true,reason:'unconditional'} : {required:false,reason:'disabled'};
-    return { ...item, ...prepared.metadata, riskPlanning, status: prepared.budget.fits ? 'ready' : 'input-blocked', minimumCalls: prepared.budget.fits ? ((prepared.batches?.length ?? 1) * (rounds + (riskPlanning.required ? 1 : 0)) + (prepared.synthesis?.status === 'ready' ? rounds : 0)) : 0 };
+    const primaryCalls = prepared.batches?.length ?? 1;
+    const canonical = riskPlanning.required && prepared.budget.fits
+      ? canonicalRiskInput(input, file, prepared, { ...options, instructions: RISK_PLAN_INSTRUCTIONS }) : null;
+    const planningCalls = riskPlanning.required ? (canonical?.cacheable ? 1 : primaryCalls) : 0;
+    return { ...item, ...prepared.metadata, riskPlanning, status: prepared.budget.fits ? 'ready' : 'input-blocked', minimumCalls: prepared.budget.fits ? (primaryCalls * rounds + planningCalls + (prepared.synthesis?.status === 'ready' ? rounds : 0)) : 0 };
   });
   const local = options.enableBusinessGrouping === true ? localBusinessGroups(input.files) : null;
   const groups = [...(options.grouping?.groups ?? [])];

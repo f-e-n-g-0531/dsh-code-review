@@ -23,6 +23,9 @@ import { retrievalLoop } from './retrieval-loop.mjs';
 import { preparePrimaryInput } from './primary-input.mjs';
 import { validateAttribution } from './attribution.mjs';
 import { changeScopeLabel } from './git-change-scope.mjs';
+import { canonicalRiskInput } from './risk-scope.mjs';
+import { changesConcurrency, retrievalRounds } from './review-execution-policy.mjs';
+import { scheduleFileChains } from './file-chain-scheduler.mjs';
 
 export { REVIEW_INSTRUCTIONS };
 export { PROJECT_REVIEW_INSTRUCTIONS };
@@ -84,7 +87,19 @@ async function invoke(model, request, timeoutMs, parentSignal) {
 
 export async function reviewSnapshot(snapshot, model, options = {}) {
   const rounds = reviewRounds(options.reviewRounds);
-  const { signal, maxInputBytes = 96 * 1024, maxCalls = Number.MAX_SAFE_INTEGER, timeoutMs = 0 } = options;
+  const controller = new AbortController();
+  const signal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
+  const { maxInputBytes = 96 * 1024, maxCalls = Number.MAX_SAFE_INTEGER, timeoutMs = 0 } = options;
+  // Low-level callers retain serial compatibility; the production changes service opts into two chains.
+  const fileConcurrency = changesConcurrency(options.changesConcurrency ?? 1);
+  const maxRetrievalRounds = retrievalRounds(options.maxRetrievalRounds);
+  let checkpointFailed = false, checkpointFailure;
+  const progress = options.onProgress;
+  options = { ...options, onProgress: progress ? async event => {
+    if (checkpointFailed) throw checkpointFailure;
+    try { await progress(structuredClone(event)); }
+    catch (error) { checkpointFailed = true; checkpointFailure = error; controller.abort(error); throw error; }
+  } : undefined };
   if (typeof model !== 'function') throw new Error('A model executor is required');
   for(const n of [maxInputBytes,maxCalls])if(!Number.isSafeInteger(n)||n<1)throw new Error('Invalid review limit');
   if(!Number.isSafeInteger(timeoutMs)||timeoutMs<0)throw new Error('Invalid review limit');
@@ -124,25 +139,28 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   report.interactions = [];
   const interactionPlans = scope && report.grouping ? report.grouping.groups.filter(g => g.fileIds.length > 1).map(group => ({ group, prepared: prepareInteractionInput(input, group, payload => initialInputBudget({ instructions, input: payload }, scope, maxInputBytes)) })) : [];
   for (const plan of interactionPlans.filter(p => p.prepared.status !== 'not-applicable')) report.interactions.push({ groupId: plan.group.id, fileIds: plan.prepared.fileIds, status: plan.prepared.status === 'ready' ? 'pending' : 'blocked', reason: plan.prepared.reason, lifecycle: 'shares-last-primary-timeout' });
-  for (const file of input.files) {
-    if(report.files.length)await options.onProgress?.({stage:'file-complete',snapshotId:input.id,file:report.files.at(-1),findings:report.findings.filter(f=>f.fileId===report.files.at(-1).fileId)});
+  const fileResults = new Array(input.files.length);
+  const runFile = async index => {
+    const file = input.files[index];
     const state = { fileId: file.id, path: file.path, status: file.eligibility === 'reviewable' ? 'pending' : file.eligibility, reason: file.reason, ...(file.blockCode ? {blockCode:file.blockCode} : {}) };
-    report.files.push(state);
+    const result = { state, findings: [], limitations: [] };
+    fileResults[index] = result;
+    try {
     await options.onProgress?.({stage:'file-started',snapshotId:input.id,fileId:file.id,path:file.path,status:state.status});
-    if (state.status !== 'pending') continue;
-    if (signal?.aborted) { state.status = 'cancelled'; state.reason = '用户取消'; continue; }
-    if (report.modelCalls >= maxCalls || options.remainingCalls?.() <= 0) { state.reason = '模型调用预算耗尽'; continue; }
+    if (state.status !== 'pending') return;
+    if (signal?.aborted) { state.status = 'cancelled'; state.reason = '用户取消'; return; }
+    if (report.modelCalls >= maxCalls || options.remainingCalls?.() <= 0) { state.reason = '模型调用预算耗尽'; return; }
     const prepared = preparePrimaryInput(input, file, { instructions, scope, grouping: report.grouping, maxInputBytes });
     const { changes, payload } = prepared;
     Object.assign(state, prepared.metadata);
-    if (state.contextMode === 'approved-retrieval') report.limitations.push({ fileId: file.id, text: '窗口初始输入仅带上下文身份目录，全文须按需读取；不声明所有上下文已核查。' });
+    if (state.contextMode === 'approved-retrieval') result.limitations.push({ fileId: file.id, text: '窗口初始输入仅带上下文身份目录，全文须按需读取；不声明所有上下文已核查。' });
     if (prepared.synthesis) state.synthesisStatus = prepared.synthesis.status === 'ready' ? 'pending' : 'blocked';
-    if (prepared.synthesis?.status === 'blocked') report.limitations.push({ fileId: file.id, text: (prepared.synthesis.reason === 'batch-limit' ? '跨窗口综合批次数超过上限（20），未发送；全部主窗口仍独立审查' : '跨窗口综合输入超限，未发送') + '；单窗口完成不表示交互影响已检查' });
+    if (prepared.synthesis?.status === 'blocked') result.limitations.push({ fileId: file.id, text: (prepared.synthesis.reason === 'batch-limit' ? '跨窗口综合批次数超过上限（20），未发送；全部主窗口仍独立审查' : '跨窗口综合输入超限，未发送') + '；单窗口完成不表示交互影响已检查' });
     if (state.sourceMode === 'change-windows') state.windowCoverage = { completed: [], pending: [...state.windowIds] };
-    if(changes.precision==='envelope')report.limitations.push({fileId:file.id,text:'精确差异不可得，按保守包络分段检查；包络包含可能未变的行，不证明精确编辑或回归因果。'});
-    if (changes.status === 'limited') report.limitations.push({ fileId: file.id, text: '精确变更分析受限：' + changes.reason + '；仍按完整两侧内容审查' });
-    if (state.groupFallback) report.limitations.push({ fileId: file.id, text: '关联组上下文超过输入预算，回退单文件审查' });
-    if (state.initialInputBytes > maxInputBytes) { state.status = 'blocked'; state.reason = '输入超过预算，未截断或提交模型'; continue; }
+    if(changes.precision==='envelope')result.limitations.push({fileId:file.id,text:'精确差异不可得，按保守包络分段检查；包络包含可能未变的行，不证明精确编辑或回归因果。'});
+    if (changes.status === 'limited') result.limitations.push({ fileId: file.id, text: '精确变更分析受限：' + changes.reason + '；仍按完整两侧内容审查' });
+    if (state.groupFallback) result.limitations.push({ fileId: file.id, text: '关联组上下文超过输入预算，回退单文件审查' });
+    if (state.initialInputBytes > maxInputBytes) { state.status = 'blocked'; state.reason = '输入超过预算，未截断或提交模型'; return; }
     try {
       const beforeCall = ({ reserved = false } = {}) => {
         if (!reserved && options.remainingCalls?.() <= 0) throw Object.assign(new Error('Shared project model call limit exceeded'), { code: 'PROJECT_MODEL_CALL_LIMIT' });
@@ -152,15 +170,26 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       const onBudgetLimited = info => {
         state.retrievalLimited = true;
         (state.retrievalLimits ??= []).push(info);
-        report.limitations.push({ fileId: file.id, text: '检索预算受限，已保留现有结果但不能视为完整审查：' + info.reason });
+        result.limitations.push({ fileId: file.id, text: '检索预算受限，已保留现有结果但不能视为完整审查：' + info.reason });
       };
       const onProtocolEvent = async info => { await options.onProgress?.({ stage: 'protocol-correction', fileId: file.id, path: file.path, ...info }); };
-      const trackedModel=request=>model({...request,onProtocolEvent,onProtocolCorrection:async info=>{beforeCall({ reserved: true });await request.onProtocolCorrection?.(info);await options.onProgress?.({stage:'protocol-correction',fileId:file.id,path:file.path,...info});}});
+      const trackedModel = request => model({ ...request, onProtocolEvent,
+        onModelEvent: async info => {
+          if (info.action === 'model-end') {
+            const phase = request.reviewPhase ?? 'primary';
+            const metrics = (state.modelMetrics ??= {});
+            const item = (metrics[phase] ??= { calls: 0, durationMs: 0, inputBytes: 0, totalOutputBytes: 0 });
+            item.calls++; item.durationMs += info.durationMs; item.inputBytes += info.inputBytes; item.totalOutputBytes += info.totalOutputBytes;
+          }
+          await options.onProgress?.({ stage: info.action, snapshotId: input.id, fileId: file.id, path: file.path, phase: request.reviewPhase ?? 'primary', ...info });
+        },
+        onProtocolCorrection: async info => { beforeCall({ reserved: true }); await request.onProtocolCorrection?.(info); await options.onProgress?.({stage:'protocol-correction',fileId:file.id,path:file.path,...info}); },
+      });
       const executor = scope
-        ? (request, onLimited = () => {}) => retrievalLoop(trackedModel, { ...request, onProtocolEvent }, scope, { correctProtocol:options.correctProtocol===true,maxInputBytes, beforeCall, onBudgetLimited: info => { onBudgetLimited(info); onLimited(info); }, onRetrieved: records => {
+        ? (request, onLimited = () => {}) => retrievalLoop(trackedModel, { ...request, onProtocolEvent }, scope, { correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, onBudgetLimited: info => { onBudgetLimited(info); onLimited(info); }, onRetrieved: records => {
           (state.retrievalAudit ??= []).push(...records);
         }, onTruncated: () => {
-          if (!state.retrievalTruncated) report.limitations.push({ fileId: file.id, text: '检索结果达到数量上限，部分匹配未提供给模型' });
+          if (!state.retrievalTruncated) result.limitations.push({ fileId: file.id, text: '检索结果达到数量上限，部分匹配未提供给模型' });
           state.retrievalTruncated = true;
         } })
         : request => { beforeCall(); return trackedModel(request); };
@@ -174,7 +203,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             const groupInput = prepareBusinessGroups(input.files);
             if (Buffer.byteLength(groupInput) + Buffer.byteLength(BUSINESS_GROUP_INSTRUCTIONS) > maxInputBytes) throw new Error('Business grouping input budget exceeded');
             beforeCall();
-            const response = await trackedModel({ ...enclosingRequest, instructions: BUSINESS_GROUP_INSTRUCTIONS, input: groupInput });
+            const response = await trackedModel({ ...enclosingRequest, instructions: BUSINESS_GROUP_INSTRUCTIONS, input: groupInput, reviewPhase: 'business-grouping' });
             enclosingRequest.signal.throwIfAborted();
             grouped = validateBusinessGroups(response, input.files);
             }
@@ -187,7 +216,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             }
           } catch (error) {
             report.businessGrouping = { status: 'fallback', reason: error.message };
-            report.limitations.push({ text: '业务分组未完成，保留原分组：' + error.message });
+            result.limitations.push({ text: '业务分组未完成，保留原分组：' + error.message });
             enclosingRequest.signal.throwIfAborted();
           }
         }
@@ -197,37 +226,53 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         for (const interactionPlan of matchingInteractionPlans.filter(p => p.prepared.status === 'ready')) batches.push({ payload: interactionPlan.prepared.payload, windowIds: [], interaction: interactionPlan.group });
         const scheduled = Array.from({length:rounds},(_,i)=>batches.map(b=>({...b,round:i+1}))).flat();
         if(rounds>1) state.reviewPasses=scheduled.map(b=>({round:b.round,windowIds:b.windowIds,...(b.interaction?{groupId:b.interaction.id}:{}),...(b.synthesis?{synthesis:true}:{}),status:'pending'}));
+        const riskInput = canonicalRiskInput(input, file, prepared, { instructions: RISK_PLAN_INSTRUCTIONS, scope, maxInputBytes });
+        let primaryRiskPlan;
         for (const [batchIndex,batch] of scheduled.entries()) {
         enclosingRequest.signal.throwIfAborted();
         const phase=batch.interaction?'file-interaction':batch.synthesis?'window-synthesis':'primary';
         try{
         let batchPayload = batch.payload;
+        let riskEntry, activeRisks = [];
         if (options.enableRiskPlanning === true && !batch.synthesis && batch.round === 1) {
-          const decision = options.skipSmallRiskPlans === true ? riskPlanningDecision(batch.interaction ? input.files.filter(f=>batch.interaction.fileIds.includes(f.id)) : [file]) : {required:true,reason:'unconditional'};
-          state.riskPlans ??= [];
-          const entry = { status: 'pending', windowIds: batch.windowIds, ...(batch.interaction ? {groupId:batch.interaction.id,sourceMode:'file-interaction'} : {}), risks: [] };
-          state.riskPlans.push(entry);
-          entry.decision = decision;
-          if (!decision.required) entry.status = 'skipped';
-          else {
-          try {
-          const response = await executor({ ...enclosingRequest, input: batch.payload, instructions: RISK_PLAN_INSTRUCTIONS });
-          const riskFiles = batch.interaction ? JSON.parse(batch.payload).files : [{ fileId: file.id, edits: changes.edits ?? [] }];
-          const risks = validateRiskPlan(response, riskFiles, scope?.catalog() ?? []);
-          if (batch.interaction && risks.some(r=>new Set(r.editRefs.map(ref=>ref.fileId)).size<2)) throw new Error('Interaction risk requires edits across at least two files');
-          entry.status = 'completed'; entry.risks = risks;
-          batchPayload = JSON.stringify({ ...JSON.parse(batch.payload), riskPlan: risks, riskPlanNotice: '未可信假设而非发现或证据；须验证及寻找反证，不增加读取权限。' });
-          if (!initialInputBudget({ instructions, input: batchPayload }, scope, maxInputBytes).fits) throw new Error('Risk-enriched review input exceeds budget');
-          } catch(error) {
-            enclosingRequest.signal.throwIfAborted();
-            entry.status='fallback';entry.reason=error?.message??String(error);entry.risks=[];batchPayload=batch.payload;
-            report.limitations.push({fileId:file.id,text:'风险计划未完成，回退原输入主审查：'+entry.reason});
+          const reusable = !batch.interaction && riskInput.cacheable;
+          riskEntry = reusable ? primaryRiskPlan : undefined;
+          if (!riskEntry) {
+            const decision = options.skipSmallRiskPlans === true ? riskPlanningDecision(batch.interaction ? input.files.filter(f=>batch.interaction.fileIds.includes(f.id)) : [file]) : {required:true,reason:'unconditional'};
+            riskEntry = { status: decision.required ? 'pending' : 'skipped', windowIds: reusable ? state.windowIds ?? [] : batch.windowIds, ...(reusable ? { scope: 'all-edits' } : {}), ...(batch.interaction ? {groupId:batch.interaction.id,sourceMode:'file-interaction'} : {}), risks: [], decision };
+            (state.riskPlans ??= []).push(riskEntry);
+            if (reusable) primaryRiskPlan = riskEntry;
+            if (decision.required) {
+              try {
+                const planningPayload = reusable ? riskInput.payload : batch.payload;
+                const response = await executor({ ...enclosingRequest, input: planningPayload, instructions: RISK_PLAN_INSTRUCTIONS, reviewPhase: 'risk-planning' });
+                const riskFiles = batch.interaction ? JSON.parse(batch.payload).files : [{ fileId: file.id, edits: changes.edits ?? [] }];
+                const risks = validateRiskPlan(response, riskFiles, scope?.catalog() ?? []);
+                if (batch.interaction && risks.some(r=>new Set(r.editRefs.map(ref=>ref.fileId)).size<2)) throw new Error('Interaction risk requires edits across at least two files');
+                riskEntry.status = 'completed'; riskEntry.risks = risks;
+              } catch (error) {
+                enclosingRequest.signal.throwIfAborted();
+                riskEntry.status = 'fallback'; riskEntry.reason = error?.message ?? String(error);
+                result.limitations.push({fileId:file.id,text:'风险计划未完成，回退原输入主审查：'+riskEntry.reason});
+              }
+            }
           }
-        }
+          const visible = JSON.parse(batch.payload).windows;
+          const visibleEdits = visible && new Set(visible.flatMap(window => window.editIds));
+          activeRisks = visibleEdits ? riskEntry.risks.filter(risk => risk.editRefs.some(ref => ref.fileId === file.id && visibleEdits.has(ref.editId))) : riskEntry.risks;
+          if (riskEntry.status === 'completed') {
+            const enriched = JSON.stringify({ ...JSON.parse(batch.payload), riskPlan: activeRisks, riskPlanNotice: '未可信假设而非发现或证据；须验证及寻找反证，不增加读取权限。' });
+            if (initialInputBudget({ instructions, input: enriched }, scope, maxInputBytes).fits) batchPayload = enriched;
+            else {
+              activeRisks = [];
+              (riskEntry.enrichmentFallbacks ??= []).push({ windowIds: batch.windowIds, reason: 'input-budget' });
+              result.limitations.push({fileId:file.id,text:'风险计划扩展输入超限，本窗口保留原输入主审；未删除其他窗口的计划或主审任务'});
+            }
+          }
         }
         if(report.modelCalls>=maxCalls)throw new Error('Model call budget exceeded before next review pass');
         if(rounds>1) state.reviewPasses[batchIndex].status='running';
-        const request = { ...enclosingRequest, input: batchPayload };
+        const request = { ...enclosingRequest, input: batchPayload, reviewPhase: phase };
         let auditStart = state.retrievalAudit?.length ?? 0;
         let finalResponseOnly = false;
         const generate = async attempt => {
@@ -261,35 +306,38 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             // A fresh generation must establish its own synthesis/interaction read evidence.
             auditStart = state.retrievalAudit?.length ?? 0;
             (state.responseCorrections ??= []).push({ code: info.code, round: batch.round, phase });
-            report.limitations.push({ fileId: file.id, text: '主审响应校验失败，已请求一次显式纠正；原响应未接受，纠正不证明缺陷成立。' });
+            result.limitations.push({ fileId: file.id, text: '主审响应校验失败，已请求一次显式纠正；原响应未接受，纠正不证明缺陷成立。' });
             await options.onProgress?.({ stage: 'protocol-correction', fileId: file.id, path: file.path, ...info });
           },
         });
         if (options.enableRiskPlanning === true && !batch.synthesis && batch.round === 1) {
-          const entry=state.riskPlans.at(-1);
-          entry.sourceReadCoverage=riskReadCoverage(entry.risks,(state.retrievalAudit??[]).slice(auditStart),scope?.catalog()??[],input.id);
-          if(entry.sourceReadCoverage.some(c=>c.unreadSourceIds.length)) report.limitations.push({fileId:file.id,text:'风险计划请求的部分来源未在本次生成阶段读取；不能视为已核查风险条件或排除问题'});
+          const coverage = riskReadCoverage(activeRisks,(state.retrievalAudit??[]).slice(auditStart),scope?.catalog()??[],input.id);
+          (riskEntry.generations ??= []).push({ round: batch.round, windowIds: batch.windowIds, coverage });
+          // Preserve the single-generation field without unioning evidence across windows.
+          if (riskEntry.generations.length === 1) riskEntry.sourceReadCoverage = coverage;
+          else delete riskEntry.sourceReadCoverage;
+          if(coverage.some(c=>c.unreadSourceIds.length)) result.limitations.push({fileId:file.id,text:'风险计划请求的部分来源未在本次生成阶段读取；不能视为已核查风险条件或排除问题'});
         }
         request.signal.throwIfAborted();
         if(rounds>1)generated.findings.forEach(f=>{f.reviewRound=batch.round;});
-        report.findings.push(...generated.findings);
-        if (generated.findings.some(f => f.attribution.status === 'missing')) report.limitations.push({ fileId: file.id, text: '部分发现缺少变更归因，仅校验了定位，尚不能确认属于本次回归' });
-        report.limitations.push(...generated.limitations.map(text => ({ fileId: file.id, text })));
+        result.findings.push(...generated.findings);
+        if (generated.findings.some(f => f.attribution.status === 'missing')) result.limitations.push({ fileId: file.id, text: '部分发现缺少变更归因，仅校验了定位，尚不能确认属于本次回归' });
+        result.limitations.push(...generated.limitations.map(text => ({ fileId: file.id, text })));
         if (options.enableVerification === true && generated.findings.length) {
           for (const finding of generated.findings) finding.verification = { status: 'pending', causality: 'unverified' };
           try {
-            const verdicts = await verificationLoop(trackedModel, { ...request, onProtocolEvent }, generated.findings, scope, {
-              correctProtocol:options.correctProtocol===true,maxInputBytes, beforeCall, onBudgetLimited,
+            const verdicts = await verificationLoop(trackedModel, { ...request, onProtocolEvent, reviewPhase: 'verification' }, generated.findings, scope, {
+              correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, onBudgetLimited,
               onRetrieved: records => { (state.retrievalAudit ??= []).push(...records); },
-              onTruncated: () => { report.limitations.push({ fileId: file.id, text: '复核检索结果达到数量上限' }); },
+              onTruncated: () => { result.limitations.push({ fileId: file.id, text: '复核检索结果达到数量上限' }); },
             });
             request.signal.throwIfAborted();
             generated.findings.forEach((finding, i) => { finding.verification = { status: 'completed', ...verdicts[i] }; });
-            if (verdicts.some(v => v.verdict === 'supported' && v.regression?.classification === 'uncertain')) report.limitations.push({ fileId: file.id, text: '部分模型支持候选缺少充分前后对照，不能确认由本次变更引入' });
-            if (verdicts.some(v => v.verdict === 'uncertain')) report.limitations.push({ fileId: file.id, text: '部分候选复核仍不确定，不能视为已确认或已排除' });
+            if (verdicts.some(v => v.verdict === 'supported' && v.regression?.classification === 'uncertain')) result.limitations.push({ fileId: file.id, text: '部分模型支持候选缺少充分前后对照，不能确认由本次变更引入' });
+            if (verdicts.some(v => v.verdict === 'uncertain')) result.limitations.push({ fileId: file.id, text: '部分候选复核仍不确定，不能视为已确认或已排除' });
           } catch (error) {
             for (const finding of generated.findings) finding.verification = { status: 'incomplete', causality: 'unverified' };
-            report.limitations.push({ fileId: file.id, text: '候选复核未完成：' + (error?.message ?? String(error)) });
+            result.limitations.push({ fileId: file.id, text: '候选复核未完成：' + (error?.message ?? String(error)) });
             request.signal.throwIfAborted();
           }
         }
@@ -313,7 +361,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           if(batch.synthesis)state.synthesisStatus='failed';
           if(batch.interaction){const interaction=report.interactions.find(p=>p.groupId===batch.interaction.id);if(interaction)Object.assign(interaction,{status:'failed',reason:error.message,failureCode:failure.code});}
           if(rounds>1)state.reviewPasses[batchIndex].status='failed';
-          report.limitations.push({fileId:file.id,text:phase+'未完成：'+error.message+'；已完成主文件/窗口成果保留，不表示综合已通过'});
+          result.limitations.push({fileId:file.id,text:phase+'未完成：'+error.message+'；已完成主文件/窗口成果保留，不表示综合已通过'});
           await options.onProgress?.({stage:'synthesis-failed',snapshotId:input.id,fileId:file.id,path:file.path,...failure,windowCoverage:state.windowCoverage});
         }
         }
@@ -332,7 +380,30 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       for(const pass of state.reviewPasses??[])if(pass.status==='running')pass.status=signal?.aborted?'cancelled':'failed';
       state.failureCode = signal?.aborted ? 'CANCELLED' : ['MODEL_INVALID_JSON','MODEL_INCOMPLETE_OUTPUT','MODEL_TIMEOUT','MODEL_INVALID_READ_REQUEST','MODEL_OUTPUT_LIMIT','MODEL_PROTOCOL_ERROR','MODEL_INVALID_REVIEW_RESPONSE','MODEL_INVALID_FINDING_IDENTITY','MODEL_INVALID_FINDING_SEVERITY','MODEL_MISSING_FINDING_FIELD','MODEL_INVALID_ANCHOR','MODEL_ANCHOR_MISMATCH','READER_CALL_BUDGET_EXCEEDED','READER_OUTPUT_BUDGET_EXCEEDED','RETRIEVAL_ROUND_BUDGET_EXCEEDED','RETRIEVAL_FINAL_RESPONSE_REQUIRED','PROJECT_MODEL_CALL_LIMIT'].includes(error?.code) ? error.code : 'REVIEW_EXECUTION_FAILED';
     }
+    } finally {
+      await options.onProgress?.({stage:'file-complete',snapshotId:input.id,file:state,findings:result.findings});
+    }
+  };
+  // Bootstrap lazy business grouping once before freezing dependency admission.
+  let first = 0;
+  if (options.enableBusinessGrouping === true && prepareBusinessGroups(input.files)) {
+    while (first < input.files.length && !report.businessGrouping && !signal.aborted) await runFile(first++);
   }
+  const dependencies = new Map();
+  for (const plan of interactionPlans.filter(p => p.prepared.status === 'ready')) {
+    const members = input.files.map((file, index) => plan.group.fileIds.includes(file.id) ? index : -1).filter(index => index >= 0);
+    const owner = members.at(-1);
+    if (owner !== undefined) dependencies.set(owner, [...new Set([...(dependencies.get(owner) ?? []), ...members.slice(0, -1)])]);
+  }
+  await scheduleFileChains(input.files.map((_, index) => index).slice(first), async index => {
+    try { await runFile(index); }
+    catch (error) { controller.abort(error); throw error; }
+  }, dependencies, fileConcurrency);
+  if (checkpointFailed) throw checkpointFailure;
+  report.files = fileResults.map(result => result.state);
+  report.findings = fileResults.flatMap(result => result.findings);
+  report.limitations.push(...fileResults.flatMap(result => result.limitations));
+  report.execution = { fileConcurrency, maxRetrievalRounds };
   await options.onProgress?.({stage:'batch-complete',snapshotId:input.id,files:report.files,findings:report.findings,limitations:report.limitations});
   for (const interaction of report.interactions) if (interaction.status !== 'completed') report.limitations.push({ text: '跨文件综合未完成：' + interaction.groupId + ' (' + interaction.status + ')' });
   if (report.grouping?.links.some(l => l.split)) report.limitations.push({ text: '跨组关系未综合覆盖；关联分组不代表全部跨文件交互覆盖' });

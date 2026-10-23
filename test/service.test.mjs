@@ -141,3 +141,94 @@ test('model sending is disabled by default', async () => {
   const p = await service.preview({}, e);
   await assert.rejects(service.execute({ previewId: p.previewId, confirmed: true }, e), /disabled/);
 });
+
+
+test('source freshness checkpoint precedes final capture and retains outdated fallback', async () => {
+  for (const outcome of ['same', 'changed', 'unavailable']) {
+    let captures = 0; const checkpoints = [];
+    const service = createReviewService(llm, { capture: async () => {
+      captures++;
+      if (captures === 3) {
+        assert.equal(checkpoints.at(-1).stage, 'source-freshness');
+        if (outcome === 'unavailable') throw new Error('source unavailable');
+        return { ...snapshot(), id: outcome === 'same' ? 'fixed' : 'changed' };
+      }
+      return snapshot();
+    }, allowModelSending: true, authorize: async () => true });
+    const e = { ...exec(), reviewCheckpoint: event => checkpoints.push(event) };
+    const preview = await service.preview({}, e);
+    const result = await service.execute({ previewId: preview.previewId, confirmed: true }, e);
+    assert.equal(captures, 3);
+    assert.equal(result.report.outdated, outcome !== 'same');
+    assert.equal(checkpoints.at(-1).snapshotId, 'fixed');
+    service.dispose();
+  }
+});
+
+test('cancellation and disposal during final freshness capture remain terminal errors', async () => {
+  for (const dispose of [false, true]) {
+    const controller = new AbortController(), reason = new Error('cancel final freshness');
+    let captures = 0, service;
+    service = createReviewService(llm, { capture: async (_cwd, { signal }) => {
+      if (++captures === 3) {
+        if (dispose) service.dispose(); else controller.abort(reason);
+        signal.throwIfAborted();
+      }
+      return snapshot();
+    }, allowModelSending: true, authorize: async () => true });
+    const e = { ...exec(), signal: controller.signal };
+    const preview = await service.preview({}, e);
+    await assert.rejects(service.execute({ previewId: preview.previewId, confirmed: true }, e), error => dispose ? /disposed/.test(error.message) : error === reason);
+    assert.equal(captures, 3);
+    service.dispose();
+  }
+});
+
+test('source freshness checkpoint cancellation prevents final recapture', async () => {
+  const controller = new AbortController(), reason = new Error('stop at checkpoint');
+  let captures = 0;
+  const service = createReviewService(llm, { capture: async () => { captures++; return snapshot(); }, allowModelSending: true, authorize: async () => true });
+  const e = { ...exec(), signal: controller.signal, reviewCheckpoint(event) {
+    if (event.stage === 'source-freshness') controller.abort(reason);
+  } };
+  const preview = await service.preview({}, e);
+  await assert.rejects(service.execute({ previewId: preview.previewId, confirmed: true }, e), error => error === reason);
+  assert.equal(captures, 2);
+  service.dispose();
+});
+
+test('changes preview describes configured bounded concurrency and retrieval rounds', async () => {
+  const service = createReviewService(llm, { capture: async () => snapshot(), changesConcurrency: 4, maxRetrievalRounds: 7 });
+  const preview = await service.preview({}, exec());
+  assert.deepEqual(preview.execution, { fileConcurrency: 4, maxRetrievalRounds: 7 });
+  assert.match(preview.notice, /两阶段各最多7轮检索/);
+  assert.match(preview.notice, /最多4条并发/);
+  service.dispose();
+  for (const options of [{ changesConcurrency: 0 }, { changesConcurrency: 5 }, { maxRetrievalRounds: -1 }, { maxRetrievalRounds: 51 }]) {
+    const invalid = createReviewService(llm, options);
+    await assert.rejects(invalid.preview({}, exec()), /integer/);
+    invalid.dispose();
+  }
+});
+
+test('cancelled review retains its report and skips freshness checkpoint and capture', async () => {
+  const controller = new AbortController(), checkpoints = [];
+  let captures = 0, calls = 0;
+  const service = createReviewService({ async *stream() {
+    calls++;
+    controller.abort(new Error('cancel model review'));
+    controller.signal.throwIfAborted();
+    yield { type: 'finish', reason: { kind: 'stop' } };
+  } }, { capture: async () => { captures++; return snapshot(); }, allowModelSending: true, authorize: async () => true });
+  const e = { ...exec(), signal: controller.signal, reviewCheckpoint: event => checkpoints.push(event) };
+  const preview = await service.preview({}, e);
+  const { report, markdown } = await service.execute({ previewId: preview.previewId, confirmed: true }, e);
+  assert.equal(report.status, 'cancelled');
+  assert.equal(report.files[0].status, 'cancelled');
+  assert.equal(report.outdated, true);
+  assert.equal(captures, 2);
+  assert.equal(calls, 1);
+  assert.equal(checkpoints.some(event => event.stage === 'source-freshness'), false);
+  assert.match(markdown, /报告仅对应原快照/);
+  service.dispose();
+});

@@ -6,7 +6,7 @@ export function recoveryCoverage(record) {
   for (const c of record.checkpoints ?? []) {
     if (c.stage === 'synthesis-failed') stages.set(c.path, { path: c.path, phase: c.phase, status: c.status, code: c.code });
     if (c.stage === 'approved-manifest') for (const f of c.files ?? []) states.set(f.path, { path: f.path, status: f.status, snapshotId: c.snapshotId });
-    if (c.stage === 'file-started') states.set(c.path, { path: c.path, status: c.status === 'excluded' ? 'excluded' : 'pending', snapshotId: c.snapshotId });
+    if (c.stage === 'file-started') states.set(c.path, { path: c.path, status: ['excluded', 'blocked'].includes(c.status) ? c.status : 'pending', snapshotId: c.snapshotId });
     if (c.stage === 'file-complete' && c.file) states.set(c.file.path, { path: c.file.path, status: c.file.status, snapshotId: c.snapshotId });
     if (c.stage === 'batch-complete') for (const f of c.files ?? []) states.set(f.path, { path: f.path, status: f.status, snapshotId: c.snapshotId });
     if (c.stage === 'window-complete') windows.set(c.path, { path: c.path, snapshotId: c.snapshotId, ...c.windowCoverage });

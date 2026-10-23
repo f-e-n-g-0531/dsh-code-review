@@ -33,7 +33,12 @@ export function createDshModel(llm, route, {
   const invalidJsonErrors = new WeakSet();
   const failureMetadata = new WeakMap();
 
-  async function once({ instructions, input, signal }, contract) {
+  // Out-of-band observers cannot fail a call or trigger another provider send.
+  async function notify(callback, event) {
+    try { await callback?.(event); } catch { /* Metrics are not model/budget authority. */ }
+  }
+
+  async function once({ instructions, input, signal, onModelEvent, attempt }, contract) {
     signal?.throwIfAborted();
     let output = '';
     let size = 0;
@@ -42,6 +47,8 @@ export function createDshModel(llm, route, {
     const blocks = new Map();
     let finished = false;
     let finishKind = 'missing';
+    let startedAt, firstChunkMs = null, status = 'failed';
+    const event = { attempt, inputBytes: Buffer.byteLength(input) };
     const diagnostic = () => ({
       visibleBytes: Buffer.byteLength(output), totalOutputBytes: size, finishKind,
       inputBytes: Buffer.byteLength(input), requestedMaxTokens: maxTokens, maxOutputBytes,
@@ -52,84 +59,106 @@ export function createDshModel(llm, route, {
       return error;
     };
     try {
-      const stream = llm.stream({
-        ...identity,
-        system: instructions + '\n' + contract,
-        messages: [{ role: 'user', content: [{ type: 'text', text: input }] }],
-        tools: [], maxTokens, signal,
-      });
-      for await (const chunk of stream) {
-        signal?.throwIfAborted();
-        if (finished) throw failure('Model emitted data after finish', 'MODEL_PROTOCOL_ERROR');
-        if (isToolCall(chunk)) throw failure('Review model attempted a tool call', 'MODEL_PROTOCOL_ERROR');
-        const delta = chunk.type === 'text-delta' || chunk.type === 'reasoning-delta';
-        const completed = chunk.type === 'block-end' &&
-          (chunk.block.type === 'text' || chunk.block.type === 'reasoning');
-        if (delta || completed) {
-          const type = completed ? chunk.block.type : chunk.type === 'text-delta' ? 'text' : 'reasoning';
-          // Unindexed delta-only streams remain supported for older callers.
-          const key = chunk.index ?? type;
-          const previous = blocks.get(key);
-          if (previous && previous.type !== type) throw failure('Model changed block type', 'MODEL_PROTOCOL_ERROR');
-          // Like the host BlockAssembler, first close wins; never append stragglers.
-          if (previous?.closed) continue;
-          const text = completed ? chunk.block.text : (previous?.text ?? '') + chunk.text;
-          const bytes = Buffer.byteLength(text);
-          // A shorter final snapshot must not refund previously consumed output budget.
-          const chargedBytes = Math.max(previous?.chargedBytes ?? 0, bytes);
-          size += chargedBytes - (previous?.chargedBytes ?? 0);
-          if (size > maxOutputBytes) throw failure('Model output limit exceeded', 'MODEL_OUTPUT_LIMIT');
-          blocks.set(key, { type, text, chargedBytes, closed: completed });
-          output = [...blocks.values()].filter(block => block.type === 'text').map(block => block.text).join('');
-        }
-        if (chunk.type === 'finish') {
-          finishKind = chunk.reason.kind;
-          if (finishKind !== 'stop') {
-            const error = failure('Model did not complete: ' + finishKind, 'MODEL_INCOMPLETE_OUTPUT');
-            Object.assign(error.diagnostic, providerDiagnostic(chunk.reason));
-            throw error;
-          }
-          finished = true;
-        }
-      }
-    } catch (error) {
-      // Keep thrown provider/cancellation identity, including frozen and primitive values.
-      // Only add safe structured metadata when the error permits it.
-      if (error && (typeof error === 'object' || typeof error === 'function') && !failureMetadata.has(error)) {
-        const safeDiagnostic = { ...diagnostic(), ...providerDiagnostic(error) };
-        failureMetadata.set(error, { code: safeDiagnostic.providerCode, diagnostic: safeDiagnostic });
+      startedAt = performance.now();
+      try {
+        let stream;
         try {
-          if (Object.isExtensible(error) && !Object.hasOwn(error, 'diagnostic')) {
-            Object.defineProperty(error, 'diagnostic', { value: structuredClone(safeDiagnostic), configurable: true, enumerable: true, writable: true });
+          stream = llm.stream({
+            ...identity,
+            system: instructions + '\n' + contract,
+            messages: [{ role: 'user', content: [{ type: 'text', text: input }] }],
+            tools: [], maxTokens, signal,
+          });
+        } finally {
+          await notify(onModelEvent, { ...event, action: 'model-start' });
+        }
+        if (signal?.aborted) {
+          try { await stream.return?.(); } finally { signal.throwIfAborted(); }
+        }
+        for await (const chunk of stream) {
+          firstChunkMs ??= Math.max(0, performance.now() - startedAt);
+          signal?.throwIfAborted();
+          if (finished) throw failure('Model emitted data after finish', 'MODEL_PROTOCOL_ERROR');
+          if (isToolCall(chunk)) throw failure('Review model attempted a tool call', 'MODEL_PROTOCOL_ERROR');
+          const delta = chunk.type === 'text-delta' || chunk.type === 'reasoning-delta';
+          const completed = chunk.type === 'block-end' &&
+            (chunk.block.type === 'text' || chunk.block.type === 'reasoning');
+          if (delta || completed) {
+            const type = completed ? chunk.block.type : chunk.type === 'text-delta' ? 'text' : 'reasoning';
+            // Unindexed delta-only streams remain supported for older callers.
+            const key = chunk.index ?? type;
+            const previous = blocks.get(key);
+            if (previous && previous.type !== type) throw failure('Model changed block type', 'MODEL_PROTOCOL_ERROR');
+            // Like the host BlockAssembler, first close wins; never append stragglers.
+            if (previous?.closed) continue;
+            const text = completed ? chunk.block.text : (previous?.text ?? '') + chunk.text;
+            const bytes = Buffer.byteLength(text);
+            // A shorter final snapshot must not refund previously consumed output budget.
+            const chargedBytes = Math.max(previous?.chargedBytes ?? 0, bytes);
+            size += chargedBytes - (previous?.chargedBytes ?? 0);
+            if (size > maxOutputBytes) throw failure('Model output limit exceeded', 'MODEL_OUTPUT_LIMIT');
+            blocks.set(key, { type, text, chargedBytes, closed: completed });
+            output = [...blocks.values()].filter(block => block.type === 'text').map(block => block.text).join('');
           }
-        } catch { /* Diagnostic accessors/proxies must not replace the primary failure. */ }
+          if (chunk.type === 'finish') {
+            finishKind = chunk.reason.kind;
+            if (finishKind !== 'stop') {
+              const error = failure('Model did not complete: ' + finishKind, 'MODEL_INCOMPLETE_OUTPUT');
+              Object.assign(error.diagnostic, providerDiagnostic(chunk.reason));
+              throw error;
+            }
+            finished = true;
+          }
+        }
+      } catch (error) {
+        // Keep thrown provider/cancellation identity, including frozen and primitive values.
+        // Only add safe structured metadata when the error permits it.
+        if (error && (typeof error === 'object' || typeof error === 'function') && !failureMetadata.has(error)) {
+          const safeDiagnostic = { ...diagnostic(), ...providerDiagnostic(error) };
+          failureMetadata.set(error, { code: safeDiagnostic.providerCode, diagnostic: safeDiagnostic });
+          try {
+            if (Object.isExtensible(error) && !Object.hasOwn(error, 'diagnostic')) {
+              Object.defineProperty(error, 'diagnostic', { value: structuredClone(safeDiagnostic), configurable: true, enumerable: true, writable: true });
+            }
+          } catch { /* Diagnostic accessors/proxies must not replace the primary failure. */ }
+        }
+        throw error;
       }
-      throw error;
-    }
-    // Cancellation during iterator cleanup/end must not become an invalid-JSON correction.
-    signal?.throwIfAborted();
-    if (!finished) throw failure('Model stream ended without finish', 'MODEL_INCOMPLETE_OUTPUT');
-    try {
-      return { text: modelJson(output), diagnostic: diagnostic() };
-    } catch (error) {
-      error.diagnostic = { ...diagnostic(), ...error.diagnostic };
-      invalidJsonErrors.add(error);
-      failureMetadata.set(error, { code: error.code, diagnostic: error.diagnostic });
-      throw error;
+      // Cancellation during iterator cleanup/end must not become an invalid-JSON correction.
+      signal?.throwIfAborted();
+      if (!finished) throw failure('Model stream ended without finish', 'MODEL_INCOMPLETE_OUTPUT');
+      try {
+        const text = modelJson(output);
+        status = 'completed';
+        return { text, diagnostic: diagnostic() };
+      } catch (error) {
+        error.diagnostic = { ...diagnostic(), ...error.diagnostic };
+        invalidJsonErrors.add(error);
+        failureMetadata.set(error, { code: error.code, diagnostic: error.diagnostic });
+        throw error;
+      }
+    } finally {
+      await notify(onModelEvent, {
+        ...event, action: 'model-end', status: signal?.aborted ? 'cancelled' : status,
+        durationMs: Math.max(0, performance.now() - startedAt), firstChunkMs,
+        visibleBytes: Buffer.byteLength(output), totalOutputBytes: size,
+      });
     }
   }
 
   return async function invoke(request) {
     // Snapshot these before an async budget/progress hook can mutate the request.
-    const original = { instructions: request.instructions, input: request.input, signal: request.signal };
+    const original = { instructions: request.instructions, input: request.input, signal: request.signal, onModelEvent: request.onModelEvent };
+    const onProtocolCorrection = request.onProtocolCorrection, onProtocolEvent = request.onProtocolEvent;
     const contract = modelContract(original.input, original.instructions);
     const correctionLimit = correctJson ? maxJsonCorrections : 0;
     const attempts = [];
     for (let attempt = 1; ; attempt++) {
       let result;
       try {
-        result = await once({ ...original, instructions: original.instructions +
+        result = await once({ ...original, attempt, instructions: original.instructions +
           (attempt > 1 ? JSON_CORRECTION_SUFFIX + jsonCorrectionHint(attempts.at(-1)?.diagnostic) + ' 纠正次数：' + (attempt - 1) + '/' + correctionLimit + '。' : '') }, contract);
+        original.signal?.throwIfAborted();
       } catch (error) {
         const metadata = failureMetadata.get(error) ?? {};
         failureMetadata.delete(error);
@@ -149,7 +178,7 @@ export function createDshModel(llm, route, {
         }
         original.signal?.throwIfAborted();
         // Exactly one reservation per extra call; a thrown budget/cancellation veto is final.
-        await request.onProtocolCorrection?.({
+        await onProtocolCorrection?.({
           ...structuredClone(metadata), attempts: structuredClone(attempts),
           action: 'explicit-json-correction', attempt: attempt + 1,
           correction: attempt, maxJsonCorrections: correctionLimit,
@@ -160,7 +189,7 @@ export function createDshModel(llm, route, {
       }
       if (attempt > 1) {
         // Out-of-band audit only: never inject metadata into stage-specific model schemas.
-        await request.onProtocolEvent?.({
+        await onProtocolEvent?.({
           action: 'json-correction-complete', attempt, corrections: attempt - 1,
           attempts: structuredClone([...attempts, { attempt, diagnostic: result.diagnostic }]),
           notice: 'Fresh complete JSON accepted; malformed outputs discarded; extra model calls occurred.',

@@ -2,6 +2,7 @@ import {REVIEW_RUNTIME} from './runtime-identity.mjs';
 import {createProjectReviewService} from './project-review-service.mjs';
 import {svnDiagnostic} from './svn-diagnostics.mjs';
 import { reviewRounds as validateReviewRounds } from './review-rounds.mjs';
+import { changesConcurrency as reviewConcurrency, retrievalRounds as reviewRetrievalRounds } from './review-execution-policy.mjs';
 import { validateCallerScopes } from './caller-index.mjs';
 import { validateBusinessRequirement } from './business-requirement.mjs';
 import { hash } from './content.mjs';
@@ -44,13 +45,15 @@ function describeFile(file, snapshot) {
 }
 
 /** Compose the user-facing preview notice; text is verbatim from the original rules. */
-function buildPreviewNotice(snapshot, options, enableRiskPlanning) {
+function buildPreviewNotice(snapshot, options, enableRiskPlanning, changesConcurrency, maxRetrievalRounds) {
   const scopeNotice = options.changeScope !== undefined && options.changeScope !== 'worktree' ? changeScopePreviewNotice(options.changeScope) : '';
-  return scopeNotice + (snapshot.history?.vcs==='svn'&&options.autoContext===true?'SVN历史autoContext为精确依赖定位读取固定版本父目录有界清单，包含同目录非匹配名字元数据；仅匹配捕获正文发送模型，不扫描全仓，不用工作树替代历史版本。':'') + (options.oldContextPaths !== undefined ? 'oldContextPaths仅为baseline旧侧正文，无目标侧替代；选中变更复用原old身份，旧侧不能证明新侧行为。' : '') + (snapshot.callerDiscovery ? 'callerScopePaths已授权预览读取限定目录内tracked候选正文，包括不匹配文件；非匹配正文不发送模型，匹配捕获上下文会发送。仅字面引用导航，不是函数调用或完整调用覆盖。' : '') + (enableRiskPlanning ? '执行按plan阈值决定风险假设规划，小变更可跳过独立规划但仍主审并复核；计划不是证据，所有阶段共享原预算。' : '') + '执行会向上述模型提供方发送可审查文件两侧内容、预览列出的显式/自动上下文、所选项目规则全文及预览业务需求文本。模型可在该快照范围内多轮只读检索，不读取范围外文件；候选生成后会进行证据与反证复核，两阶段各最多3轮检索，不设插件内部默认时间或总模型调用次数截止，遵循宿主/用户取消；输入字节和检索轮次保护仍保留；复核不能证明缺陷成立。plan.reviewRounds为独立审查工作量，非模型reasoning effort；后续轮不带首轮风险计划，所有轮共享原超时与预算。plan仅预检初始输入，ready不代表已审查；minimumCalls不含后续检索/复核/动态业务综合；多文件可先进行业务分组，分组失败保留原组并记录限制，动态综合数执行前未知，实际预算可能不足。请先向用户展示范围，获得确认后执行。';
+  return scopeNotice + (snapshot.history?.vcs==='svn'&&options.autoContext===true?'SVN历史autoContext为精确依赖定位读取固定版本父目录有界清单，包含同目录非匹配名字元数据；仅匹配捕获正文发送模型，不扫描全仓，不用工作树替代历史版本。':'') + (options.oldContextPaths !== undefined ? 'oldContextPaths仅为baseline旧侧正文，无目标侧替代；选中变更复用原old身份，旧侧不能证明新侧行为。' : '') + (snapshot.callerDiscovery ? 'callerScopePaths已授权预览读取限定目录内tracked候选正文，包括不匹配文件；非匹配正文不发送模型，匹配捕获上下文会发送。仅字面引用导航，不是函数调用或完整调用覆盖。' : '') + (enableRiskPlanning ? '执行按plan阈值决定风险假设规划，小变更可跳过独立规划但仍主审并复核；计划不是证据，所有阶段共享原预算。' : '') + `执行会向上述模型提供方发送可审查文件两侧内容、预览列出的显式/自动上下文、所选项目规则全文及预览业务需求文本。模型可在该快照范围内多轮只读检索，不读取范围外文件；候选生成后会进行证据与反证复核，两阶段各最多${maxRetrievalRounds}轮检索；独立文件审查链最多${changesConcurrency}条并发，不设插件内部默认时间或总模型调用次数截止，遵循宿主/用户取消；输入字节和检索轮次保护仍保留；复核不能证明缺陷成立。plan.reviewRounds为独立审查工作量，非模型reasoning effort；后续轮不带首轮风险计划，所有轮共享原超时与预算。plan仅预检初始输入，ready不代表已审查；minimumCalls不含后续检索/复核/动态业务综合；多文件可先进行业务分组，分组失败保留原组并记录限制，动态综合数执行前未知，实际预算可能不足。请先向用户展示范围，获得确认后执行。`;
 }
 
-function createSessionReviewService(llm, { capture = captureSnapshot, now = Date.now, ttlMs = 300000, maxPreviews = 8, allowModelSending = false, enableRiskPlanning = false, skipSmallRiskPlans = true, reviewRounds = 1, enableBusinessGrouping = false, enableAnchorCorrection = false, authorize = async () => false } = {}) {
+function createSessionReviewService(llm, { capture = captureSnapshot, now = Date.now, ttlMs = 300000, maxPreviews = 8, allowModelSending = false, enableRiskPlanning = false, skipSmallRiskPlans = true, reviewRounds = 1, enableBusinessGrouping = false, enableAnchorCorrection = false, changesConcurrency = 2, maxRetrievalRounds = 3, authorize = async () => false } = {}) {
   for (const value of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid preview limit');
+  changesConcurrency = reviewConcurrency(changesConcurrency);
+  maxRetrievalRounds = reviewRetrievalRounds(maxRetrievalRounds);
   const lifetime = new AbortController();
   const bind = exec => ({ ...exec, signal: exec.signal ? AbortSignal.any([exec.signal, lifetime.signal]) : lifetime.signal });
   const previews = new Map();
@@ -87,6 +90,7 @@ function createSessionReviewService(llm, { capture = captureSnapshot, now = Date
   previewId,
   plan,
   snapshotId: snapshot.id,
+  execution: { fileConcurrency: changesConcurrency, maxRetrievalRounds },
   repositoryRoot: snapshot.root,
   vcs: snapshot.vcs,
   ...(snapshot.changeScope ? { changeScope: snapshot.changeScope } : options.changeScope !== undefined ? { changeScope: options.changeScope } : {}),
@@ -116,7 +120,7 @@ function createSessionReviewService(llm, { capture = captureSnapshot, now = Date
   ...(snapshot.callerDiscovery ? { callerDiscovery: snapshot.callerDiscovery } : {}),
   ...(snapshot.autoContext ? { autoContext: snapshot.autoContext } : {}),
   rules: (snapshot.rules ?? []).map(({ path, hash }) => ({ path, hash })),
-  notice: buildPreviewNotice(snapshot, options, enableRiskPlanning),
+  notice: buildPreviewNotice(snapshot, options, enableRiskPlanning, changesConcurrency, maxRetrievalRounds),
 };
       } finally { busy = false; }
     },
@@ -141,10 +145,18 @@ function createSessionReviewService(llm, { capture = captureSnapshot, now = Date
         exec.signal?.throwIfAborted();
         if (owner(exec).cwd !== current.cwd || JSON.stringify(owner(exec).route) !== JSON.stringify(preview.route)) throw new Error('Agent changed during approval');
         await exec.reviewCheckpoint?.({stage:'approved-manifest',snapshotId:snapshot.id,files:snapshot.files.map(f=>({fileId:f.id,path:f.path,status:f.eligibility==='reviewable'?'pending':f.eligibility}))});
-        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route,{correctJson:true}), { signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableVerification: true, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:preview.rounds, enableBusinessGrouping, enableAnchorCorrection,correctProtocol:true, onProgress:exec.reviewCheckpoint });
+        const report = await reviewSnapshot(snapshot, createDshModel(llm, preview.route,{correctJson:true}), { signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableVerification: true, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:preview.rounds, enableBusinessGrouping, enableAnchorCorrection,changesConcurrency,maxRetrievalRounds,correctProtocol:true, onProgress:exec.reviewCheckpoint });
         report.model = preview.route;
-        const latest = await resolveWorkspaceRepository(current.cwd, preview.options.repositoryPath).then(target => target === preview.target ? capture(target, { ...preview.options, signal: exec.signal }) : null).catch(() => null);
-        report.outdated = !latest || latest.id !== snapshot.id || owner(exec).cwd !== current.cwd;
+        // reviewSnapshot preserves cancelled coverage; do not replace it with a freshness error.
+        if (report.status === 'cancelled') {
+          report.outdated = true;
+        } else {
+          await exec.reviewCheckpoint?.({ stage: 'source-freshness', snapshotId: snapshot.id });
+          exec.signal.throwIfAborted();
+          const latest = await resolveWorkspaceRepository(current.cwd, preview.options.repositoryPath).then(target => target === preview.target ? capture(target, { ...preview.options, signal: exec.signal }) : null).catch(() => { exec.signal.throwIfAborted(); return null; });
+          exec.signal.throwIfAborted();
+          report.outdated = !latest || latest.id !== snapshot.id || owner(exec).cwd !== current.cwd;
+        }
         return { report, markdown: markdownReport(report) + (report.outdated ? '\n注意：代码已变化或无法重新验证，报告仅对应原快照。\n' : '') };
       } finally { busy = false; }
     },

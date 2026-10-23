@@ -17,8 +17,9 @@ test('interaction reads both files verifies primary before-after receipts and re
   assert.equal(r.signal,signals.get('f1'));
   if(p.candidates){
    assert.equal(p.candidates[0].finding.interaction.editRefs.length,2);
-   if(!p.retrieved.length)return {requests:[{kind:'read',id:'s3',start:2,count:1},{kind:'read',id:'s4',start:2,count:1}]};
-   return {verdicts:[{candidateId:'c1',verdict:'supported',reason:'contract mismatch',evidence:p.retrieved.map(x=>({receiptId:x.result.receiptId})),regression:{classification:'introduced',reason:'old null guard/new undefined mismatch',oldEvidence:[0],newEvidence:[1]}}]};
+   const missing=['s3','s4'].filter(id=>!p.retrieved.some(x=>x.result.sourceId===id));
+   if(missing.length)return {requests:missing.map(id=>({kind:'read',id,start:2,count:1}))};
+   return {verdicts:[{candidateId:'c1',verdict:'supported',reason:'contract mismatch',evidence:p.retrieved.map(x=>({receiptId:x.result.receiptId})),regression:{classification:'introduced',reason:'old null guard/new undefined mismatch',oldEvidence:[p.retrieved.findIndex(x=>x.result.sourceId==='s3')],newEvidence:[p.retrieved.findIndex(x=>x.result.sourceId==='s4')]}}]};
   }
   assert.equal(p.sourceMode,'file-interaction');
   if(!p.retrieved.length)return {requests:[{kind:'read',id:'s2',start:1,count:1},{kind:'read',id:'s4',start:2,count:1}]};

@@ -11,7 +11,7 @@ export function jobProgress(record) {
   return {
     stage: record.stage,
     terminal,
-    elapsedMs: Date.now() - Date.parse(record.createdAt),
+    elapsedMs: Math.max(0, (record.finishedAt ? Date.parse(record.finishedAt) : Date.now()) - Date.parse(record.createdAt)),
     total: r.manifestSaved ? r.files.length : null,
     counts,
     processed,

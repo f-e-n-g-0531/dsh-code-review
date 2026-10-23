@@ -1,4 +1,5 @@
 import { reviewSnapshot } from './review.mjs';
+import { retrievalRounds } from './review-execution-policy.mjs';
 
 export const DEFAULT_PROJECT_CONCURRENCY = 8;
 export function projectConcurrency(value = DEFAULT_PROJECT_CONCURRENCY) {
@@ -8,8 +9,9 @@ export function projectConcurrency(value = DEFAULT_PROJECT_CONCURRENCY) {
 
 // Parallelize independent approved snapshots, never dependent stages within a batch.
 // Admission and the shared call reservation are synchronous; completion order is not report order.
-export async function reviewProjectBatches(batches, model, { concurrency = DEFAULT_PROJECT_CONCURRENCY, remainingCalls, signal, onProgress } = {}) {
+export async function reviewProjectBatches(batches, model, { concurrency = DEFAULT_PROJECT_CONCURRENCY, remainingCalls, signal, onProgress, maxRetrievalRounds = 3 } = {}) {
   projectConcurrency(concurrency);
+  retrievalRounds(maxRetrievalRounds);
   if (!Array.isArray(batches) || typeof remainingCalls !== 'function') throw new Error('Invalid project execution');
   const controller = new AbortController();
   const batchSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
@@ -25,7 +27,7 @@ export async function reviewProjectBatches(batches, model, { concurrency = DEFAU
         if (batchSignal.aborted || remainingCalls() <= 0) { results[index] = unstarted(batch); continue; }
         results[index] = await reviewSnapshot(batch, model, {
           signal: batchSignal, maxCalls: remainingCalls(), remainingCalls, enableRetrieval: true, enableVerification: true,
-          enableAnchorCorrection: true, correctProtocol: true,
+          enableAnchorCorrection: true, correctProtocol: true, maxRetrievalRounds,
           onProgress: onProgress ? event => onProgress({ ...event, snapshotId: batch.id, batchIndex: index }) : undefined,
         });
       } catch (error) {

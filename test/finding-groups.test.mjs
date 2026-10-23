@@ -34,10 +34,12 @@ test('legacy full review retains shared receipts without inferring assessed regr
   const report = await reviewSnapshot(snapshot, async r => {
     const p = JSON.parse(r.input);
     if (p.file) return { findings: [{ fileId: p.file.id, severity: 'medium', title: 'shared cause', evidence: 'shared evidence', trigger: 'same', impact: 'same', suggestion: 'same', anchor: { kind: 'line', side: 'new', start: 1, end: 1, snippet: 'after' }, attribution: { editIds: ['e1'], properties: [], beforeBehavior: 'before', afterBehavior: 'after', reason: 'cause' } }], limitations: [] };
-    if (!p.retrieved.length) return { requests: [{ kind: 'read', id: 's2', start: 1, count: 1 }] };
-    return { verdicts: [{ candidateId: 'c1', verdict: 'supported', reason: 'shared support', evidence: [{ receiptId: p.retrieved[0].result.receiptId }] }] };
+    const shared = p.retrieved.find(record => record.result.sourceId === 's2');
+    if (!shared) return { requests: [{ kind: 'read', id: 's2', start: 1, count: 1 }] };
+    return { verdicts: [{ candidateId: 'c1', verdict: 'supported', reason: 'shared support', evidence: [{ receiptId: shared.result.receiptId }] }] };
   }, { enableRetrieval: true, enableVerification: true });
-  assert.equal(report.modelCalls, 6);
+  assert.equal(report.modelCalls, 5); // First verifier already has s2; second still reads the shared source.
+  assert.ok(report.findings.every(f => f.verification.evidence[0].sourceId === 's2'));
   assert.equal(report.findings.length, 2);
   assert.deepEqual(report.findingGroups, []);
   assert.equal(report.regressionCoverage.unassessed, 2);
