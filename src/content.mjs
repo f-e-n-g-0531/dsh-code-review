@@ -9,11 +9,31 @@ export function relativePath(value) {
   if (typeof value !== 'string' || !value || /[\\:\0]/.test(value) || path.posix.isAbsolute(value) || value.split('/').some(p => !p || p === '.' || p === '..' || p.toLowerCase() === '.git' || p.toLowerCase() === '.svn')) throw new Error('Unsafe repository path');
   return value;
 }
+// Native WHATWG gbk decoders may also accept GB18030 four-byte sequences.
+// Constrain fallback to GBK/CP936 bytes rather than silently broadening support.
+function isGbk(bytes) {
+  for (let i = 0; i < bytes.length; i++) {
+    const lead = bytes[i];
+    if (lead <= 0x80) continue; // ASCII plus CP936's single-byte euro sign.
+    const trail = bytes[++i];
+    if (lead < 0x81 || lead > 0xfe || trail === undefined || trail < 0x40 || trail > 0xfe || trail === 0x7f) return false;
+  }
+  return true;
+}
+
 export function decode(bytes) {
-  let encoding = 'utf-8', body = bytes;
+  let encoding = 'utf-8', body = bytes, text;
+  const utf8Bom = bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
   if (bytes[0] === 255 && bytes[1] === 254) { encoding = 'utf-16le'; body = bytes.subarray(2); }
   else if (bytes[0] === 254 && bytes[1] === 255) { encoding = 'utf-16be'; body = bytes.subarray(2); }
-  const text = new TextDecoder(encoding, { fatal: true }).decode(body);
+  try { text = new TextDecoder(encoding, { fatal: true }).decode(body); }
+  catch (error) {
+    // A declared BOM is authoritative; corrupt Unicode must not be reinterpreted.
+    // BOM-less valid UTF-8 wins ambiguous byte sequences. No replacement decoding.
+    if (encoding !== 'utf-8' || utf8Bom || !isGbk(bytes)) throw error;
+    encoding = 'gbk';
+    text = new TextDecoder(encoding, { fatal: true }).decode(bytes);
+  }
   if (/[\x00-\x08\x0e-\x1f]/.test(text)) throw new Error('Binary content');
   return { text, hash: hash(bytes), encoding, bytes: bytes.length };
 }

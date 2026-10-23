@@ -50,6 +50,12 @@
 
 执行 `node --test test/model-diagnostics.test.mjs test/model-json-correction.test.mjs test/model-protocol-diagnostics.test.mjs test/dsh-model.test.mjs` 可验证本地纠正、失败归类和脱敏；宿主检查另覆盖真实 ToolRuntime 的纠正和服务失败事件，均为受控离线模型，不证明真实服务失败率下降。
 
+## 源码编码
+
+统一 `content.decode/readLocal` 支持 UTF-8 与 GBK/CP936：BOM 是权威声明，原有 UTF-16 LE/BE BOM 保持兼容；无 BOM 时严格 UTF-8 优先，失败才校验完整 GBK 单／双字节结构再用 fatal 解码，防止原生 `gbk` 别名意外接受 GB18030 四字节序列。不能确定原作者对合法歧义字节的编码意图，不按单行拼接或修复乱码；已存在的 U+FFFD 不猜测还原。返回的 `encoding` 如实为 `gbk`，`hash/bytes` 属于原始源字节；reader／证据文本哈希仍属解码文本，两者不能互换。CRLF 和代码文件从不转码写回，原始文件限制与解码后 UTF-8 输入／内存预算均保持。
+
+Git 路径和索引、SVN XML、规则文件与 SVN 链接记录仍按各自 UTF-8 协议校验，不因源码兼容而放宽；固定宽度关键字映射仍须独立核验，不支持的混杂编码或映射会明确阻断。
+
 ## 审查预算
 
 除 README 中的文件和输入上限外：
