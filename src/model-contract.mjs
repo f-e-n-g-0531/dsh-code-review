@@ -12,6 +12,7 @@ function stageContract(p, instructions) {
   if (Array.isArray(p.candidates)) return VERDICT_CONTRACT;
   if (/返回\{groups:/.test(instructions)) return GROUPS_CONTRACT;
   if (/仅制定审查计划/.test(instructions)) return instructions.includes(RISK_PLAN_SCHEMA) ? '本阶段严格按上述risks schema返回，禁止requests/findings；身份逐项核对输入。' : RISK_CONTRACT;
+  if (p.sourceMode === 'group-primary') return '本阶段返回{reviews:[{fileId,findings:[],limitations:[],risks:可选数组}],limitations:[]}；每项fileId仅来自reviews[].file.id，按文件原始坐标审查，不将分组自动视为交互证据。可按批准检索协议单独返回requests。';
   if (p.sourceMode === 'file-interaction') return INTERACTION_CONTRACT;
   if (p.file) return FINDINGS_CONTRACT;
   return '';

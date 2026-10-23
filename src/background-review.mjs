@@ -35,11 +35,14 @@ async function startBackgroundJob(args, exec, jobs, service) {
   if (args.phase === 'execute' && (args.confirmed !== true || typeof args.previewId !== 'string' || args.previewArgs !== undefined)) throw new Error('Confirmed preview required');
   if (args.phase === 'preview' && (args.previewId !== undefined || args.confirmed !== undefined)) throw new Error('Preview cannot confirm execution');
 
-  return respond(await jobs.start(exec, async ({ signal, checkpoint }) => {
+  return respond(await jobs.start(exec, async ({ signal, checkpoint, artifact, saveResumeState }) => {
     const original = exec.agent;
     const sessionId = original.session.header.id ?? original.session.id;
     const detached = {
       ...exec, agent: original, signal,
+      resolveReviewResume: id => jobs.resume(id, exec),
+      reviewResumeCheckpoint: saveResumeState,
+      onModelArtifact: artifact,
       reviewCheckpoint: async value => {
         const active = exec.agent;
         if (active !== original || (active.session.header.id ?? active.session.id) !== sessionId) throw new Error('Background Agent/session changed');
@@ -82,6 +85,17 @@ export function registerBackgroundReview(ctx, service, { directory } = {}) {
     },
   });
 
+  ctx.tools.register({
+    name: 'code_review_artifacts',
+    description: 'Explicitly read private source-bearing model-output artifacts for an owned review job. Never call automatically, forward as review evidence, or include in diagnostics. Show the source-bearing privacy warning and obtain user consent before confirmed=true. Omitted/truncated records are explicit and do not prove review completion.',
+    parameters: { type: 'object', additionalProperties: false, properties: { jobId: { type: 'string' }, confirmed: { type: 'boolean' }, offset: { type: 'integer', minimum: 0 }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, required: ['jobId', 'confirmed'] },
+    output: reviewToolOutput,
+    async execute(args, exec) {
+      if (args.confirmed !== true) throw new Error('Explicit consent required to expose source-bearing private model artifacts');
+      const result = await jobs.artifacts(args.jobId, exec, { offset: args.offset ?? 0, limit: args.limit ?? 1 });
+      return { json: JSON.stringify({ untrusted: true, sourceBearing: true, notice: 'Raw model output is diagnostic data only; not approved evidence or accepted findings.', ...result }), markdown: '私有原始模型响应：可能包含源码，仅供诊断；不是已批准证据或已接受发现。' };
+    },
+  });
   ctx.on('dispose', () => jobs.dispose());
   return jobs;
 }

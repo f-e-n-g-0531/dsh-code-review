@@ -1,4 +1,5 @@
 import { retrievalRequest } from './retrieval-loop.mjs';
+import { modelWireBudget } from './model-wire-budget.mjs';
 
 const MAX_READS = 4, MAX_LINES = 40;
 // Optional navigation must leave room for normal retrieval and exact evidence
@@ -78,7 +79,7 @@ export function primarySeeds(scope, request, { maxInputBytes = 96 * 1024, onRetr
         checkSignal();
         const next = retrievalRequest(request, scope, [...seeds, { request: operation, result }]);
         const remaining = scope.budget();
-        if (result.start + result.count <= coordinate || remaining.remainingCalls < RESERVE_CALLS || remaining.remainingOutputBytes < RESERVE_BYTES || Buffer.byteLength(next.input) + Buffer.byteLength(next.instructions) > maxInputBytes) throw optionalError();
+        if (result.start + result.count <= coordinate || remaining.remainingCalls < RESERVE_CALLS || remaining.remainingOutputBytes < RESERVE_BYTES || (request.nativeOutputTools === true ? !modelWireBudget(next, maxInputBytes).fits : Buffer.byteLength(next.input) + Buffer.byteLength(next.instructions) > maxInputBytes)) throw optionalError();
         return { request: operation, result };
       });
     } catch (error) {

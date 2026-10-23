@@ -1,5 +1,6 @@
 import { RETRIEVAL_INSTRUCTIONS } from './prompts.mjs';
 import { searchSeeds } from './search-seeds.mjs';
+import { modelWireBudget } from './model-wire-budget.mjs';
 import { executeRetrievalBatch, parseRetrievalResponse } from './retrieval-protocol.mjs';
 
 export { RETRIEVAL_INSTRUCTIONS };
@@ -53,7 +54,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
   const retrieved = structuredClone(initialRetrieved);
   if (retrieved.length) {
     const seeded = retrievalRequest(request, scope, retrieved);
-    if (Buffer.byteLength(seeded.input) + Buffer.byteLength(seeded.instructions) > maxInputBytes) throw new Error('Initial retrieval input budget exceeded');
+    if (request.nativeOutputTools === true ? !modelWireBudget(seeded, maxInputBytes).fits : Buffer.byteLength(seeded.input) + Buffer.byteLength(seeded.instructions) > maxInputBytes) throw new Error('Initial retrieval input budget exceeded');
     // Publish only fragments admitted to an actual outgoing prompt below.
   }
   const delivered = new Set();
@@ -71,13 +72,14 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
       await finalize(error);
     } else if (!finalization && round >= maxRounds) await finalize(roundBudgetError());
   };
+  const fits = value => request.nativeOutputTools === true ? modelWireBudget(value, maxInputBytes).fits : Buffer.byteLength(value.input) + Buffer.byteLength(value.instructions) <= maxInputBytes;
   const nextRequest = records => {
     const next = retrievalRequest(request, scope, records);
     if (enableSearchSeeds) {
       const annotated = { input: JSON.stringify({ ...JSON.parse(next.input), retrievalRounds: { max: maxRounds, remaining: finalization ? 0 : Math.max(0, maxRounds - currentRound) } }),
         instructions: next.instructions + ' Batch independent exact reads/searches together (1..8). retrievalRounds is per-stage request turns, not reader calls or authority. Search-hit host reads may accompany results; supplied fragments are not complete coverage.' };
       // Optional guidance must not turn an otherwise admitted envelope into a block.
-      if (Buffer.byteLength(annotated.input) + Buffer.byteLength(annotated.instructions) <= maxInputBytes) Object.assign(next, annotated);
+      if (fits({ ...next, ...annotated })) Object.assign(next, annotated);
     }
     if (finalization) {
       // The live ledger is already present in retrievalBudget. Do not duplicate it
@@ -93,8 +95,8 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
     request.signal?.throwIfAborted();
     if (round > 0 || !allowExhaustedInitial) await checkExhausted(round);
     let { input, instructions } = nextRequest(retrieved);
-    if (correctProtocol && retrieved.length && Buffer.byteLength(input) + Buffer.byteLength(instructions) > maxInputBytes) input = compactFollowup(input);
-    if (Buffer.byteLength(input) + Buffer.byteLength(instructions) > maxInputBytes) throw new Error('Retrieval input budget exceeded');
+    if (correctProtocol && retrieved.length && !fits({ ...request, input, instructions })) input = compactFollowup(input);
+    if (!fits({ ...request, input, instructions })) throw new Error('Retrieval input budget exceeded');
     request.signal?.throwIfAborted();
     beforeCall();
     request.signal?.throwIfAborted();
@@ -161,19 +163,19 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
       let candidate = [...retrieved, item];
       let next = nextRequest(candidate);
       if (correctProtocol) {
-        while (retrieved.length && Buffer.byteLength(compactFollowup(next.input)) + Buffer.byteLength(next.instructions) > maxInputBytes) {
+        while (retrieved.length && !fits({ ...next, input: compactFollowup(next.input) })) {
           retrieved.shift();
           await request.onProtocolEvent?.({ action: 'prior-retrieval-deferred', notice: 'Prior returned fragment no longer in current prompt; reread approved source for evidence.' });
           candidate = [...retrieved, item];
           next = nextRequest(candidate);
         }
       }
-      let fits = Buffer.byteLength(next.input) + Buffer.byteLength(next.instructions) <= maxInputBytes;
-      if (correctProtocol && !fits) fits = Buffer.byteLength(compactFollowup(next.input)) + Buffer.byteLength(next.instructions) <= maxInputBytes;
-      if (correctProtocol && !fits) {
+      let admitted = fits(next);
+      if (correctProtocol && !admitted) admitted = fits({ ...next, input: compactFollowup(next.input) });
+      if (correctProtocol && !admitted) {
         const omitted = { request: item.request, result: { omitted: true, reason: 'Result omitted: request fewer lines/matches; no body or receipt provided.' } };
         const minimal = nextRequest([...retrieved, omitted]);
-        if (Buffer.byteLength(compactFollowup(minimal.input)) + Buffer.byteLength(minimal.instructions) > maxInputBytes) throw new Error('Retrieval input metadata exceeds model capacity');
+        if (!fits({ ...minimal, input: compactFollowup(minimal.input) })) throw new Error('Retrieval input metadata exceeds model capacity');
         retrieved.push(omitted);
         await request.onProtocolEvent?.({ action: 'oversized-retrieval-omitted', kind: item.request.kind });
       } else {

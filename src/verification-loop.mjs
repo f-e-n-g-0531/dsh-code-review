@@ -1,6 +1,7 @@
 import { VERIFICATION_INSTRUCTIONS } from './prompts.mjs';
 import { CONTEXT_SIDE_NOTICE } from './context-identity.mjs';
 import { defectGuidance } from './defect-guidance.mjs';
+import { modelWireBudget } from './model-wire-budget.mjs';
 import { createEvidenceReceipts } from './evidence-receipts.mjs';
 import { retrievalLoop, retrievalRequest } from './retrieval-loop.mjs';
 import { verificationSeeds } from './verification-seeds.mjs';
@@ -28,7 +29,7 @@ export async function verificationLoop(model, request, candidates, scope, option
     onReceipt: (id, resolve) => seedReceipts.set(id, resolve),
     fits: seeds => {
       const next = retrievalRequest(verificationRequest, scope, seeds);
-      return Buffer.byteLength(next.input) + Buffer.byteLength(next.instructions) <= (options.maxInputBytes ?? 96 * 1024);
+      return request.nativeOutputTools === true ? modelWireBudget(next, options.maxInputBytes ?? 96 * 1024).fits : Buffer.byteLength(next.input) + Buffer.byteLength(next.instructions) <= (options.maxInputBytes ?? 96 * 1024);
     },
   });
   const receipts = createEvidenceReceipts(scope.read, { limit: 50 - seedReceipts.size });

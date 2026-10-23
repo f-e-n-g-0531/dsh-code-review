@@ -9,7 +9,7 @@ export function projectConcurrency(value = DEFAULT_PROJECT_CONCURRENCY) {
 
 // Parallelize independent approved snapshots, never dependent stages within a batch.
 // Admission and the shared call reservation are synchronous; completion order is not report order.
-export async function reviewProjectBatches(batches, model, { concurrency = DEFAULT_PROJECT_CONCURRENCY, remainingCalls, signal, onProgress, maxRetrievalRounds = 3 } = {}) {
+export async function reviewProjectBatches(batches, model, { concurrency = DEFAULT_PROJECT_CONCURRENCY, remainingCalls, signal, onProgress, maxRetrievalRounds = 3, resumeStates, onResumeCheckpoint, onModelArtifact, enableGroupPrimary = false, nativeOutputTools = false } = {}) {
   projectConcurrency(concurrency);
   retrievalRounds(maxRetrievalRounds);
   if (!Array.isArray(batches) || typeof remainingCalls !== 'function') throw new Error('Invalid project execution');
@@ -27,7 +27,8 @@ export async function reviewProjectBatches(batches, model, { concurrency = DEFAU
         if (batchSignal.aborted || remainingCalls() <= 0) { results[index] = unstarted(batch); continue; }
         results[index] = await reviewSnapshot(batch, model, {
           signal: batchSignal, maxCalls: remainingCalls(), remainingCalls, enableRetrieval: true, enableVerification: true,
-          enableAnchorCorrection: true, correctProtocol: true, maxRetrievalRounds,
+          enableGroupPrimary, nativeOutputTools, enableAnchorCorrection: true, correctProtocol: true, maxRetrievalRounds,
+          resumeState: resumeStates?.get(batch.id), onResumeCheckpoint: onResumeCheckpoint ? report => onResumeCheckpoint(batch, report) : undefined, onModelArtifact,
           onProgress: onProgress ? event => onProgress({ ...event, snapshotId: batch.id, batchIndex: index }) : undefined,
         });
       } catch (error) {

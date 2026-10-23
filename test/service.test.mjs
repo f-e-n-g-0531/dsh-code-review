@@ -200,7 +200,7 @@ test('source freshness checkpoint cancellation prevents final recapture', async 
 test('changes preview describes configured bounded concurrency and retrieval rounds', async () => {
   const service = createReviewService(llm, { capture: async () => snapshot(), changesConcurrency: 4, maxRetrievalRounds: 7 });
   const preview = await service.preview({}, exec());
-  assert.deepEqual(preview.execution, { fileConcurrency: 4, maxRetrievalRounds: 7 });
+  assert.deepEqual(preview.execution, { nativeOutputTools: false, enableGroupPrimary: false, fileConcurrency: 4, maxRetrievalRounds: 7 });
   assert.match(preview.notice, /两阶段各最多7轮检索/);
   assert.match(preview.notice, /最多4条并发/);
   service.dispose();

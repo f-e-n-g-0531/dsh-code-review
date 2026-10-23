@@ -5,6 +5,9 @@ import * as plugin from '../index.mjs';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import { checked } from '../src/process.mjs';
+let smokeCompleted = false;
+const keepAlive = setInterval(() => {}, 1000);
+process.on('exit', () => { if (!smokeCompleted) { console.error('Host smoke exited before completing all offline assertions'); process.exitCode = 1; } });
 const host = process.argv[2];
 if (!host) throw new Error('Pass the installed DSH checkout path');
 const load = name => import(pathToFileURL(path.join(host, 'node_modules/@deepseek-ai', name, 'lib/index.js')).href);
@@ -38,7 +41,10 @@ ctx.set('llm', { async *stream(request) {
   assert.ok(allowed); modelCalls++;
   assert.equal(request.provider, 'offline-test');
   assert.equal(request.model, 'none');
-  assert.deepEqual(request.tools, []);
+  assert.equal(request.tools.length, 1);
+  assert.equal(request.tools[0].name, 'submit_review_result');
+  assert.deepEqual(Object.keys(request.tools[0]).sort(), ['description', 'name', 'parameters']);
+  assert.equal(request.toolChoice, undefined);
   if (responseMode === 'provider-error') {
     yield { type:'finish', reason:{kind:'error',failure:{code:'RATE_LIMIT',status:429,providerRetryAfterMs:1000,requestId:'private-id',message:'PRIVATE raw provider message'}} };
     return;
@@ -51,8 +57,8 @@ ctx.set('llm', { async *stream(request) {
     assert.match(request.system,/property-name/);
     assert.ok(!request.system.includes('PRIVATE'));
   }
-  yield { type: 'text-delta', text: JSON.stringify(request.system.includes('仅制定审查计划') ? { risks: [] } : { findings: [], limitations: [] }) };
-  yield { type: 'finish', reason: { kind: 'stop' } };
+  yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'offline-' + modelCalls, name: 'submit_review_result', arguments: JSON.stringify(request.system.includes('仅制定审查计划') ? { risks: [] } : { findings: [], limitations: [] }) } };
+  yield { type: 'finish', reason: { kind: 'tool-calls' } };
 } });
 ctx.set('approval', { request: async request => {
   approvalCalls++;
@@ -115,7 +121,9 @@ try {
   assert.equal(modelCalls,7);assert.equal(failed.files[0].status,'failed');assert.equal(failed.files[0].protocolDiagnostic.providerCode,'RATE_LIMIT');assert.equal(failed.files[0].protocolDiagnostic.providerStatus,429);assert.ok(!JSON.stringify(failed).includes('PRIVATE'));assert.ok(!JSON.stringify(failed).includes('private-id'));
   assert.deepEqual(await checked('git',['status','--porcelain=v1'],{cwd:root}),beforeHistory);
   console.log('Host ToolRuntime exercised targeted JSON regeneration and retained safe finish.reason.failure diagnostics; no real provider requests.');
+  smokeCompleted = true;
 } finally {
+  clearInterval(keepAlive);
   assert.ok(path.basename(root).startsWith('dsh-review-host-'));
   await rm(root, { recursive: true, force: true });
 }

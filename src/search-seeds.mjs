@@ -1,4 +1,5 @@
 import { retrievalRequest } from './retrieval-loop.mjs';
+import { modelWireBudget } from './model-wire-budget.mjs';
 
 const validLine = value => Number.isSafeInteger(value) && value > 0;
 const capacity = () => Object.assign(new Error('Optional search seed unavailable'), { code: 'SEARCH_SEED_CAPACITY' });
@@ -59,7 +60,7 @@ export function searchSeeds(scope, request, records, { existing = [], maxReads =
           check();
           const remaining = scope.budget();
           if (typeof next?.input !== 'string' || typeof next.instructions !== 'string') throw new Error('Invalid search seed request builder');
-          if (Buffer.byteLength(next.input) + Buffer.byteLength(next.instructions) > maxInputBytes || remaining.remainingCalls < 4 || remaining.remainingOutputBytes < 16 * 1024) throw capacity();
+          if ((request.nativeOutputTools === true ? !modelWireBudget(next, maxInputBytes).fits : Buffer.byteLength(next.input) + Buffer.byteLength(next.instructions) > maxInputBytes) || remaining.remainingCalls < 4 || remaining.remainingOutputBytes < 16 * 1024) throw capacity();
           return { request: operation, result };
         });
         seeds.push(item);

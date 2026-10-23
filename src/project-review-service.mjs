@@ -1,3 +1,5 @@
+import { REVIEW_RUNTIME } from './runtime-identity.mjs';
+import { buildResumeState, validateResumeState } from './review-resume.mjs';
 import { renderProjectReport } from './project-report.mjs';
 import { reviewDiagnostics } from './review-diagnostics.mjs';
 import { realpath } from 'node:fs/promises';
@@ -69,12 +71,15 @@ async function captureProject(cwd, args, signal) {
   return { ...result, id: hash(JSON.stringify(result)) };
 }
 
-export function createProjectReviewService(llm, { allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = DEFAULT_PROJECT_CONCURRENCY, maxRetrievalRounds = 3 } = {}) {
+export function createProjectReviewService(llm, { allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = DEFAULT_PROJECT_CONCURRENCY, maxRetrievalRounds = 3, nativeOutputTools = false, enableGroupPrimary = false } = {}) {
   for (const n of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(n) || n < 1) throw new Error('Invalid project preview limit');
   if (!Number.isSafeInteger(projectMaxCalls) || projectMaxCalls < 1) throw new Error('Invalid project model call limit');
 
   validateProjectConcurrency(projectConcurrency);
   retrievalRounds(maxRetrievalRounds);
+  if (typeof nativeOutputTools !== 'boolean' || typeof enableGroupPrimary !== 'boolean') throw new Error('Invalid project execution options');
+  const resumeIdentity = (args, route) => ({ captureOptions: args, route, runtime: REVIEW_RUNTIME, execution: { projectMaxCalls, projectConcurrency, maxRetrievalRounds, nativeOutputTools, enableGroupPrimary, enableVerification: true, enableAnchorCorrection: true, correctProtocol: true } });
+  const projectBinding = snapshot => ({ ...snapshot, files: snapshot.batches.flatMap(batch => batch.files) });
   const previews = new Map();
   const lifetime = new AbortController();
   let busy = false;
@@ -87,21 +92,39 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
     async preview(args, exec) {
       if (busy) throw new Error('Review service busy');
       if (!args || typeof args !== 'object') throw new Error('Project preview parameters required');
-      if (Object.keys(args).some(k => !['reviewMode', 'repositoryPath', 'selectedPaths'].includes(k)) || args.reviewMode !== 'project') throw new Error('Project mode supports only reviewMode/repositoryPath/selectedPaths; change/history context parameters are not project parameters');
+      if (Object.keys(args).some(k => !['reviewMode', 'repositoryPath', 'selectedPaths', 'resumeFromJobId'].includes(k)) || args.reviewMode !== 'project') throw new Error('Project mode supports only reviewMode/repositoryPath/selectedPaths; change/history context parameters are not project parameters');
       const current = owner(exec);
       busy = true;
       try {
-        const s = await captureProject(current.cwd, args, signalFor(exec));
+        const captureArgs = structuredClone(args);
+        const sourceJobId = captureArgs.resumeFromJobId; delete captureArgs.resumeFromJobId;
+        if (sourceJobId !== undefined && (typeof sourceJobId !== 'string' || !/^[a-f0-9-]{36}$/.test(sourceJobId) || typeof exec.resolveReviewResume !== 'function')) throw new Error('Invalid or unavailable resume job');
+        const saved = sourceJobId === undefined ? undefined : await exec.resolveReviewResume(sourceJobId);
+        const s = await captureProject(current.cwd, captureArgs, signalFor(exec));
+        const identity = resumeIdentity(captureArgs, current.route);
+        let resumeStates;
+        if (saved !== undefined) {
+          if (saved?.schemaVersion !== 1 || saved.mode !== 'project' || !Array.isArray(saved.batches)) throw new Error('Invalid project resume checkpoint');
+          validateResumeState(saved.binding, projectBinding(s), identity);
+          if (saved.batches.length > s.batches.length || new Set(saved.batches.map(item => item?.snapshotId)).size !== saved.batches.length) throw new Error('Duplicate or excessive resume batches');
+          resumeStates = new Map(saved.batches.map(item => {
+            const batch = s.batches.find(batch => batch.id === item.snapshotId);
+            if (!batch) throw new Error('Project resume batch identity mismatch');
+            return [batch.id, validateResumeState(item, batch, identity)];
+          }));
+        }
         for (const [id, p] of previews) if (p.expires <= now()) previews.delete(id);
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
-        previews.set(previewId, { ...current, args: structuredClone(args), snapshotId: s.id, expires: now() + ttlMs });
+        previews.set(previewId, { ...current, args: captureArgs, snapshotId: s.id, resumeStates, sourceJobId, expires: now() + ttlMs });
         return {
+          ...(resumeStates ? { resume: { sourceJobId, reusableFiles: [...resumeStates.values()].reduce((sum, state) => sum + state.completed.length, 0) } } : {}),
           previewId, snapshotId: s.id, reviewMode: 'project', repositoryRoot: s.root, vcs: s.vcs,
           model: current.route, modelSendingEnabled: allowModelSending,
           totalTrackedNodes: s.totalTrackedNodes, selectedFiles: s.selectedFiles, selectionComplete: s.selectionComplete,
           inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes, batches: s.batches.length,
-          execution: { batchConcurrency: projectConcurrency, maxRetrievalRounds },
+          privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 64, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
+          execution: { nativeOutputTools, enableGroupPrimary, batchConcurrency: projectConcurrency, maxRetrievalRounds },
           files: s.batches.flatMap(b => b.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason }))),
           notice: s.notice + PREVIEW_NOTICE_SUFFIX + ' Each stage allows at most ' + maxRetrievalRounds + ' retrieval rounds; exhaustion requires a final-only response and explicit unfinished coverage.',
         };
@@ -130,8 +153,20 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
           files: s.batches.flatMap(b => b.files.map(f => ({ fileId: f.id, path: f.path, status: f.eligibility === 'reviewable' ? 'pending' : f.eligibility }))),
         });
 
+        const identity = resumeIdentity(p.args, p.route);
+        const states = new Map();
+        for (const [id, saved] of p.resumeStates ?? []) {
+          const batch = s.batches.find(batch => batch.id === id);
+          if (!batch) throw new Error('Project resume batch identity mismatch');
+          states.set(id, validateResumeState(saved, batch, identity));
+        }
+        const persist = async (batch, report) => {
+          if (!exec.reviewResumeCheckpoint) return;
+          states.set(batch.id, buildResumeState(batch, identity, report));
+          await exec.reviewResumeCheckpoint({ schemaVersion: 1, mode: 'project', binding: buildResumeState(projectBinding(s), identity, { files: [], findings: [] }), batches: [...states.values()] });
+        };
         let calls = 0;
-        const adapter = createDshModel(llm, p.route, { correctJson: true });
+        const adapter = createDshModel(llm, p.route, { correctJson: true, useNativeTools: nativeOutputTools });
         const model = request => {
           if (calls >= projectMaxCalls) throw Object.assign(new Error('Shared project model call limit exceeded'), { code: 'PROJECT_MODEL_CALL_LIMIT' });
           calls++;
@@ -143,10 +178,11 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
         };
 
         const results = await reviewProjectBatches(s.batches, model, {
-          concurrency: projectConcurrency, maxRetrievalRounds, signal, remainingCalls: () => projectMaxCalls - calls,
-          onProgress: exec.reviewCheckpoint,
+          concurrency: projectConcurrency, maxRetrievalRounds, enableGroupPrimary, nativeOutputTools, signal, remainingCalls: () => projectMaxCalls - calls,
+          onProgress: exec.reviewCheckpoint, resumeStates: states, onResumeCheckpoint: persist, onModelArtifact: exec.onModelArtifact,
         });
 
+        for (let i = 0; i < results.length; i++) await persist(s.batches[i], results[i]);
         const files = results.flatMap(r => r.files.map(f => ({ ...f, batchSnapshotId: r.snapshotId })));
         const coverage = {
           total: s.selectedFiles,
@@ -165,8 +201,9 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
             : 'partial',
           repositoryRoot: s.root, vcs: s.vcs, model: p.route, modelCalls: calls, maxModelCalls: projectMaxCalls,
           totalTrackedNodes: s.totalTrackedNodes, selectionComplete: s.selectionComplete, inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes,
-          coverage, files, findings, batches: results,
-          execution: { batchConcurrency: projectConcurrency, maxRetrievalRounds },
+          coverage, files, findings, artifacts: results.flatMap(result => result.artifacts ?? []), batches: results, resume: { reusedFiles: files.filter(file => file.reused).length },
+          privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 64, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
+          execution: { nativeOutputTools, enableGroupPrimary, batchConcurrency: projectConcurrency, maxRetrievalRounds },
           notice: s.notice + REPORT_NOTICE_SUFFIX,
         };
 

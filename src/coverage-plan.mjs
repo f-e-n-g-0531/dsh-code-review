@@ -6,6 +6,7 @@ import {localBusinessGroups} from './business-groups.mjs';
 import { prepareInteractionInput } from './interaction-input.mjs';
 import { initialInputBudget } from './input-budget.mjs';
 import { preparePrimaryInput } from './primary-input.mjs';
+import { prepareGroupPrimary } from './group-primary.mjs';
 
 // Metadata only. No retained payload, file reads, model calls, or approval grants.
 export function buildCoveragePlan(input, options) {
@@ -31,10 +32,23 @@ export function buildCoveragePlan(input, options) {
     const planningCalls = riskPlanning.required && !prepared.inlineRisk ? (canonical?.cacheable ? 1 : primaryCalls) : 0;
     return { ...item, ...prepared.metadata, riskPlanning, status: prepared.budget.fits ? 'ready' : 'input-blocked', minimumCalls: prepared.budget.fits ? (primaryCalls * rounds + planningCalls + (prepared.synthesis?.status === 'ready' ? rounds : 0)) : 0 };
   });
-  const local = options.enableBusinessGrouping === true ? localBusinessGroups(input.files) : null;
+  const local = options.resumeState?.businessGrouping ?? (options.enableBusinessGrouping === true ? localBusinessGroups(input.files) : null);
   const groups = [...(options.grouping?.groups ?? [])];
   for(const group of local?.groups ?? [])if(!groups.some(g=>[...g.fileIds].sort().join(',')===[...group.fileIds].sort().join(',')))groups.push(group);
   const interactions = options.scope && groups.length ? groups.filter(g => g.fileIds.length > 1).map(group => { const prepared = prepareInteractionInput(input, group, payload => initialInputBudget({ instructions: options.instructions, input: payload }, options.scope, options.maxInputBytes)); const riskPlanning = options.enableRiskPlanning === true ? options.skipSmallRiskPlans === true ? riskPlanningDecision(input.files.filter(f=>group.fileIds.includes(f.id))) : {required:true,reason:'unconditional'} : {required:false,reason:'disabled'}; return { groupId: group.id, fileIds: prepared.fileIds, riskPlanning, status: prepared.status, reason: prepared.reason, minimumCalls: prepared.status === 'ready' ? (rounds + (riskPlanning.required ? 1 : 0)) : 0 }; }) : [];
   const businessGrouping = options.enableBusinessGrouping === true && input.files.filter(f => f.eligibility === 'reviewable').length > 1 ? local ? {minimumCalls:0,strategy:local.strategy,churn:local.churn,notice:'本地调度无语义依赖证明。'} : { minimumCalls: 1, dynamicInteractionCalls: 'unknown-until-execution', maximumAdditionalInitialCalls: Math.floor(input.files.filter(f => f.eligibility === 'reviewable').length / 2) * (rounds + (options.enableRiskPlanning === true ? 1 : 0)), notice: '模型分组假设仅调度，额外综合动态且不保证预算或覆盖。' } : null;
-  return { ...(businessGrouping ? { businessGrouping } : {}), interactions, snapshotId: input.id, reviewRounds:rounds, maxInputBytes: options.maxInputBytes, items, minimumCalls: (businessGrouping?.minimumCalls ?? 0) + items.reduce((sum,item) => sum + item.minimumCalls, 0) + interactions.reduce((sum,item) => sum + item.minimumCalls, 0), initialRequestsOnly: true };
+  for (const interaction of interactions) if (interaction.fileIds.every(id => options.resumeState?.completed?.some(row => row.fileId === id))) { interaction.minimumCalls = 0; interaction.reused = true; }
+  const primaryGroups = [];
+  if (options.enableGroupPrimary === true && rounds === 1 && options.scope) {
+    const seen = new Set();
+    for (const group of local?.groups ?? options.grouping?.groups ?? []) {
+      if (group.fileIds.some(id => seen.has(id) || options.resumeState?.completed?.some(row => row.fileId === id))) continue;
+      const prepared = prepareGroupPrimary(input, group, options);
+      if (!prepared) continue;
+      primaryGroups.push({ groupId: group.id, fileIds: prepared.fileIds, minimumCalls: 1 });
+      for (const id of group.fileIds) { seen.add(id); const item = items.find(item => item.fileId === id); item.primaryMethod = 'group-primary'; item.primaryGroupId = group.id; item.minimumCalls = id === group.fileIds[0] ? 1 : 0; }
+    }
+  }
+  for (const row of options.resumeState?.completed ?? []) { const item = items.find(item => item.fileId === row.fileId); if (item) { item.minimumCalls = 0; item.reused = true; } }
+  return { ...(options.enableGroupPrimary ? { primaryGroups, primaryGroupNotice: businessGrouping?.dynamicInteractionCalls ? '执行时模型分组可能改变组主审单元，当前为静态估计而非确定调用承诺。' : '相同完整正文单元在预算内合并，专门交互证据阶段仍独立执行。' } : {}), ...(businessGrouping ? { businessGrouping } : {}), interactions, snapshotId: input.id, reviewRounds:rounds, maxInputBytes: options.maxInputBytes, items, minimumCalls: (businessGrouping?.minimumCalls ?? 0) + items.reduce((sum,item) => sum + item.minimumCalls, 0) + interactions.reduce((sum,item) => sum + item.minimumCalls, 0), initialRequestsOnly: true };
 }

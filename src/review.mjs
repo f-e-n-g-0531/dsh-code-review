@@ -29,6 +29,8 @@ import { changesConcurrency, retrievalRounds } from './review-execution-policy.m
 import { scheduleFileChains } from './file-chain-scheduler.mjs';
 import { reviewReaderBudget, readerAdmission } from './review-reader-policy.mjs';
 import { primarySeeds } from './primary-seeds.mjs';
+import { prepareGroupPrimary, validateGroupPrimary } from './group-primary.mjs';
+import { configureWireBudget, modelWireBudget } from './model-wire-budget.mjs';
 
 export { REVIEW_INSTRUCTIONS };
 export { PROJECT_REVIEW_INSTRUCTIONS };
@@ -99,6 +101,8 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   const maxRetrievalRounds = retrievalRounds(options.maxRetrievalRounds);
   let checkpointFailed = false, checkpointFailure;
   const progress = options.onProgress;
+  const resumeCheckpoint = options.onResumeCheckpoint;
+  if (resumeCheckpoint) options = { ...options, onResumeCheckpoint: async report => { try { await resumeCheckpoint(report); } catch (error) { checkpointFailed = true; checkpointFailure = error; controller.abort(error); throw error; } } };
   options = { ...options, onProgress: progress ? async event => {
     if (checkpointFailed) throw checkpointFailure;
     try { await progress(structuredClone(event)); }
@@ -140,21 +144,81 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   if(input.workingScope)report.workingScope=structuredClone(input.workingScope);
   if(input.effectiveMergeSources)report.effectiveMergeSources=structuredClone(input.effectiveMergeSources);
   report.rules = (input.rules ?? []).map(({ path, hash }) => ({ path, hash }));
+  if (scope) configureWireBudget(scope, { nativeOutputTools: options.nativeOutputTools === true });
   if (options.enableGrouping === true) report.grouping = buildReviewGroups(input.files, inferFileRelations(input.files));
   report.interactions = [];
   const interactionPlans = scope && report.grouping ? report.grouping.groups.filter(g => g.fileIds.length > 1).map(group => ({ group, prepared: prepareInteractionInput(input, group, payload => initialInputBudget({ instructions, input: payload }, scope, maxInputBytes)) })) : [];
   for (const plan of interactionPlans.filter(p => p.prepared.status !== 'not-applicable')) report.interactions.push({ groupId: plan.group.id, fileIds: plan.prepared.fileIds, status: plan.prepared.status === 'ready' ? 'pending' : 'blocked', reason: plan.prepared.reason, lifecycle: 'shares-last-primary-timeout' });
   const fileResults = new Array(input.files.length);
+  const sharedState = report.orchestration = { modelMetrics: {}, modelCallPurposes: {} };
+  const retainArtifact = options.onModelArtifact ? async artifact => { const reference = await options.onModelArtifact(artifact); if (reference) (report.artifacts ??= []).push(reference); } : undefined;
+  report.resume = { reusedFiles: options.resumeState?.completed?.length ?? 0 };
+  const reserveShared = ({ correction = false } = {}) => {
+    if (!correction && options.remainingCalls?.() <= 0) throw Object.assign(new Error('Shared project model call limit exceeded'), { code: 'PROJECT_MODEL_CALL_LIMIT' });
+    if (report.modelCalls >= maxCalls) throw new Error('Model call budget exceeded');
+    report.modelCalls++;
+  };
+  const sharedModel = async request => {
+    let correction;
+    return model({ ...request, nativeOutputTools: options.nativeOutputTools === true, maxInputBytes: options.nativeOutputTools === true ? maxInputBytes : request.maxInputBytes, onModelArtifact: retainArtifact ? artifact => retainArtifact({ ...artifact, snapshotId: input.id, phase: request.reviewPhase }) : undefined,
+      onProtocolEvent: async info => { if (info.action === 'json-transport-recovery') (sharedState.modelRecoveries ??= []).push(info); await request.onProtocolEvent?.(info); },
+      onProtocolCorrection: async info => { reserveShared({ correction: true }); correction = info; await request.onProtocolCorrection?.(info); },
+      onModelEvent: async info => {
+        if (info.action === 'model-end') {
+          const phase = request.reviewPhase, metrics = sharedState.modelMetrics[phase] ??= { calls: 0, durationMs: 0, inputBytes: 0, totalOutputBytes: 0 };
+          metrics.calls++; metrics.durationMs += info.durationMs; metrics.inputBytes += info.inputBytes; metrics.totalOutputBytes += info.totalOutputBytes;
+          if (info.callPurpose) sharedState.modelCallPurposes[info.callPurpose] = (sharedState.modelCallPurposes[info.callPurpose] ?? 0) + 1;
+          if (info.callPurpose === 'json-correction' && correction) { (sharedState.modelCorrections ??= []).push({ action: 'explicit-json-correction', code: 'MODEL_INVALID_JSON', jsonIssue: correction.jsonIssue }); correction = undefined; }
+        }
+        await options.onProgress?.({ stage: info.action, snapshotId: input.id, phase: request.reviewPhase, ...info });
+      } });
+  };
+  const groupPrepared = new Map(), groupResults = new Map(), groupStarted = new Map();
+  const groupResult = async group => {
+    if (!groupResults.has(group.id)) {
+      groupStarted.set(group.id, performance.now());
+      groupResults.set(group.id, invoke(async request => {
+      const prepared = groupPrepared.get(group.id); let limited = false; const reads = [];
+      const response = await retrievalLoop(sharedModel, { ...request, nativeOutputTools: options.nativeOutputTools === true, input: prepared.payload, instructions: prepared.instructions, reviewPhase: 'group-primary' }, scope, {
+        maxRounds: maxRetrievalRounds, maxInputBytes, beforeCall: reserveShared, correctProtocol: options.correctProtocol === true,
+        enableSearchSeeds: options.enableSearchSeeds === true,
+        onRetrieved: records => { reads.push(...records); (sharedState.retrievalAudit ??= []).push(...records); },
+        onBudgetLimited: info => { limited = true; (sharedState.retrievalLimits ??= []).push(info); },
+      });
+      const results = validateGroupPrimary(response, prepared, input, validateResponse, scope.catalog());
+      for (const generated of results.values()) {
+        generated.groupLimited = limited;
+        if (generated.groupRisk) {
+          generated.groupRisk.sourceReadCoverage = riskReadCoverage(generated.groupRisk.risks, reads, scope.catalog(), input.id);
+          if (generated.groupRisk.status !== 'completed') generated.limitations.push('组主审的合并风险计划缺失或无效，未补发规划调用；不表示已完成风险条件核查');
+          if (generated.groupRisk.sourceReadCoverage.some(item => item.unreadSourceIds.length)) generated.limitations.push('组风险计划请求的部分来源未在本次组生成读取；不表示已核查或排除风险条件');
+        }
+      }
+      return results;
+    }, { input: groupPrepared.get(group.id).payload, instructions: groupPrepared.get(group.id).instructions }, timeoutMs, signal));
+    }
+    return groupResults.get(group.id);
+  };
   const runFile = async index => {
     const file = input.files[index];
     const state = { fileId: file.id, path: file.path, status: file.eligibility === 'reviewable' ? 'pending' : file.eligibility, reason: file.reason, ...(file.blockCode ? {blockCode:file.blockCode} : {}) };
-    const result = { state, findings: [], limitations: [] };
+    let result = { state, findings: [], limitations: [] };
     fileResults[index] = result;
     try {
     await options.onProgress?.({stage:'file-started',snapshotId:input.id,fileId:file.id,path:file.path,status:state.status});
     if (state.status !== 'pending') return;
+    const reusable = options.resumeState?.completed?.find(row => row.fileId === file.id && row.path === file.path);
+    if (reusable) {
+      const prior = structuredClone(reusable.state);
+      for (const key of ['modelMetrics', 'modelCallPurposes', 'modelCorrections', 'modelRecoveries', 'retrievalAudit', 'protocolAttempts', 'protocolDiagnostic', 'responseAttempts', 'responseCorrections', 'anchorCorrections', 'retrievalLimits']) delete prior[key];
+      Object.assign(state, prior, { reused: true, reuseNotice: 'Prior completed evidence retained for an identical approved snapshot/configuration; no new model or evidence receipt claimed.' });
+      result.findings = structuredClone(reusable.findings).map(finding => ({ ...finding, reused: true, priorRun: { snapshotId: options.resumeState.snapshotId, evidenceStatus: 'historical-verified-evidence-not-current-run-receipts' } }));
+      result.limitations = structuredClone(reusable.limitations ?? []);
+      return;
+    }
     if (signal?.aborted) { state.status = 'cancelled'; state.reason = '用户取消'; return; }
-    if (report.modelCalls >= maxCalls || options.remainingCalls?.() <= 0) { state.reason = '模型调用预算耗尽'; return; }
+    const assignedGroup = [...groupPrepared].find(([, value]) => value.fileIds.includes(file.id));
+    if (!assignedGroup && (report.modelCalls >= maxCalls || options.remainingCalls?.() <= 0)) { state.reason = '模型调用预算耗尽'; return; }
     const prepared = preparePrimaryInput(input, file, { instructions, scope, grouping: report.grouping, maxInputBytes, riskPlanningMode: options.riskPlanningMode, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning, skipSmallRiskPlans: options.skipSmallRiskPlans });
     const { changes, payload } = prepared;
     Object.assign(state, prepared.metadata);
@@ -179,6 +243,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       };
       let pendingStageCorrection;
       const onProtocolEvent = async info => {
+        if (info.action === 'json-transport-recovery') (state.modelRecoveries ??= []).push(info);
         if (info.action === 'retrieval-protocol-correction') pendingStageCorrection = { action: info.action, code: 'RETRIEVAL_PROTOCOL_ERROR' };
         await options.onProgress?.({ stage: 'protocol-correction', fileId: file.id, path: file.path, ...info });
       };
@@ -187,7 +252,8 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         // The executor has admitted this call; budget-vetoed retries never reach here.
         if (pendingStageCorrection) { (state.modelCorrections ??= []).push(pendingStageCorrection); pendingStageCorrection = undefined; }
         let pendingJsonCorrection;
-        return model({ ...request, callPurpose: request.callPurpose ?? request.reviewPhase ?? 'primary-initial', onProtocolEvent,
+        return model({ ...request, nativeOutputTools: options.nativeOutputTools === true, maxInputBytes: options.nativeOutputTools === true ? maxInputBytes : request.maxInputBytes, callPurpose: request.callPurpose ?? request.reviewPhase ?? 'primary-initial', onProtocolEvent,
+        onModelArtifact: retainArtifact ? artifact => retainArtifact({ ...artifact, snapshotId: input.id, fileId: file.id, path: file.path, phase: request.reviewPhase ?? 'primary' }) : undefined,
         onModelEvent: async info => {
           if (info.action === 'model-end') {
             const phase = request.reviewPhase ?? 'primary';
@@ -211,40 +277,23 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       });
       };
       const executor = scope
-        ? (request, onLimited = () => {}) => retrievalLoop(trackedModel, { ...request, onProtocolEvent }, scope, { correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, initialRetrieved: request.initialRetrieved ?? [], allowExhaustedInitial: request.allowExhaustedInitial === true, enableSearchSeeds: options.enableSearchSeeds === true && !request.reviewPhase?.includes('verification'), onBudgetLimited: info => { onBudgetLimited(info); onLimited(info); }, onRetrieved: records => {
+        ? (request, onLimited = () => {}) => retrievalLoop(trackedModel, { ...request, nativeOutputTools: options.nativeOutputTools === true, onProtocolEvent }, scope, { correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, initialRetrieved: request.initialRetrieved ?? [], allowExhaustedInitial: request.allowExhaustedInitial === true, enableSearchSeeds: options.enableSearchSeeds === true && !request.reviewPhase?.includes('verification'), onBudgetLimited: info => { onBudgetLimited(info); onLimited(info); }, onRetrieved: records => {
           (state.retrievalAudit ??= []).push(...records);
         }, onTruncated: () => {
           if (!state.retrievalTruncated) result.limitations.push({ fileId: file.id, text: '检索结果达到数量上限，部分匹配未提供给模型' });
           state.retrievalTruncated = true;
         } })
         : request => { beforeCall(); return trackedModel(request); };
+      const grouped = assignedGroup;
+      const groupedGeneration = grouped ? (await groupResult({ id: grouped[0] })).get(file.id) : null;
+      if (grouped) {
+        state.primaryGroupId = grouped[0]; state.primaryMethod = 'group-primary';
+        if (groupedGeneration.groupLimited) state.retrievalLimited = true;
+        if (groupedGeneration.groupRisk) (state.riskPlans ??= []).push({ ...groupedGeneration.groupRisk, method: 'inline', scope: 'group-all-edits', groupId: grouped[0], decision: { required: true, reason: 'group-inline-primary' } });
+      }
+      const chainTimeout = grouped && timeoutMs > 0 ? Math.max(0, timeoutMs - (performance.now() - groupStarted.get(grouped[0]))) : timeoutMs;
+      if (grouped && timeoutMs > 0 && chainTimeout <= 0) throw Object.assign(new Error('Model timeout'), { code: 'MODEL_TIMEOUT' });
       await invoke(async enclosingRequest => {
-        if (options.enableBusinessGrouping === true && !report.businessGrouping && prepareBusinessGroups(input.files)) {
-          report.businessGrouping = { status: 'pending' };
-          try {
-            const local = localBusinessGroups(input.files);
-            let grouped = local;
-            if (!local) {
-            const groupInput = prepareBusinessGroups(input.files);
-            if (Buffer.byteLength(groupInput) + Buffer.byteLength(BUSINESS_GROUP_INSTRUCTIONS) > maxInputBytes) throw new Error('Business grouping input budget exceeded');
-            beforeCall();
-            const response = await trackedModel({ ...enclosingRequest, instructions: BUSINESS_GROUP_INSTRUCTIONS, input: groupInput, reviewPhase: 'business-grouping' });
-            enclosingRequest.signal.throwIfAborted();
-            grouped = validateBusinessGroups(response, input.files);
-            }
-            report.businessGrouping = { status: 'completed', ...grouped };
-            for (const group of grouped.groups.filter(g => g.fileIds.length > 1)) {
-              if (interactionPlans.some(p => [...p.group.fileIds].sort().join(',') === [...group.fileIds].sort().join(','))) continue;
-              const prepared = prepareInteractionInput(input, group, payload => initialInputBudget({ instructions, input: payload }, scope, maxInputBytes));
-              interactionPlans.push({ group, prepared });
-              if (prepared.status !== 'not-applicable') report.interactions.push({ groupId: group.id, fileIds: prepared.fileIds, status: prepared.status === 'ready' ? 'pending' : 'blocked', reason: prepared.reason, lifecycle: 'shares-last-primary-timeout' });
-            }
-          } catch (error) {
-            report.businessGrouping = { status: 'fallback', reason: error.message };
-            result.limitations.push({ text: '业务分组未完成，保留原分组：' + error.message });
-            enclosingRequest.signal.throwIfAborted();
-          }
-        }
         const batches = [...(prepared.batches ?? [{ payload, windowIds: state.windowIds ?? [] }])];
         if (prepared.synthesis?.status === 'ready') batches.push({ payload: prepared.synthesis.payload, windowIds: [], synthesis: true });
         const matchingInteractionPlans = interactionPlans.filter(p => input.files.filter(f => p.group.fileIds.includes(f.id)).at(-1)?.id === file.id);
@@ -267,14 +316,14 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           continue;
         }
         let batchPayload = batch.payload;
-        const inlineRisk = prepared.inlineRisk === true && batch.round === 1 && !batch.synthesis && !batch.interaction;
+        const inlineRisk = !groupedGeneration && prepared.inlineRisk === true && batch.round === 1 && !batch.synthesis && !batch.interaction;
         const batchInstructions = inlineRisk ? prepared.instructions : instructions;
         let riskEntry, activeRisks = [];
         if (inlineRisk) {
           riskEntry = { status: 'pending', method: 'inline', windowIds: batch.windowIds, scope: state.sourceMode === 'change-windows' ? 'all-edits' : 'full-file', risks: [], decision: { required: true, reason: 'inline-primary' } };
           (state.riskPlans ??= []).push(riskEntry);
         }
-        if (options.enableRiskPlanning === true && !inlineRisk && !batch.synthesis && batch.round === 1) {
+        if (options.enableRiskPlanning === true && (!groupedGeneration || batch.interaction) && !inlineRisk && !batch.synthesis && batch.round === 1) {
           const reusable = !batch.interaction && riskInput.cacheable;
           riskEntry = reusable ? primaryRiskPlan : undefined;
           if (!riskEntry) {
@@ -315,9 +364,9 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             }
           }
         }
-        if(report.modelCalls>=maxCalls)throw new Error('Model call budget exceeded before next review pass');
+        if(report.modelCalls>=maxCalls && !(groupedGeneration && !batch.synthesis && !batch.interaction))throw new Error('Model call budget exceeded before next review pass');
         if(rounds>1) state.reviewPasses[batchIndex].status='running';
-        const request = { ...enclosingRequest, instructions: batchInstructions, input: batchPayload, reviewPhase: phase, allowExhaustedInitial: options.optimizeReviewCalls === true && !batch.synthesis && !batch.interaction && prepared.metadata.contextMode !== 'approved-retrieval' };
+        const request = { ...enclosingRequest, nativeOutputTools: options.nativeOutputTools === true, instructions: batchInstructions, input: batchPayload, reviewPhase: phase, allowExhaustedInitial: options.optimizeReviewCalls === true && !batch.synthesis && !batch.interaction && prepared.metadata.contextMode !== 'approved-retrieval' };
         let auditStart = state.retrievalAudit?.length ?? 0;
         let finalResponseOnly = false;
         const generate = async attempt => {
@@ -347,7 +396,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           if (!batch.interaction && state.sourceMode === 'change-windows') validateWindowFindings(generated.findings, batch.synthesis ? prepared.synthesis.windows : JSON.parse(batch.payload).windows, batch.synthesis === true);
           return generated;
         };
-        const generated = await correctedResponse(generate, validate, request, {
+        const generated = groupedGeneration && !batch.synthesis && !batch.interaction ? structuredClone(groupedGeneration) : await correctedResponse(generate, validate, request, {
           enabled: options.correctProtocol === true,
           canCorrect: () => !finalResponseOnly,
           onCorrection: async info => {
@@ -368,7 +417,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           }
           delete generated.inlineRisks;
         }
-        if (options.enableRiskPlanning === true && !batch.synthesis && batch.round === 1) {
+        if (options.enableRiskPlanning === true && (!groupedGeneration || batch.interaction) && !batch.synthesis && batch.round === 1) {
           const coverage = riskReadCoverage(activeRisks,(state.retrievalAudit??[]).slice(auditStart),scope?.catalog()??[],input.id);
           (riskEntry.generations ??= []).push({ round: batch.round, windowIds: batch.windowIds, coverage });
           // Preserve the single-generation field without unioning evidence across windows.
@@ -394,6 +443,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             if (verdicts.some(v => v.verdict === 'supported' && v.regression?.classification === 'uncertain')) result.limitations.push({ fileId: file.id, text: '部分模型支持候选缺少充分前后对照，不能确认由本次变更引入' });
             if (verdicts.some(v => v.verdict === 'uncertain')) result.limitations.push({ fileId: file.id, text: '部分候选复核仍不确定，不能视为已确认或已排除' });
           } catch (error) {
+            if (error?.code === 'MODEL_ARTIFACT_FAILED') throw error;
             for (const finding of generated.findings) finding.verification = { status: 'incomplete', causality: 'unverified' };
             result.limitations.push({ fileId: file.id, text: '候选复核未完成：' + (error?.message ?? String(error)) });
             request.signal.throwIfAborted();
@@ -413,7 +463,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         await options.onProgress?.({stage:'window-complete',snapshotId:input.id,fileId:file.id,path:file.path,windowIds:batch.windowIds,round:batch.round,findings:generated.findings,windowCoverage:state.windowCoverage});
         }catch(error){
           enclosingRequest.signal.throwIfAborted();
-          if(phase==='primary'||/budget exceeded/i.test(error.message))throw error;
+          if(phase==='primary'||error.code==='MODEL_ARTIFACT_FAILED'||(/budget exceeded/i.test(error.message)&&!groupedGeneration))throw error;
           const failure={phase,status:'failed',code:error.code??'REVIEW_EXECUTION_FAILED',reason:error.message,round:batch.round,...(error.attempts?{attempts:error.attempts}:{}),...(error.diagnostic?{diagnostic:error.diagnostic}:{})};
           (state.stageFailures??=[]).push(failure);
           if(batch.synthesis)state.synthesisStatus='failed';
@@ -423,7 +473,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           await options.onProgress?.({stage:'synthesis-failed',snapshotId:input.id,fileId:file.id,path:file.path,...failure,windowCoverage:state.windowCoverage});
         }
         }
-      }, { instructions, input: payload }, timeoutMs, signal);
+      }, { instructions, input: payload }, chainTimeout, signal);
       if (signal?.aborted) throw signal.reason;
 
       state.status = state.retrievalLimited ? 'pending' : 'completed';
@@ -436,6 +486,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       }
 
     } catch (error) {
+      if (error?.code === 'MODEL_ARTIFACT_FAILED') { checkpointFailed = true; checkpointFailure = error; controller.abort(error); throw error; }
       state.status = signal?.aborted ? 'cancelled' : error?.code === 'PROJECT_MODEL_CALL_LIMIT' ? 'pending' : 'failed';
       state.reason = error?.message ?? String(error);
       if(error?.attempts)state.protocolAttempts=error.attempts;
@@ -445,13 +496,49 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       state.failureCode = signal?.aborted ? 'CANCELLED' : ['MODEL_INVALID_JSON','MODEL_INCOMPLETE_OUTPUT','MODEL_TIMEOUT','MODEL_INVALID_READ_REQUEST','MODEL_OUTPUT_LIMIT','MODEL_PROTOCOL_ERROR','MODEL_INVALID_REVIEW_RESPONSE','MODEL_INVALID_FINDING_IDENTITY','MODEL_INVALID_FINDING_SEVERITY','MODEL_MISSING_FINDING_FIELD','MODEL_INVALID_ANCHOR','MODEL_ANCHOR_MISMATCH','READER_CALL_BUDGET_EXCEEDED','READER_OUTPUT_BUDGET_EXCEEDED','RETRIEVAL_ROUND_BUDGET_EXCEEDED','RETRIEVAL_FINAL_RESPONSE_REQUIRED','PROJECT_MODEL_CALL_LIMIT'].includes(error?.code) ? error.code : 'REVIEW_EXECUTION_FAILED';
     }
     } finally {
+      state.resumeEligible = state.status === 'completed' && !state.stageFailures?.length && !state.reviewPasses?.some(pass => pass.status !== 'completed') && !state.windowCoverage?.pending?.length && !state.retrievalLimited && result.findings.every(f => f.verification?.status === 'completed') && report.interactions.filter(item => item.fileIds?.includes(file.id)).every(item => item.status === 'completed');
       await options.onProgress?.({stage:'file-complete',snapshotId:input.id,file:state,findings:result.findings});
+      await options.onResumeCheckpoint?.({ ...report, files: fileResults.filter(Boolean).map(item => item.state), findings: fileResults.filter(Boolean).flatMap(item => item.findings), limitations: [...report.limitations, ...fileResults.filter(Boolean).flatMap(item => item.limitations)] });
     }
   };
-  // Bootstrap lazy business grouping once before freezing dependency admission.
-  let first = 0;
-  if (options.enableBusinessGrouping === true && prepareBusinessGroups(input.files)) {
-    while (first < input.files.length && !report.businessGrouping && !signal.aborted) await runFile(first++);
+  if (options.resumeState?.businessGrouping) report.businessGrouping = structuredClone(options.resumeState.businessGrouping);
+  for (const interaction of report.interactions) {
+    if (interaction.fileIds.every(id => options.resumeState?.completed?.some(row => row.fileId === id))) Object.assign(interaction, { status: 'completed', reused: true });
+  }
+  // Freeze grouping before admitting file chains, without serializing a whole first file.
+  if (options.enableBusinessGrouping === true && prepareBusinessGroups(input.files) && !signal.aborted) {
+    try {
+      const local = report.businessGrouping?.groups ? report.businessGrouping : localBusinessGroups(input.files);
+      const grouped = local ?? await invoke(async request => {
+        const groupInput = prepareBusinessGroups(input.files);
+        if ((options.nativeOutputTools === true ? !modelWireBudget({ input: groupInput, instructions: BUSINESS_GROUP_INSTRUCTIONS, nativeOutputTools: true }, maxInputBytes).fits : Buffer.byteLength(groupInput) + Buffer.byteLength(BUSINESS_GROUP_INSTRUCTIONS) > maxInputBytes)) throw new Error('Business grouping input budget exceeded');
+        reserveShared();
+        return validateBusinessGroups(await sharedModel({ ...request, reviewPhase: 'business-grouping', callPurpose: 'business-grouping' }), input.files);
+      }, { input: prepareBusinessGroups(input.files), instructions: BUSINESS_GROUP_INSTRUCTIONS }, timeoutMs, signal);
+      report.businessGrouping = { status: 'completed', ...grouped };
+      for (const group of grouped.groups.filter(g => g.fileIds.length > 1)) {
+        if (interactionPlans.some(p => [...p.group.fileIds].sort().join(',') === [...group.fileIds].sort().join(','))) continue;
+        const prepared = prepareInteractionInput(input, group, payload => initialInputBudget({ instructions, input: payload }, scope, maxInputBytes));
+        interactionPlans.push({ group, prepared });
+        if (prepared.status !== 'not-applicable') report.interactions.push({ groupId: group.id, fileIds: prepared.fileIds, status: group.fileIds.every(id => options.resumeState?.completed?.some(row => row.fileId === id)) ? 'completed' : prepared.status === 'ready' ? 'pending' : 'blocked', reason: prepared.reason, lifecycle: 'shares-last-primary-timeout' });
+      }
+    } catch (error) {
+      if (signal.aborted || checkpointFailed || error.code === 'MODEL_ARTIFACT_FAILED') throw error;
+      report.businessGrouping = { status: 'fallback', reason: error.message };
+      report.limitations.push({ text: '业务分组未完成，保留原分组：' + error.message });
+    }
+  }
+  if (options.enableGroupPrimary === true && scope && rounds === 1) {
+    const seen = new Set();
+    const groups = report.businessGrouping?.groups ?? report.grouping?.groups ?? [];
+    for (const group of groups) {
+      if (group.fileIds.some(id => seen.has(id) || options.resumeState?.completed?.some(row => row.fileId === id))) continue;
+      const prepared = prepareGroupPrimary(input, group, { instructions, scope, maxInputBytes, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning === true });
+      if (!prepared) continue;
+      groupPrepared.set(group.id, prepared);
+      for (const id of group.fileIds) seen.add(id);
+    }
+    report.primaryGroups = [...groupPrepared].map(([groupId, p]) => ({ groupId, fileIds: p.fileIds, mode: 'group-primary' }));
   }
   const dependencies = new Map();
   for (const plan of interactionPlans.filter(p => p.prepared.status === 'ready')) {
@@ -459,7 +546,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     const owner = members.at(-1);
     if (owner !== undefined) dependencies.set(owner, [...new Set([...(dependencies.get(owner) ?? []), ...members.slice(0, -1)])]);
   }
-  await scheduleFileChains(input.files.map((_, index) => index).slice(first), async index => {
+  await scheduleFileChains(input.files.map((_, index) => index), async index => {
     try { await runFile(index); }
     catch (error) { controller.abort(error); throw error; }
   }, dependencies, fileConcurrency);
@@ -485,6 +572,8 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   }
   report.regressionCoverage = Object.fromEntries(['introduced', 'preexisting', 'uncertain', 'unassessed'].map(classification => [classification, report.findings.filter(f => (f.verification?.regression?.classification ?? 'unassessed') === classification).length]));
   report.findingGroups = groupDuplicateFindings(report.findings);
+  for (const state of report.files) state.resumeEligible = state.status === 'completed' && !state.stageFailures?.length && !state.reviewPasses?.some(pass => pass.status !== 'completed') && !state.windowCoverage?.pending?.length && !state.retrievalLimited && report.findings.filter(f => f.fileId === state.fileId).every(f => f.verification?.status === 'completed') && report.interactions.filter(item => item.fileIds?.includes(state.fileId)).every(item => item.status === 'completed');
+  await options.onResumeCheckpoint?.(report);
   report.followup = coverageFollowup(report);
   if (scope) report.readerBudget = { ...scope.usage(), ...scope.budget(), ...readerLimits };
   report.diagnostics = reviewDiagnostics(report, { reviewWallMs: performance.now() - startedAt });
@@ -518,7 +607,7 @@ function renderFinding(output, finding, index, duplicates) {
     const verification = finding.verification;
     if (verification) {
       const label = verification.status !== 'completed' ? '未完成' : ({ supported: '模型复核支持', refuted: '模型复核反驳（保留候选供追溯）', uncertain: '不确定' }[verification.verdict] ?? '未知');
-      output.push('- 复核状态：' + label + '；不是事实或因果证明');
+      output.push('- 复核状态：' + label + (finding.reused ? '（相同快照的既往轮次结果，本次未重新取证）' : '') + '；不是事实或因果证明');
       if (verification.reason) output.push('- 复核理由：' + safe(verification.reason));
       for (const ref of verification.evidence ?? []) output.push('- 复核证据：' + safe(ref.sourceId) + ':' + ref.start + '（' + ref.count + '行） · SHA256 ' + safe(ref.hash) + ' · ' + safe(ref.text));
     }
