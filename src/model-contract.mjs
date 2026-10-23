@@ -1,6 +1,7 @@
 import { RISK_PLAN_SCHEMA } from './prompts.mjs';
 
 // Describe only transport shape; never invent evidence or fill missing fields.
+export const JSON_TRANSPORT_GUIDE = ' JSON strings: use ASCII double quotes; JSON-escape backslashes, quotes and CR/LF, preserving decoded paths/source/snippets exactly. No raw multiline strings, trailing commas or Markdown. Shorten optional prose only; retain required fields/evidence. Never invent or repair source.';
 const VERDICT_CONTRACT = '本阶段必须返回 {"verdicts":[{"candidateId":"c1","verdict":"uncertain","reason":"证据不足原因","evidence":[]}]}，candidateId必须来自本次candidates；supported/refuted证据规则仍按原指令。不是findings响应。';
 const GROUPS_CONTRACT = '本阶段返回groups数组，每项含fileIds和reason，文件身份必须来自输入，不是findings响应。';
 const RISK_CONTRACT = RISK_PLAN_SCHEMA;
@@ -21,5 +22,6 @@ export function modelContract(input, instructions = '') {
   try { p = JSON.parse(input); } catch { return ''; }
   if (!p || typeof p !== 'object' || Array.isArray(p)) return '';
   const contract = stageContract(p, instructions);
-  return contract + (p.retrievalFinalization ? ' 本次检索已受限：只返回当前阶段最终schema，禁止requests；不能将缺证据声称为无问题或完整覆盖。' : '');
+  const guide = contract && !instructions.includes(JSON_TRANSPORT_GUIDE) ? JSON_TRANSPORT_GUIDE : '';
+  return contract + guide + (p.retrievalFinalization ? ' 本次检索已受限：只返回当前阶段最终schema，禁止requests；不能将缺证据声称为无问题或完整覆盖。' : '');
 }

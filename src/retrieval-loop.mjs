@@ -1,4 +1,5 @@
 import { RETRIEVAL_INSTRUCTIONS } from './prompts.mjs';
+import { searchSeeds } from './search-seeds.mjs';
 import { executeRetrievalBatch, parseRetrievalResponse } from './retrieval-protocol.mjs';
 
 export { RETRIEVAL_INSTRUCTIONS };
@@ -44,7 +45,7 @@ function roundBudgetError() {
   return error;
 }
 
-export async function retrievalLoop(model, request, scope, { correctProtocol = false, maxRounds = Number.MAX_SAFE_INTEGER, maxInputBytes = 96 * 1024, beforeCall = () => {}, onTruncated = () => {}, onRetrieved = () => {}, onBudgetLimited = () => {}, initialRetrieved = [], allowExhaustedInitial = false } = {}) {
+export async function retrievalLoop(model, request, scope, { correctProtocol = false, maxRounds = Number.MAX_SAFE_INTEGER, maxInputBytes = 96 * 1024, beforeCall = () => {}, onTruncated = () => {}, onRetrieved = () => {}, onBudgetLimited = () => {}, initialRetrieved = [], allowExhaustedInitial = false, enableSearchSeeds = false } = {}) {
   if (!Number.isSafeInteger(maxRounds) || maxRounds < 0 || !Number.isSafeInteger(maxInputBytes) || maxInputBytes < 1) throw new Error('Invalid retrieval loop budget');
   // Only internal callers can seed this loop; the public model response cannot supply it.
   const allowedSeeds = new Set(scope.catalog().map(item => item.id));
@@ -56,7 +57,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
     // Publish only fragments admitted to an actual outgoing prompt below.
   }
   const delivered = new Set();
-  let protocolCorrection, finalization;
+  let protocolCorrection, finalization, searchSeedAttempts = 0, currentRound = 0;
   const finalize = async error => {
     finalization = { code: error.code, reason: error.message, ...(scope.budget ? { budget: scope.budget() } : {}) };
     await onBudgetLimited(finalization);
@@ -72,6 +73,12 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
   };
   const nextRequest = records => {
     const next = retrievalRequest(request, scope, records);
+    if (enableSearchSeeds) {
+      const annotated = { input: JSON.stringify({ ...JSON.parse(next.input), retrievalRounds: { max: maxRounds, remaining: finalization ? 0 : Math.max(0, maxRounds - currentRound) } }),
+        instructions: next.instructions + ' Batch independent exact reads/searches together (1..8). retrievalRounds is per-stage request turns, not reader calls or authority. Search-hit host reads may accompany results; supplied fragments are not complete coverage.' };
+      // Optional guidance must not turn an otherwise admitted envelope into a block.
+      if (Buffer.byteLength(annotated.input) + Buffer.byteLength(annotated.instructions) <= maxInputBytes) Object.assign(next, annotated);
+    }
     if (finalization) {
       // The live ledger is already present in retrievalBudget. Do not duplicate it
       // or stack contradictory read/final guidance on a nearly full source envelope.
@@ -82,6 +89,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
     return next;
   };
   for (let round = 0; ; round++) {
+    currentRound = round;
     request.signal?.throwIfAborted();
     if (round > 0 || !allowExhaustedInitial) await checkExhausted(round);
     let { input, instructions } = nextRequest(retrieved);
@@ -127,6 +135,26 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
       protocolCorrection = { code: error.code ?? 'MODEL_INVALID_RETRIEVAL' };
       await request.onProtocolEvent?.({ action: 'retrieval-protocol-correction', code: protocolCorrection.code });
       continue;
+    }
+    if (enableSearchSeeds && searchSeedAttempts < 2) {
+      const { seeds, attempts } = searchSeeds(scope, request, batch, {
+        existing: [...retrieved, ...batch], maxReads: 2 - searchSeedAttempts, maxInputBytes,
+        buildRequest: records => {
+          const next = nextRequest(records);
+          // Account the larger next-turn metadata, not only this turn's envelope.
+          const value = JSON.parse(next.input);
+          if (value.retrievalRounds) value.retrievalRounds.remaining = Math.max(0, maxRounds - round - 1);
+          if (round + 1 >= maxRounds) {
+            value.retrievalFinalization = { code: 'RETRIEVAL_ROUND_BUDGET_EXCEEDED' };
+            next.instructions = request.instructions + '\n' + RETRIEVAL_INSTRUCTIONS + FINAL_SUFFIX;
+          }
+          next.input = JSON.stringify(value);
+          if (correctProtocol) next.input = compactFollowup(next.input);
+          return next;
+        }, signal: request.signal,
+      });
+      searchSeedAttempts += attempts;
+      batch.push(...seeds);
     }
     await checkExhausted(round + 1);
     for (const item of batch) {

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RISK_PLAN_INSTRUCTIONS, RISK_PLAN_SCHEMA, RETRIEVAL_INSTRUCTIONS } from '../src/prompts.mjs';
-import { modelContract } from '../src/model-contract.mjs';
+import { modelContract, JSON_TRANSPORT_GUIDE } from '../src/model-contract.mjs';
 import { validateRiskPlan } from '../src/risk-plan.mjs';
 
 const files = Array.from({ length: 4 }, (_, i) => ({ fileId: 'f' + (i + 1), edits: [{ id: 'e' + (i + 1) }] }));
@@ -21,7 +21,7 @@ test('literal planning example satisfies unchanged strict validator and shared t
   const contract = modelContract(JSON.stringify({ file: { id: 'f1' } }), RISK_PLAN_INSTRUCTIONS);
   assert.match(contract, /上述risks schema/);
   assert.ok(!contract.includes(RISK_PLAN_SCHEMA), 'do not duplicate full schema in system prompt');
-  assert.equal(modelContract('{}', '仅制定审查计划'), RISK_PLAN_SCHEMA);
+  assert.equal(modelContract('{}', '仅制定审查计划'), RISK_PLAN_SCHEMA + JSON_TRANSPORT_GUIDE);
   assert.deepEqual(check({ risks: [] }), []);
   assert.deepEqual(check(patched({ sourceIds: [] }))[0].sourceIds, []);
   const finalized = modelContract(JSON.stringify({ retrievalFinalization: true }), RISK_PLAN_INSTRUCTIONS);

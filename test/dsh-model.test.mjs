@@ -138,8 +138,9 @@ test('lifecycle counts every actual call including JSON corrections without leak
     assert.equal(event.inputBytes, Buffer.byteLength('PRIVATE_SOURCE'));
     assert.ok(event.durationMs >= event.firstChunkMs && event.firstChunkMs >= 0);
     assert.ok(event.totalOutputBytes >= event.visibleBytes);
-    assert.deepEqual(Object.keys(event).sort(), ['action', ...(event.attempt > 1 ? ['callPurpose'] : []), 'attempt', 'durationMs', 'firstChunkMs', 'inputBytes', 'status', 'totalOutputBytes', 'visibleBytes'].sort());
+    assert.deepEqual(Object.keys(event).sort(), ['action', ...(event.attempt > 1 ? ['callPurpose'] : []), ...(event.status === 'failed' ? ['failureCode', 'jsonIssue'] : []), 'attempt', 'durationMs', 'firstChunkMs', 'inputBytes', 'status', 'totalOutputBytes', 'visibleBytes'].sort());
     if (event.attempt > 1) assert.equal(event.callPurpose, 'json-correction');
+    if (event.status === 'failed') { assert.equal(event.failureCode, 'MODEL_INVALID_JSON'); assert.ok(['property-name', 'syntax'].includes(event.jsonIssue)); }
   }
 });
 

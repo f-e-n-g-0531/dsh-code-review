@@ -155,10 +155,10 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     if (state.status !== 'pending') return;
     if (signal?.aborted) { state.status = 'cancelled'; state.reason = '用户取消'; return; }
     if (report.modelCalls >= maxCalls || options.remainingCalls?.() <= 0) { state.reason = '模型调用预算耗尽'; return; }
-    const prepared = preparePrimaryInput(input, file, { instructions, scope, grouping: report.grouping, maxInputBytes, riskPlanningMode: options.riskPlanningMode, enableRiskPlanning: options.enableRiskPlanning, skipSmallRiskPlans: options.skipSmallRiskPlans });
+    const prepared = preparePrimaryInput(input, file, { instructions, scope, grouping: report.grouping, maxInputBytes, riskPlanningMode: options.riskPlanningMode, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning, skipSmallRiskPlans: options.skipSmallRiskPlans });
     const { changes, payload } = prepared;
     Object.assign(state, prepared.metadata);
-    if (state.contextMode === 'approved-retrieval') result.limitations.push({ fileId: file.id, text: '窗口初始输入仅带上下文身份目录，全文须按需读取；不声明所有上下文已核查。' });
+    if (state.contextMode === 'approved-retrieval') result.limitations.push({ fileId: file.id, text: '初始输入仅提供聚焦上下文或身份目录，其他批准全文须按需读取；不声明所有上下文已核查。' });
     if (prepared.synthesis) state.synthesisStatus = prepared.synthesis.status === 'ready' ? 'pending' : 'blocked';
     if (prepared.synthesis?.status === 'blocked') result.limitations.push({ fileId: file.id, text: (prepared.synthesis.reason === 'batch-limit' ? '跨窗口综合批次数超过上限（20），未发送；全部主窗口仍独立审查' : '跨窗口综合输入超限，未发送') + '；单窗口完成不表示交互影响已检查' });
     if (state.sourceMode === 'change-windows') state.windowCoverage = { completed: [], pending: [...state.windowIds] };
@@ -177,11 +177,24 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         (state.retrievalLimits ??= []).push(info);
         result.limitations.push({ fileId: file.id, text: '检索预算受限，已保留现有结果但不能视为完整审查：' + info.reason });
       };
-      const onProtocolEvent = async info => { await options.onProgress?.({ stage: 'protocol-correction', fileId: file.id, path: file.path, ...info }); };
-      const trackedModel = request => model({ ...request, callPurpose: request.callPurpose ?? request.reviewPhase ?? 'primary-initial', onProtocolEvent,
+      let pendingStageCorrection;
+      const onProtocolEvent = async info => {
+        if (info.action === 'retrieval-protocol-correction') pendingStageCorrection = { action: info.action, code: 'RETRIEVAL_PROTOCOL_ERROR' };
+        await options.onProgress?.({ stage: 'protocol-correction', fileId: file.id, path: file.path, ...info });
+      };
+      const trackedModel = request => {
+        request.signal?.throwIfAborted();
+        // The executor has admitted this call; budget-vetoed retries never reach here.
+        if (pendingStageCorrection) { (state.modelCorrections ??= []).push(pendingStageCorrection); pendingStageCorrection = undefined; }
+        let pendingJsonCorrection;
+        return model({ ...request, callPurpose: request.callPurpose ?? request.reviewPhase ?? 'primary-initial', onProtocolEvent,
         onModelEvent: async info => {
           if (info.action === 'model-end') {
             const phase = request.reviewPhase ?? 'primary';
+            if (info.callPurpose === 'json-correction' && pendingJsonCorrection) {
+              (state.modelCorrections ??= []).push({ action: 'explicit-json-correction', code: 'MODEL_INVALID_JSON', ...(pendingJsonCorrection.jsonIssue ? { jsonIssue: pendingJsonCorrection.jsonIssue } : {}), phase });
+              pendingJsonCorrection = undefined;
+            }
             const metrics = (state.modelMetrics ??= {});
             const item = (metrics[phase] ??= { calls: 0, durationMs: 0, inputBytes: 0, totalOutputBytes: 0 });
             item.calls++; item.durationMs += info.durationMs; item.inputBytes += info.inputBytes; item.totalOutputBytes += info.totalOutputBytes;
@@ -189,10 +202,16 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           }
           await options.onProgress?.({ stage: info.action, snapshotId: input.id, fileId: file.id, path: file.path, phase: request.reviewPhase ?? 'primary', ...info });
         },
-        onProtocolCorrection: async info => { beforeCall({ reserved: true }); await request.onProtocolCorrection?.(info); await options.onProgress?.({stage:'protocol-correction',fileId:file.id,path:file.path,...info}); },
+        onProtocolCorrection: async info => {
+          beforeCall({ reserved: true });
+          await request.onProtocolCorrection?.(info);
+          pendingJsonCorrection = { jsonIssue: info.jsonIssue };
+          await options.onProgress?.({stage:'protocol-correction',fileId:file.id,path:file.path,...info});
+        },
       });
+      };
       const executor = scope
-        ? (request, onLimited = () => {}) => retrievalLoop(trackedModel, { ...request, onProtocolEvent }, scope, { correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, initialRetrieved: request.initialRetrieved ?? [], allowExhaustedInitial: request.allowExhaustedInitial === true, onBudgetLimited: info => { onBudgetLimited(info); onLimited(info); }, onRetrieved: records => {
+        ? (request, onLimited = () => {}) => retrievalLoop(trackedModel, { ...request, onProtocolEvent }, scope, { correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, initialRetrieved: request.initialRetrieved ?? [], allowExhaustedInitial: request.allowExhaustedInitial === true, enableSearchSeeds: options.enableSearchSeeds === true && !request.reviewPhase?.includes('verification'), onBudgetLimited: info => { onBudgetLimited(info); onLimited(info); }, onRetrieved: records => {
           (state.retrievalAudit ??= []).push(...records);
         }, onTruncated: () => {
           if (!state.retrievalTruncated) result.limitations.push({ fileId: file.id, text: '检索结果达到数量上限，部分匹配未提供给模型' });
@@ -252,7 +271,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         const batchInstructions = inlineRisk ? prepared.instructions : instructions;
         let riskEntry, activeRisks = [];
         if (inlineRisk) {
-          riskEntry = { status: 'pending', method: 'inline', windowIds: [], scope: 'full-file', risks: [], decision: { required: true, reason: 'inline-primary' } };
+          riskEntry = { status: 'pending', method: 'inline', windowIds: batch.windowIds, scope: state.sourceMode === 'change-windows' ? 'all-edits' : 'full-file', risks: [], decision: { required: true, reason: 'inline-primary' } };
           (state.riskPlans ??= []).push(riskEntry);
         }
         if (options.enableRiskPlanning === true && !inlineRisk && !batch.synthesis && batch.round === 1) {
@@ -335,6 +354,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             // A fresh generation must establish its own synthesis/interaction read evidence.
             auditStart = state.retrievalAudit?.length ?? 0;
             (state.responseCorrections ??= []).push({ code: info.code, round: batch.round, phase });
+            pendingStageCorrection = { action: 'review-format-correction', code: info.code, phase };
             result.limitations.push({ fileId: file.id, text: '主审响应校验失败，已请求一次显式纠正；原响应未接受，纠正不证明缺陷成立。' });
             await options.onProgress?.({ stage: 'protocol-correction', fileId: file.id, path: file.path, ...info });
           },
@@ -407,7 +427,13 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       if (signal?.aborted) throw signal.reason;
 
       state.status = state.retrievalLimited ? 'pending' : 'completed';
-      if (state.retrievalLimited) state.reason = '检索预算受限，未完成完整审查；已有发现保留，不表示通过';
+      if (state.retrievalLimited) {
+        const codes = new Set((state.retrievalLimits ?? []).map(limit => limit.code));
+        state.reason = codes.has('RETRIEVAL_ROUND_BUDGET_EXCEEDED')
+          ? '单阶段检索轮数上限达到，未完成完整审查；共享读取额度可能仍有余量，已有发现保留，不表示通过'
+          : '共享读取调用或输出预算受限，未完成完整审查；已有发现保留，不表示通过';
+        if (codes.size === 1) state.failureCode = [...codes][0];
+      }
 
     } catch (error) {
       state.status = signal?.aborted ? 'cancelled' : error?.code === 'PROJECT_MODEL_CALL_LIMIT' ? 'pending' : 'failed';
@@ -442,6 +468,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   report.findings = fileResults.flatMap(result => result.findings);
   report.limitations.push(...fileResults.flatMap(result => result.limitations));
   report.execution = { fileConcurrency, maxRetrievalRounds };
+  report.readerLimits = { maxRounds: maxRetrievalRounds };
   await options.onProgress?.({stage:'batch-complete',snapshotId:input.id,files:report.files,findings:report.findings,limitations:report.limitations});
   for (const interaction of report.interactions) if (interaction.status !== 'completed') report.limitations.push({ text: '跨文件综合未完成：' + interaction.groupId + ' (' + interaction.status + ')' });
   if (report.grouping?.links.some(l => l.split)) report.limitations.push({ text: '跨组关系未综合覆盖；关联分组不代表全部跨文件交互覆盖' });

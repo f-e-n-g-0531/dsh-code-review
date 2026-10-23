@@ -38,6 +38,8 @@ export function createDshModel(llm, route, {
     try { await callback?.(event); } catch { /* Metrics are not model/budget authority. */ }
   }
 
+  const jsonIssues = new Set(['property-name', 'colon', 'separator', 'invalid-escape', 'control-character', 'unterminated-string', 'unexpected-end', 'trailing-content', 'syntax']);
+  const jsonIssue = diagnostic => jsonIssues.has(diagnostic?.syntaxCategory) ? diagnostic.syntaxCategory : undefined;
   const purposes = new Set(['primary-initial', 'retrieval-followup', 'budget-finalization', 'json-correction', 'business-grouping', 'risk-planning', 'window-synthesis', 'file-interaction', 'verification']);
   function checkInputBudget(request, contract) {
     if (request.maxInputBytes === undefined) return;
@@ -57,7 +59,7 @@ export function createDshModel(llm, route, {
     const blocks = new Map();
     let finished = false;
     let finishKind = 'missing';
-    let startedAt, firstChunkMs = null, status = 'failed';
+    let startedAt, firstChunkMs = null, status = 'failed', failureCode, issue;
     const purpose = attempt > 1 ? 'json-correction' : purposes.has(callPurpose) ? callPurpose : undefined;
     const event = { attempt, inputBytes: Buffer.byteLength(input), ...(purpose ? { callPurpose: purpose } : {}) };
     const diagnostic = () => ({
@@ -65,6 +67,7 @@ export function createDshModel(llm, route, {
       inputBytes: Buffer.byteLength(input), requestedMaxTokens: maxTokens, maxOutputBytes,
     });
     const failure = (message, code) => {
+      failureCode = code;
       const error = Object.assign(new Error(message), { code, diagnostic: diagnostic() });
       failureMetadata.set(error, { code, diagnostic: error.diagnostic });
       return error;
@@ -144,6 +147,8 @@ export function createDshModel(llm, route, {
         return { text, diagnostic: diagnostic() };
       } catch (error) {
         error.diagnostic = { ...diagnostic(), ...error.diagnostic };
+        failureCode = 'MODEL_INVALID_JSON';
+        issue = jsonIssue(error.diagnostic);
         invalidJsonErrors.add(error);
         failureMetadata.set(error, { code: error.code, diagnostic: error.diagnostic });
         throw error;
@@ -151,6 +156,7 @@ export function createDshModel(llm, route, {
     } finally {
       await notify(onModelEvent, {
         ...event, action: 'model-end', status: signal?.aborted ? 'cancelled' : status,
+        ...(failureCode ? { failureCode } : {}), ...(issue ? { jsonIssue: issue } : {}),
         durationMs: Math.max(0, performance.now() - startedAt), firstChunkMs,
         visibleBytes: Buffer.byteLength(output), totalOutputBytes: size,
       });
@@ -197,7 +203,8 @@ export function createDshModel(llm, route, {
         // Exactly one reservation per extra call; a thrown budget/cancellation veto is final.
         await onProtocolCorrection?.({
           ...structuredClone(metadata), attempts: structuredClone(attempts),
-          action: 'explicit-json-correction', attempt: attempt + 1,
+          action: 'explicit-json-correction', type: 'json-syntax', code: 'MODEL_INVALID_JSON',
+          ...(jsonIssue(metadata.diagnostic) ? { jsonIssue: jsonIssue(metadata.diagnostic) } : {}), attempt: attempt + 1,
           correction: attempt, maxJsonCorrections: correctionLimit,
           notice: 'Additional model response requested; original output not repaired or accepted.',
         });

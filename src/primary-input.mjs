@@ -1,4 +1,5 @@
 import { sourceSegments } from './source-segments.mjs';
+import { primaryContextFocus } from './primary-context.mjs';
 import { changeRegion } from './change-region.mjs';
 import { CONTEXT_SIDE_NOTICE } from './context-identity.mjs';
 import { approvedCallerBindings } from './caller-binding-input.mjs';
@@ -21,8 +22,9 @@ const RELATION_NOTICE = '命名和相对导入关系仅为源码线索，可能�
 const optional = h => h.confidence === 'namespace-member-syntax-only' || h.confidence === 'instance-method-syntax-only';
 
 // Pure preparation over already captured data. No model calls or new reads.
-export function preparePrimaryInput(input, file, { instructions, scope, grouping, maxInputBytes, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, round }) {
+export function preparePrimaryInput(input, file, { instructions, scope, grouping, maxInputBytes, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, round, focusPrimaryContext = false }) {
   validateRiskPlanningMode(riskPlanningMode);
+  if (typeof focusPrimaryContext !== 'boolean') throw new Error('focusPrimaryContext must be boolean');
   let changes = changeMap(file.left.text, file.right.text);
   if (changes.status === 'limited') {
     const region = changeRegion(file.left.text, file.right.text);
@@ -36,7 +38,7 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
     }
   }
 
-  const base = {
+  let base = {
     ...(input.projectScope ? { projectScope: input.projectScope, reviewNotice: 'Full current-file review; empty left is a sentinel, not a historical baseline. changes are transport coordinates only, do not infer introduced regression.' } : {}),
     ...(input.changeScope ? { changeScope: input.changeScope, changeScopeNotice: changeScopeNotice(input.changeScope) } : {}),
     ...(input.history ? { contextSideNotice: CONTEXT_SIDE_NOTICE } : {}),
@@ -77,9 +79,11 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
     }
   }
 
-  let payload = JSON.stringify(base);
   const measure = value => initialInputBudget({ instructions, input: value }, scope, maxInputBytes);
-  const metadata = {};
+  const focused = focusPrimaryContext ? primaryContextFocus(base, { scope, maxInputBytes, measure }) : { base, metadata: {} };
+  base = focused.base;
+  let payload = JSON.stringify(base);
+  const metadata = { ...focused.metadata };
 
   // Optional member navigation must not block source review or force extra windows.
   if (base.contextRelations?.some(e => e.bindingHints?.some(optional)) && !measure(payload).fits) {
@@ -128,7 +132,7 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
     }
   }
 
-  const strategy = chooseRiskStrategy(input, file, { payload, metadata }, {
+  const strategy = chooseRiskStrategy(input, file, { changes, payload, metadata }, {
     instructions, scope, maxInputBytes, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, round,
   });
   if (strategy.mode === 'inline') return {
@@ -149,8 +153,8 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
         windowBase.cppCallNotice = '最多40条旧/新侧零参语法导航；统一confidence=syntax-only-unresolved，可能为宏/重载/动态分派，无绑定、可达性或顺序保证，不是证据或完整覆盖。原文仍须按批准catalog读取。';
       }
       const compact = JSON.stringify({
-        ...windowBase, context: [], contextCatalog, contextMode: 'approved-retrieval',
-        contextNotice: '上下文全文仍在同一批准快照，仅目录进入窗口初始输入；必须按sourceId和版本侧read原文，不把目录视为证据或完整覆盖。',
+        ...windowBase, context: focusPrimaryContext ? base.context : [], contextCatalog, contextMode: 'approved-retrieval',
+        contextNotice: focusPrimaryContext ? '部分聚焦上下文原文可在context中提供；其他来源仅目录，须按sourceId和版本侧read，不代表缺失或完整覆盖。' : '上下文全文仍在同一批准快照，仅目录进入窗口初始输入；必须按sourceId和版本侧read原文，不把目录视为证据或完整覆盖。',
         file: compactFile, windows, sourceMode: 'change-windows',
         windowNotice: '窗口可能为精确hunk的分段或粗粒度包络，精度以changes.precision为准；片段两侧不保证行对齐，不以片段证明精确编辑或回归因果。start/count为原始源码行号，不得重编号。完整源码未随初始输入发送，可在catalog批准范围内检索；缺少上下文时说明限制。',
       });
@@ -182,6 +186,14 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
     if (synthesis.budget) metadata.synthesisInputBytes = synthesis.budget.bytes;
   }
 
+  const finalStrategy = chooseRiskStrategy(input, file, { changes, payload, batches, synthesis, metadata }, {
+    instructions, scope, maxInputBytes, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, round,
+  });
+  if (finalStrategy.mode === 'inline') return {
+    changes, payload, batches, synthesis, inlineRisk: true, instructions: finalStrategy.instructions, budget: finalStrategy.budget,
+    metadata: { ...metadata, initialInputBytes: finalStrategy.budget.bytes, riskPlanningMode: 'inline' },
+  };
+  if (riskPlanningMode === 'auto' && finalStrategy.fallbackReason) metadata.riskPlanningFallbackReason = finalStrategy.fallbackReason;
   const budget = measure(payload);
   return { changes, payload, batches, synthesis, budget, metadata: { ...metadata, initialInputBytes: budget.bytes } };
 }

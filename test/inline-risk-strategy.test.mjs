@@ -22,6 +22,8 @@ function options(input, extra = {}) {
 }
 const prepare = (input, opts) => preparePrimaryInput(input, input.files[0], opts);
 const coverage = (input, opts) => buildCoveragePlan(input, opts).items[0];
+// Auto mode additionally discloses why it retained the exact ordinary transport.
+function withoutFallback(value) { const copy = structuredClone(value); if (copy.metadata) delete copy.metadata.riskPlanningFallbackReason; if (copy.items) copy.items.forEach(item => delete item.riskPlanningFallbackReason); return copy; }
 
 test('mode validates strictly and legacy default/separate preserve exact preparation and budgets', () => {
   assert.equal(riskPlanningMode(), 'separate');
@@ -62,7 +64,7 @@ test('actual combined envelope fits inclusively; one byte less falls back to unc
   assert.equal(exact.inlineRisk, true); assert.equal(exact.budget.bytes, exactBytes);
   const belowOpts = { ...opts, maxInputBytes: exactBytes - 1 };
   const below = prepare(input, belowOpts), ordinary = prepare(input, { ...belowOpts, riskPlanningMode: 'separate' });
-  assert.deepEqual(below, ordinary); assert.equal(below.inlineRisk, undefined);
+  assert.deepEqual(withoutFallback(below), ordinary); assert.equal(below.metadata.riskPlanningFallbackReason, 'input-budget'); assert.equal(below.inlineRisk, undefined);
   assert.equal(below.batches, undefined); assert.equal(below.budget.fits, true);
   assert.equal(coverage(input, belowOpts).minimumCalls, 2);
   assert.equal(coverage(input, { ...opts, maxInputBytes: exactBytes }).minimumCalls, 1);
@@ -71,11 +73,11 @@ test('actual combined envelope fits inclusively; one byte less falls back to unc
 test('auto keeps ordinary windows and blocks rather than forcing fullbody or larger instructions', () => {
   const input = fixture(1000), opts = options(input, { maxInputBytes: 9000 });
   const auto = prepare(input, opts), ordinary = prepare(input, { ...opts, riskPlanningMode: 'separate' });
-  assert.deepEqual(auto, ordinary); assert.equal(auto.inlineRisk, undefined);
+  assert.deepEqual(withoutFallback(auto), ordinary); assert.ok(auto.metadata.riskPlanningFallbackReason); assert.equal(auto.inlineRisk, undefined);
   assert.equal(auto.metadata.sourceMode, 'change-windows');
-  assert.deepEqual(buildCoveragePlan(input, opts), buildCoveragePlan(input, { ...opts, riskPlanningMode: 'separate' }));
+  assert.deepEqual(withoutFallback(buildCoveragePlan(input, opts)), buildCoveragePlan(input, { ...opts, riskPlanningMode: 'separate' }));
   const blockedOpts = { ...opts, scope: undefined, maxInputBytes: 100 };
-  assert.deepEqual(prepare(input, blockedOpts), prepare(input, { ...blockedOpts, riskPlanningMode: 'separate' }));
+  assert.deepEqual(withoutFallback(prepare(input, blockedOpts)), prepare(input, { ...blockedOpts, riskPlanningMode: 'separate' }));
   assert.equal(coverage(input, blockedOpts).minimumCalls, 0);
 });
 
@@ -87,7 +89,7 @@ test('project sentinel later rounds disabled and small-change skips never inline
     () => [fixture(), { enableRiskPlanning: false }], () => [fixture(), { skipSmallRiskPlans: true }],
   ]) {
     const [input, extra] = make(), opts = options(input, extra);
-    assert.deepEqual(prepare(input, opts), prepare(input, { ...opts, riskPlanningMode: 'separate' }));
+    assert.deepEqual(withoutFallback(prepare(input, opts)), prepare(input, { ...opts, riskPlanningMode: 'separate' })); assert.ok(prepare(input, opts).metadata.riskPlanningFallbackReason);
     assert.equal(coverage(input, opts).riskPlanning.mode, undefined);
   }
   const input = fixture(30), opts = options(input, { skipSmallRiskPlans: true });
