@@ -1,0 +1,5 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { checked } from '../src/process.mjs';
+import { fileURLToPath } from 'node:url';
+test('documented no-baseline benchmark validates current windows and focus rather than claiming old-version call savings',async()=>{const value=await checked(process.execPath,[fileURLToPath(new URL('../scripts/context-review-benchmark.mjs',import.meta.url))],{maxBytes:65536});const report=JSON.parse(value);assert.equal(report.comparison,'same-code focus disabled vs enabled');assert.equal(report.before.calls,17);assert.equal(report.after.calls,17);assert.equal(report.before.inline,8);assert.equal(report.after.inline,8);assert.equal(report.before.fullBodyPrimaries,0);assert.equal(report.after.fullBodyPrimaries,8);assert.equal(report.before.readerCalls,report.after.readerCalls);assert.equal(report.before.completed,8);assert.equal(report.after.completed,8);assert.equal(report.network,false);assert.equal(report.realLatencyAssessed,false);});

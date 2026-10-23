@@ -32,7 +32,7 @@
 
 `enableSearchSeeds:true` 可将模型搜索的精确命中附读最多两段，每检索链最多两次尝试（失败也占次数），每段最多24行。读后验证snapshot/source/hash，旧新侧不互换，完整已有正文／范围不重读，预留4calls／16KiB。精确下一轮及终答输入不适配时事务回滚；不缓存、不造receipt、不改变检索轮数。只在原始主审／综合scope启用，独立复核仍使用本次新receipt。配置false关闭，底层默认false。
 
-`node scripts/context-review-benchmark.mjs [frozen-baseline-directory]` 在真实review编排上对照八文件、大批准上下文夹具。以v0.85.11冻结src为baseline，25→17调用，八个窗口主审转为八个全文主审并合并规划；八次独立反证复核保留、读取均16次、严格校验后的结果一致。输入加指令176968→129752字节，不含适配器追加合同，不是wire bytes。未传baseline时仅比较当前实现focus关闭／开启。另有搜索→读取夹具在相同轮数和reader操作下从3次调用变2次；不能把脚本结果当作真实提速或召回保证。
+`node scripts/context-review-benchmark.mjs [frozen-baseline-directory]` 在真实review编排上对照八文件、大批准上下文夹具。以v0.85.11冻结src为baseline，25→17调用，八个窗口主审转为八个全文主审并合并规划；八次独立反证复核保留、读取均16次、严格校验后的结果一致。输入加指令176968→129752字节，不含适配器追加合同，不是wire bytes。未传baseline时仅比较当前实现focus关闭／开启：单批窗口也已能合并，调用均17次，差异是窗口／完整正文传输，不声称该模式省8次。另有搜索→读取夹具在相同轮数和reader操作下从3次调用变2次；不能把脚本结果当作真实提速或召回保证。
 
 JSON合同新增280字节传输提示防止原始换行／反斜线转义错误，不自动修补响应或替换身份。诊断聚合allowlist纠正原因：语法纠正仅对实际model-end计数，审查格式与检索协议在重试通过预算／取消准入后计数；被veto的请求不报已执行纠正。`primary-initial`也可能是复核／综合检索链初始调用。单阶段轮数与共享reader耗尽分别输出code；全部字段不含源码、原响应或未知提供方错误文本。
 
