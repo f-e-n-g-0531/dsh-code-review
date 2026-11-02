@@ -2,10 +2,12 @@ import { preparePrimaryInput } from './primary-input.mjs';
 import { initialInputBudget } from './input-budget.mjs';
 import { INLINE_RISK_INSTRUCTIONS } from './prompts.mjs';
 import { validateRiskPlan } from './risk-plan.mjs';
+import { GROUP_INTERACTION_INSTRUCTIONS } from './group-interaction.mjs';
 
 export const GROUP_PRIMARY_INSTRUCTIONS = '批准的group-primary输入包含多个完整主文件。逐个审核所有reviews成员的新旧正文，并结合组内其他文件分析；不能仅审核一个文件。返回 {"reviews":[{"fileId":"原成员身份","findings":[],"limitations":[]}],"limitations":[]}，每个成员恰好一项，包括没有发现的成员。各finding仍需原审查指令全部字段、精确原行anchor及该fileId本次变化归因；不能用其他成员的身份或坐标替代。缺证据写limitations，不声明跨文件综合已完成；专门交互阶段仍独立校验。可按批准检索协议先返回requests。';
 
-export function prepareGroupPrimary(snapshot, group, { instructions, scope, maxInputBytes, focusPrimaryContext = false, enableRiskPlanning = false } = {}) {
+export function prepareGroupPrimary(snapshot, group, { instructions, scope, maxInputBytes, focusPrimaryContext = false, enableRiskPlanning = false, enableGroupInteractions = false, migrationContracts = [] } = {}) {
+  if (typeof enableGroupInteractions !== 'boolean') throw new Error('Invalid group interaction option');
   if (!scope || snapshot.projectScope || !Array.isArray(group?.fileIds) || group.fileIds.length < 2 || group.fileIds.length > 4 || new Set(group.fileIds).size !== group.fileIds.length) return null;
   const members = group.fileIds.map(id => snapshot.files.find(file => file.id === id));
   if (members.some(file => !file || file.eligibility !== 'reviewable')) return null;
@@ -15,8 +17,17 @@ export function prepareGroupPrimary(snapshot, group, { instructions, scope, maxI
   const context = [...new Map(reviews.flatMap(r => r.context ?? []).map(item => [JSON.stringify(item), item])).values()];
   for (const item of reviews) { delete item.context; delete item.rules; delete item.businessRequirement; delete item.requirementNotice; }
   const value = { snapshotId: snapshot.id, sourceMode: 'group-primary', groupId: group.id, reviews, context, rules: snapshot.rules ?? [], ...(snapshot.businessRequirement !== undefined ? { businessRequirement: snapshot.businessRequirement } : {}) };
-  const payload = JSON.stringify(value), combined = instructions + '\n' + GROUP_PRIMARY_INSTRUCTIONS + (enableRiskPlanning ? '\n各成员可附带risks；组风险可引用所有成员精确编辑，仍只是假设，不增加规划调用。' + INLINE_RISK_INSTRUCTIONS.replace('Final JSON requires findings/limitations;', 'Each reviews member requires findings/limitations;') : '');
-  return initialInputBudget({ input: payload, instructions: combined }, scope, maxInputBytes).fits ? { payload, instructions: combined, fileIds: [...group.fileIds], inlineRisk: enableRiskPlanning, changes: new Map(members.map((f, i) => [f.id, prepared[i].changes])) } : null;
+  let payload = JSON.stringify(value);
+  let combined = instructions + '\n' + GROUP_PRIMARY_INSTRUCTIONS + (enableRiskPlanning ? '\n各成员可附带risks；组风险可引用所有成员精确编辑，仍只是假设，不增加规划调用。' + INLINE_RISK_INSTRUCTIONS.replace('Final JSON requires findings/limitations;', 'Each reviews member requires findings/limitations;') : '');
+  if (!initialInputBudget({ input: payload, instructions: combined }, scope, maxInputBytes).fits) return null;
+  const contracts = migrationContracts.filter(contract => contract.candidateFileIds?.some(id => group.fileIds.includes(id)));
+  if (contracts.length) { const proposed = JSON.stringify({ ...JSON.parse(payload), migrationContracts: contracts, migrationNotice: 'Host navigation hypotheses only. Compare the old public gate, new entry and callers under the same trigger. Neither semantics nor causality are established; independent verification is required.' }); if (initialInputBudget({ input: proposed, instructions: combined }, scope, maxInputBytes).fits) payload = proposed; }
+  let groupInteraction = false;
+  if (enableGroupInteractions && typeof group.id === 'string' && group.id.length > 0 && group.id.length <= 200 && prepared.every(p => p.changes.status === 'changed' && p.changes.edits.length)) {
+    const proposed = JSON.stringify({ ...JSON.parse(payload), groupInteraction: { groupId: group.id, fileIds: [...group.fileIds] } });
+    if (initialInputBudget({ input: proposed, instructions: combined + GROUP_INTERACTION_INSTRUCTIONS }, scope, maxInputBytes).fits) { payload = proposed; combined += GROUP_INTERACTION_INSTRUCTIONS; groupInteraction = true; }
+  }
+  return { payload, instructions: combined, fileIds: [...group.fileIds], inlineRisk: enableRiskPlanning, changes: new Map(members.map((f, i) => [f.id, prepared[i].changes])), ...(enableGroupInteractions ? { groupId: group.id, groupInteraction, ...(!groupInteraction ? { groupInteractionFallback: 'input-budget-or-inexact' } : {}) } : {}) };
 }
 
 export function validateGroupPrimary(response, prepared, snapshot, validate, catalog = []) {

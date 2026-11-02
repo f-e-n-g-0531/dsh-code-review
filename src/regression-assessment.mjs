@@ -1,9 +1,15 @@
+import { validateMigrationRegression } from './migration-regression.mjs';
+
 // Host-validated comparison references are not proof of a model's causal claim.
-export function validateRegressionAssessment(value, evidence, catalog, fileId) {
+export function validateRegressionAssessment(value, evidence, catalog, fileId, options = {}) {
   if (value === undefined) return { classification: 'unassessed', causality: 'unverified' };
   const keys = ['classification', 'reason', 'oldEvidence', 'newEvidence'];
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== keys.length || keys.some(k => !Object.hasOwn(value, k))) throw new Error('Invalid regression assessment');
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== keys.length + (Object.hasOwn(value, 'migrationContractId') ? 1 : 0) || keys.some(k => !Object.hasOwn(value, k))) throw new Error('Invalid regression assessment');
   if (!['introduced', 'preexisting', 'uncertain'].includes(value.classification) || typeof value.reason !== 'string' || !value.reason.trim() || value.reason.length > 8000) throw new Error('Invalid regression explanation');
+  if (Object.hasOwn(value, 'migrationContractId')) {
+    if (options.enableMigrationRegression !== true) throw new Error('Migration regression is not enabled');
+    return validateMigrationRegression(value, evidence, fileId, options.migrationContext, options.candidateId);
+  }
   const sources = new Map(catalog.map(source => [source.id, source]));
   for (const [field, side] of [['oldEvidence', 'old'], ['newEvidence', 'new']]) {
     const indices = value[field];

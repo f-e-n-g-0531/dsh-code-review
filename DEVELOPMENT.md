@@ -36,6 +36,20 @@
 
 JSON合同新增280字节传输提示防止原始换行／反斜线转义错误，不自动修补响应或替换身份。诊断聚合allowlist纠正原因：语法纠正仅对实际model-end计数，审查格式与检索协议在重试通过预算／取消准入后计数；被veto的请求不报已执行纠正。`primary-initial`也可能是复核／综合检索链初始调用。单阶段轮数与共享reader耗尽分别输出code；全部字段不含源码、原响应或未知提供方错误文本。
 
+### 0.87.0 连续上下文、迁移与阶段恢复
+
+六项策略 enableEvidenceContext、inlineInteractionRisks、enableMigrationContracts、enableMigrationRegression、enableGroupInteractions、enableStageContinuation 在插件变更入口默认 true；直接底层／service 默认 false，均绑定预览、执行与续审身份。项目专用入口不启用后四项。与上游 216dcf513593055a70165f793e96b52589d71b1b 的已实现／未完成边界见 [能力清单](CORE-ALIGNMENT-TASKS.md)，历史文件索引不冒充本次逐文件复审。
+
+连续正文投递的索引仅保存本次批准且实际发送的坐标；当前 stage reader 重新取原文并扣字节，不共享旧 receipt。可选初始正文事务延迟到调用预算准入后，预算否决／取消／输入不适配必须回滚，未送入模型不发布 audit。交互内联风险缺失／非法不抹合法 findings，不补发规划。
+
+迁移元数据是宿主生成的 side-qualified 导航，不是模型授权。跨文件 regression 只用已批准 contract ID、来源／角色／精确编辑和独立已校验 receipt，默认旧同主文件协议仍严格。C++ 仅在字面 include、唯一类声明／类外定义和明确 receiver 下产生保守线索，重载／继承／虚分派／宏不能猜测唯一绑定。
+
+精确完整组的根可选 interactions 通道独立于合法 primary 结果验收。仅本代读取覆盖全部成员编辑、source／snapshot／hash 及跨文件引用验收成功后替代匹配专门生成；非法或缺失不触发隐藏主审重跑，候选仍用独立复核。原生 schema、文本合同和可选开销进入真实 wire 预算，预览 minimumCalls 是有条件下限并披露 fallbackMinimumCalls。
+
+额度让出不抢 live unit；其他阶段 release 后有限 FIFO 继续，共享原调用／输出总账和绝对截止。schema2 只保存身份校验过的 primary generation，不持久化成可复用的新证据 receipt；恢复只省生成，交互／综合及验证重新从安全边界执行。没有进展保留 pending／partial，取消不自动变为完成。
+
+受控集成验证入口为 `test/ocr-refactor-integration.test.mjs`、`test/ocr-complete-policy.test.mjs` 及 group/migration/stage 专项测试；其中开关对照 7→5、组通道 5→3 是固定离线响应的模型调用数，不是提供方速度或召回保证。正式发布仍执行下文完整门禁，不把文档更新或本地通过当作已发布。
+
 ## 全项目并发与离线速度对照
 
 插件配置 `projectConcurrency` 默认为 8，范围 1～8；1 为串行回退。仅独立批准批次并行，各批仍有独立检索来源和账本，所有调用与 JSON 纠正共享原执行计数。该上限按单次执行生效，不是全宿主 RPM/TPM 限流器；提供方不支持并发或遇到 429 时应调低。取消/致命检查点错误必须等待全部在途模型清理后释放会话锁，后台 checkpoint 继续使用原串行持久化队列。
@@ -52,7 +66,7 @@ JSON合同新增280字节传输提示防止原始换行／反斜线转义错误�
 
 ## 模型响应失败与诊断
 
-当前核验的 DSH `llm.stream` 接口没有原生 JSON mode／response schema 参数；插件不发送会被忽略的 `responseFormat`，也不把工具参数 schema 当作结构化输出保证。先要求纯 JSON，再做本地解析和阶段 schema、证据校验。
+当前核验的 DSH `llm.stream` 接口没有原生 JSON mode／response schema 参数；插件不发送会被忽略的 `responseFormat`，也不把工具参数 schema 当作结构化输出保证。生产优先使用真实结果工具，保留同次文本兼容，再做本地解析和阶段 schema、证据校验；没有原生工具支持时不伪造结构化输出保证。
 
 正常 stop 后的非法 JSON 最多重新生成两次，共享原调用预算与取消信号；纠正请求只带固定语法分类和可用的行列位置，不回放错误响应、不自动修补 JSON、不删减发现来换取通过。语法位置相对于去掉外层空白及完整代码围栏后的 JSON 正文，偏移单位为 UTF-16 code unit；未知运行时错误文本回退到通用分类，不推测位置。
 

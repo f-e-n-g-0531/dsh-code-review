@@ -19,7 +19,7 @@ import { inferFileRelations } from './file-relations.mjs';
 import { buildReviewGroups } from './review-groups.mjs';
 import { changeMap } from './change-map.mjs';
 import { createRetrievalScope } from './retrieval-scope.mjs';
-import { retrievalLoop } from './retrieval-loop.mjs';
+import { retrievalLoop, retrievalRequest } from './retrieval-loop.mjs';
 import { reviewDiagnostics, diagnosticsMarkdown } from './review-diagnostics.mjs';
 import { preparePrimaryInput } from './primary-input.mjs';
 import { validateAttribution } from './attribution.mjs';
@@ -32,6 +32,13 @@ import { primarySeeds } from './primary-seeds.mjs';
 import { createReviewReaderAllocation } from './review-reader-allocation.mjs';
 import { prepareGroupPrimary, validateGroupPrimary } from './group-primary.mjs';
 import { configureWireBudget, modelWireBudget } from './model-wire-budget.mjs';
+import { createEvidenceContext } from './evidence-context.mjs';
+import { prepareInteractionRisk, consumeInteractionRisks } from './interaction-risk.mjs';
+import { reportSummaryMarkdown } from './report-summary.mjs';
+import { validateGroupInteraction } from './group-interaction.mjs';
+import { stageKey, prepareStageGenerations } from './review-stage-state.mjs';
+import { createStageContinuation } from './stage-continuation.mjs';
+import { buildMigrationContracts } from './migration-contracts.mjs';
 
 export { REVIEW_INSTRUCTIONS };
 export { PROJECT_REVIEW_INSTRUCTIONS };
@@ -124,6 +131,8 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   }
   if (options.enableBusinessGrouping === true && options.enableRetrieval !== true) throw new Error('Business grouping requires approved retrieval scope');
   if (options.enableVerification === true && options.enableRetrieval !== true) throw new Error('Verification requires approved retrieval scope');
+  for (const key of ['enableEvidenceContext', 'inlineInteractionRisks', 'enableMigrationContracts', 'enableMigrationRegression', 'enableGroupInteractions', 'enableStageContinuation']) if (options[key] !== undefined && typeof options[key] !== 'boolean') throw new Error('Invalid review optimization option');
+  const evidenceContext = options.enableEvidenceContext === true ? createEvidenceContext(input.id) : null;
   const readerLimits = reviewReaderBudget(input, options.readerBudgetPolicy ?? 'fixed');
   const scope = options.enableRetrieval === true ? createRetrievalScope({ ...input, context: input.context ?? [] }, { ...readerLimits, signal, ...(options.optimizeReviewCalls === true ? { reuseResults: true } : {}) }) : null;
   const report = { schemaVersion: 1, snapshotId: input.id, vcs: input.vcs, status: 'completed', files: [], findings: [], limitations: [], modelCalls: 0 };
@@ -146,9 +155,14 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   if(input.effectiveMergeSources)report.effectiveMergeSources=structuredClone(input.effectiveMergeSources);
   report.rules = (input.rules ?? []).map(({ path, hash }) => ({ path, hash }));
   if (scope) configureWireBudget(scope, { nativeOutputTools: options.nativeOutputTools === true });
-  if (options.enableGrouping === true) report.grouping = buildReviewGroups(input.files, inferFileRelations(input.files));
+  if (options.enableMigrationContracts === true && scope && !input.projectScope) {
+    report.migrationContracts = buildMigrationContracts(input);
+  }
+  if (options.enableGrouping === true || report.migrationContracts?.contracts.length) report.grouping = buildReviewGroups(input.files, [...inferFileRelations(input.files), ...(report.migrationContracts?.links ?? []).map(link => ({ from: link.from, to: link.to, reason: link.reasons?.join(',') ?? 'migration-contract' }))]);
   report.interactions = [];
-  const interactionPlans = scope && report.grouping ? report.grouping.groups.filter(g => g.fileIds.length > 1).map(group => ({ group, prepared: prepareInteractionInput(input, group, payload => initialInputBudget({ instructions, input: payload }, scope, maxInputBytes)) })) : [];
+  const selectedGroups = (report.grouping?.groups ?? []).filter(group => group.fileIds.length > 1);
+  if (report.migrationContracts) report.migrationContracts.groups = selectedGroups.filter(group => report.migrationContracts.groups.some(other => [...other.fileIds].sort().join(',') === [...group.fileIds].sort().join(',')));
+  const interactionPlans = scope ? selectedGroups.map(group => ({ group, prepared: prepareInteractionInput(input, group, payload => initialInputBudget({ instructions, input: payload }, scope, maxInputBytes)) })) : [];
   for (const plan of interactionPlans.filter(p => p.prepared.status !== 'not-applicable')) report.interactions.push({ groupId: plan.group.id, fileIds: plan.prepared.fileIds, status: plan.prepared.status === 'ready' ? 'pending' : 'blocked', reason: plan.prepared.reason, lifecycle: 'shares-last-primary-timeout' });
   const fileResults = new Array(input.files.length);
   const sharedState = report.orchestration = { modelMetrics: {}, modelCallPurposes: {} };
@@ -174,23 +188,45 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         await options.onProgress?.({ stage: info.action, snapshotId: input.id, phase: request.reviewPhase, ...info });
       } });
   };
-  const groupPrepared = new Map(), groupResults = new Map(), groupStarted = new Map();
+  const groupPrepared = new Map(), groupResults = new Map(), groupStarted = new Map(), groupInteractions = new Map();
+  const acceptedStages = new Map(prepareStageGenerations(input, options.resumeState?.stageGenerations ?? []).filter(record => record.phase === 'primary').map(record => [record.key, { generation: record.generation, record, restored: true }]));
+  const deferredStages = [], yieldedUnits = new Set(), fileDeadlines = new Map(), primaryStageKeys = new Map();
+  const checkpointStages = () => {
+    if (!options.enableStageContinuation) return;
+    report.stageGenerations = prepareStageGenerations(input, [...acceptedStages.values()].map(entry => entry.record).filter(record => record?.phase === 'primary'));
+  };
   let readerAllocation;
   const stageScope = id => readerAllocation
     ? configureWireBudget(readerAllocation.scope(id), { nativeOutputTools: options.nativeOutputTools === true }) : scope;
-  const releaseStage = id => readerAllocation?.release(id);
+  const releaseStage = id => { if (!yieldedUnits.has(id)) readerAllocation?.release(id); };
+  const contextSeeds = (reader, request, existing = [], buildRequest = records => retrievalRequest(request, reader, records)) => {
+    if (!evidenceContext || !reader || maxRetrievalRounds === 0) return [];
+    const payload = JSON.parse(request.input), catalog = reader.catalog();
+    const members = [payload, ...(payload.reviews ?? [])];
+    const fileIds = new Set(members.flatMap(member => [member.file?.id, ...(member.files ?? []).map(item => item.fileId), ...(member.relatedFiles ?? []).map(item => item.id)]).filter(Boolean));
+    const paths = new Set(members.flatMap(member => (member.contextRelations ?? []).flatMap(item => [item.fromPath, item.toPath])).filter(Boolean));
+    for (const caller of members.flatMap(member => member.callerBindings ?? [])) if (caller.path) paths.add(caller.path);
+    const riskIds = new Set(members.flatMap(member => (member.riskPlan ?? []).flatMap(item => item.sourceIds ?? [])));
+    const sourceIds = catalog.filter(source => fileIds.has(source.fileId) || paths.has(source.path) || riskIds.has(source.id)).map(source => source.id).slice(0, 200);
+    return evidenceContext.seed(reader, request, { sourceIds, existing, maxInputBytes, buildRequest });
+  };
   const groupResult = async group => {
     if (!groupResults.has(group.id)) {
       groupStarted.set(group.id, performance.now());
       groupResults.set(group.id, invoke(async request => {
       const prepared = groupPrepared.get(group.id), groupScope = stageScope('group:' + group.id); const limits = [], reads = [];
-      const response = await retrievalLoop(sharedModel, { ...request, nativeOutputTools: options.nativeOutputTools === true, input: prepared.payload, instructions: prepared.instructions, reviewPhase: 'group-primary' }, groupScope, {
+      const groupRequest = { ...request, nativeOutputTools: options.nativeOutputTools === true, input: prepared.payload, instructions: prepared.instructions, reviewPhase: 'group-primary' };
+      const response = await retrievalLoop(sharedModel, groupRequest, groupScope, {
+        initialContext: (existing, build) => contextSeeds(groupScope, groupRequest, existing, build),
         maxRounds: maxRetrievalRounds, maxInputBytes, beforeCall: reserveShared, correctProtocol: options.correctProtocol === true,
         enableSearchSeeds: options.enableSearchSeeds === true,
-        onRetrieved: records => { reads.push(...records); (sharedState.retrievalAudit ??= []).push(...records); },
+        onRetrieved: records => { reads.push(...records); (sharedState.retrievalAudit ??= []).push(...records); evidenceContext?.remember(records); },
         onBudgetLimited: info => { limits.push(info); (sharedState.retrievalLimits ??= []).push(info); },
       });
       const results = validateGroupPrimary(response, prepared, input, validateResponse, scope.catalog());
+      const interaction = validateGroupInteraction(response, prepared, input, reads, scope.catalog());
+      groupInteractions.set(group.id, interaction);
+      if (interaction.status !== 'disabled') (report.groupInteractionChannels ??= []).push({ groupId: group.id, status: interaction.status, reason: interaction.reason });
       for (const generated of results.values()) {
         generated.groupLimits = structuredClone(limits);
         if (generated.groupRisk) {
@@ -284,8 +320,9 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       });
       };
       const executor = scope
-        ? (request, onLimited = () => {}) => retrievalLoop(trackedModel, { ...request, nativeOutputTools: options.nativeOutputTools === true, onProtocolEvent }, activeReader, { correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, initialRetrieved: request.initialRetrieved ?? [], allowExhaustedInitial: request.allowExhaustedInitial === true, enableSearchSeeds: options.enableSearchSeeds === true && !request.reviewPhase?.includes('verification'), onBudgetLimited: info => { onBudgetLimited(info); onLimited(info); }, onRetrieved: records => {
+        ? (request, onLimited = () => {}) => retrievalLoop(trackedModel, { ...request, nativeOutputTools: options.nativeOutputTools === true, onProtocolEvent }, activeReader, { correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, initialRetrieved: request.initialRetrieved ?? [], yieldOnBudget: options.enableStageContinuation === true && activeStage !== 'primary', initialContext: (existing, build) => contextSeeds(activeReader, request, existing, build), allowExhaustedInitial: request.allowExhaustedInitial === true, enableSearchSeeds: options.enableSearchSeeds === true && !request.reviewPhase?.includes('verification'), onBudgetLimited: info => { onBudgetLimited(info); onLimited(info); }, onRetrieved: records => {
           (state.retrievalAudit ??= []).push(...records);
+          evidenceContext?.remember(records);
         }, onTruncated: () => {
           if (!state.retrievalTruncated) result.limitations.push({ fileId: file.id, text: '检索结果达到数量上限，部分匹配未提供给模型' });
           state.retrievalTruncated = true;
@@ -304,42 +341,74 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       }
       const chainTimeout = grouped && timeoutMs > 0 ? Math.max(0, timeoutMs - (performance.now() - groupStarted.get(grouped[0]))) : timeoutMs;
       if (grouped && timeoutMs > 0 && chainTimeout <= 0) throw Object.assign(new Error('Model timeout'), { code: 'MODEL_TIMEOUT' });
+      if (!fileDeadlines.has(file.id)) fileDeadlines.set(file.id, timeoutMs > 0 ? performance.now() + chainTimeout : Infinity);
       await invoke(async enclosingRequest => {
         const batches = [...(prepared.batches ?? [{ payload, windowIds: state.windowIds ?? [] }])];
         if (prepared.synthesis?.status === 'ready') batches.push({ payload: prepared.synthesis.payload, windowIds: [], synthesis: true });
         const matchingInteractionPlans = interactionPlans.filter(p => input.files.filter(f => p.group.fileIds.includes(f.id)).at(-1)?.id === file.id);
         for (const interactionPlan of matchingInteractionPlans.filter(p => p.prepared.status === 'ready')) batches.push({ payload: interactionPlan.prepared.payload, windowIds: [], interaction: interactionPlan.group });
         const scheduled = Array.from({length:rounds},(_,i)=>batches.map(b=>({...b,round:i+1}))).flat();
+        primaryStageKeys.set(file.id, scheduled.filter(batch => !batch.synthesis && !batch.interaction).map(batch => stageKey(file.id, { phase: 'primary', round: batch.round, windowIds: batch.windowIds ?? [] })));
         if(rounds>1) state.reviewPasses=scheduled.map(b=>({round:b.round,windowIds:b.windowIds,...(b.interaction?{groupId:b.interaction.id}:{}),...(b.synthesis?{synthesis:true}:{}),status:'pending'}));
         const riskInput = canonicalRiskInput(input, file, prepared, { instructions: RISK_PLAN_INSTRUCTIONS, scope, maxInputBytes });
         let primaryRiskPlan;
-        for (const [batchIndex,batch] of scheduled.entries()) {
+        const executeStage = async (batch, batchIndex, enclosingRequest, retry = false) => {
         enclosingRequest.signal.throwIfAborted();
+        const key = stageKey(file.id, { phase: batch.interaction ? 'file-interaction' : batch.synthesis ? 'window-synthesis' : 'primary', round: batch.round, windowIds: batch.windowIds ?? [], ...(batch.interaction ? { groupId: batch.interaction.id } : {}) });
+        const priorStage = acceptedStages.get(key);
+        if (retry && priorStage?.completed) return;
+        const allocationId = batch.interaction ? 'interaction:' + batch.interaction.id : batch.synthesis ? 'synthesis:' + file.id : 'primary:' + file.id;
+        const defer = (error, unitId = allocationId) => {
+          if (!options.enableStageContinuation || !readerAllocation || !['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(error?.code)) return false;
+          if (!yieldedUnits.has(unitId)) { readerAllocation.yield(unitId, { reason: error.code }); yieldedUnits.add(unitId); }
+          let pending = deferredStages.find(item => item.key === key);
+          if (pending && pending.allocationId !== unitId) { const previousUnit = pending.allocationId; pending.allocationId = unitId; if (!deferredStages.some(other => other !== pending && !other.done && other.allocationId === previousUnit)) { yieldedUnits.delete(previousUnit); readerAllocation.release(previousUnit); } }
+          if (!pending) {
+            pending = { key, allocationId: unitId, fileId: file.id, phase: unitId.startsWith('verification:') ? 'verification' : phase === 'window-synthesis' ? 'synthesis' : 'interaction', fileIds: batch.interaction?.fileIds ?? [file.id], attempts: 0, run: () => invoke(next => executeStage(batch, batchIndex, next, true), { instructions, input: payload }, timeoutMs > 0 ? Math.max(1, fileDeadlines.get(file.id) - performance.now()) : 0, signal) };
+            deferredStages.push(pending);
+          }
+          pending.requests = error.pendingRequests ?? []; pending.reason = error.code; pending.done = false;
+          state.continuationPending = true;
+          if (batch.interaction) Object.assign(report.interactions.find(item => item.groupId === batch.interaction.id), { status: 'pending', reason: error.code });
+          if (batch.synthesis) state.synthesisStatus = 'pending';
+          return true;
+        };
         const phase=batch.interaction?'file-interaction':batch.synthesis?'window-synthesis':'primary';
         try{
         activeStage = phase;
-        activeReader = groupedGeneration && !batch.synthesis && !batch.interaction ? scope : stageScope(batch.interaction ? 'interaction:' + batch.interaction.id : batch.synthesis ? 'synthesis:' + file.id : 'primary:' + file.id);
+        if (!priorStage && yieldedUnits.has(allocationId)) { defer(Object.assign(new Error('Stage is waiting for released reader capacity'), { code: 'READER_CALL_BUDGET_EXCEEDED' })); return; }
+        activeReader = priorStage || groupedGeneration && !batch.synthesis && !batch.interaction ? scope : stageScope(allocationId);
         // Consuming an already validated group member performs no new source/model work.
-        const cachedPrimary = groupedGeneration && !batch.synthesis && !batch.interaction;
-        const admission = !cachedPrimary && activeReader && options.optimizeReviewCalls === true
+        const combinedInteraction = batch.interaction && batch.round === 1 ? [...groupInteractions].find(([id, channel]) => channel.status === 'accepted' && JSON.stringify([...groupPrepared.get(id).fileIds].sort()) === JSON.stringify([...batch.interaction.fileIds].sort()))?.[1] : null;
+        const cachedPrimary = !!priorStage || groupedGeneration && !batch.synthesis && !batch.interaction;
+        const admission = !cachedPrimary && !combinedInteraction && activeReader && options.optimizeReviewCalls === true
           ? readerAdmission({ synthesis: batch.synthesis === true, interaction: !!batch.interaction, metadata: prepared.metadata }, activeReader.budget()) : { permitted: true };
         if (!admission.permitted) {
+          if ((batch.synthesis || batch.interaction) && defer(Object.assign(new Error('Stage reader allocation unavailable'), { code: admission.code }))) return;
           state.readerAdmission = { code: admission.code, remaining: activeReader.budget() };
           if (batch.synthesis || batch.interaction) throw Object.assign(new Error('Required evidence budget unavailable before stage admission'), { code: admission.code });
           state.reason = '检索预算不足以取得本阶段所需证据，未启动模型；需重新预览补审';
           state.failureCode = admission.code;
           state.retrievalLimited = true;
-          continue;
+          return;
         }
         let batchPayload = batch.payload;
-        const inlineRisk = !groupedGeneration && prepared.inlineRisk === true && batch.round === 1 && !batch.synthesis && !batch.interaction;
-        const batchInstructions = inlineRisk ? prepared.instructions : instructions;
+        const relevantContracts = report.migrationContracts?.contracts.filter(contract => contract.candidateFileIds.includes(file.id) || batch.interaction?.fileIds.some(id => contract.candidateFileIds.includes(id))) ?? [];
+        if (relevantContracts.length) {
+          const enriched = JSON.stringify({ ...JSON.parse(batchPayload), migrationContracts: relevantContracts, migrationNotice: 'Host navigation hypotheses only; old/new entries and callers are side-qualified. Follow the complete old public gate → new entry → caller chain under the SAME trigger. Contracts do not prove semantic migration, grant sources, or replace current independent verification.' });
+          if (initialInputBudget({ input: enriched, instructions }, activeReader, maxInputBytes).fits) batchPayload = enriched;
+          else (state.migrationContextLimitations ??= []).push('Migration navigation did not fit this stage; no coverage claim.');
+        }
+        const interactionStrategy = batch.interaction && !combinedInteraction ? prepareInteractionRisk(input, batch.interaction, matchingInteractionPlans.find(plan => plan.group.id === batch.interaction.id).prepared, { ...options, instructions, scope: activeReader, maxInputBytes, round: batch.round }) : null;
+        const inlineInteraction = !priorStage && interactionStrategy?.mode === 'inline';
+        const inlineRisk = !priorStage && (inlineInteraction || (!groupedGeneration && prepared.inlineRisk === true && batch.round === 1 && !batch.synthesis && !batch.interaction));
+        const batchInstructions = inlineInteraction ? interactionStrategy.instructions : inlineRisk ? prepared.instructions : instructions;
         let riskEntry, activeRisks = [];
         if (inlineRisk) {
-          riskEntry = { status: 'pending', method: 'inline', windowIds: batch.windowIds, scope: state.sourceMode === 'change-windows' ? 'all-edits' : 'full-file', risks: [], decision: { required: true, reason: 'inline-primary' } };
+          riskEntry = { status: 'pending', method: 'inline', windowIds: batch.windowIds, scope: inlineInteraction ? 'group-all-edits' : state.sourceMode === 'change-windows' ? 'all-edits' : 'full-file', ...(inlineInteraction ? { groupId: batch.interaction.id, sourceMode: 'file-interaction' } : {}), risks: [], decision: { required: true, reason: inlineInteraction ? 'inline-interaction' : 'inline-primary' } };
           (state.riskPlans ??= []).push(riskEntry);
         }
-        if (options.enableRiskPlanning === true && (!groupedGeneration || batch.interaction) && !inlineRisk && !batch.synthesis && batch.round === 1) {
+        if (options.enableRiskPlanning === true && (!groupedGeneration || batch.interaction) && !inlineRisk && !combinedInteraction && !priorStage && !batch.synthesis && batch.round === 1) {
           const reusable = !batch.interaction && riskInput.cacheable;
           riskEntry = reusable ? primaryRiskPlan : undefined;
           if (!riskEntry) {
@@ -380,7 +449,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             }
           }
         }
-        if(report.modelCalls>=maxCalls && !(groupedGeneration && !batch.synthesis && !batch.interaction))throw new Error('Model call budget exceeded before next review pass');
+        if(report.modelCalls>=maxCalls && !priorStage && !combinedInteraction && !(groupedGeneration && !batch.synthesis && !batch.interaction))throw new Error('Model call budget exceeded before next review pass');
         if(rounds>1) state.reviewPasses[batchIndex].status='running';
         const request = { ...enclosingRequest, nativeOutputTools: options.nativeOutputTools === true, instructions: batchInstructions, input: batchPayload, reviewPhase: phase, allowExhaustedInitial: options.optimizeReviewCalls === true && !batch.synthesis && !batch.interaction && prepared.metadata.contextMode !== 'approved-retrieval' };
         let auditStart = state.retrievalAudit?.length ?? 0;
@@ -406,13 +475,15 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
               response = decoded;
             }
           }
-          const generated = batch.interaction ? validateInteractionFindings(response, input, batch.interaction, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog()) : validateResponse(response, file, changes);
-          if (inlineRisk) { const value = typeof response === 'string' ? JSON.parse(response) : response; if (Object.hasOwn(value, 'risks')) generated.inlineRisks = value.risks; }
+          const interactionResult = inlineInteraction ? consumeInteractionRisks(response, input, batch.interaction, scope.catalog()) : null;
+          const generated = batch.interaction ? validateInteractionFindings(interactionResult?.response ?? response, input, batch.interaction, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog()) : validateResponse(response, file, changes);
+          if (inlineInteraction) generated.interactionRisk = interactionResult.risk;
+          else if (inlineRisk) { const value = typeof response === 'string' ? JSON.parse(response) : response; if (Object.hasOwn(value, 'risks')) generated.inlineRisks = value.risks; }
           if (batch.synthesis) validateSynthesisReads(generated.findings, changes, (state.retrievalAudit ?? []).slice(auditStart), scope.catalog(), file.id, input.id);
           if (!batch.interaction && state.sourceMode === 'change-windows') validateWindowFindings(generated.findings, batch.synthesis ? prepared.synthesis.windows : JSON.parse(batch.payload).windows, batch.synthesis === true);
           return generated;
         };
-        const generated = groupedGeneration && !batch.synthesis && !batch.interaction ? structuredClone(groupedGeneration) : await correctedResponse(generate, validate, request, {
+        const generated = priorStage ? priorStage.generation : combinedInteraction ? { findings: structuredClone(combinedInteraction.findings), limitations: structuredClone(combinedInteraction.limitations) } : groupedGeneration && !batch.synthesis && !batch.interaction ? structuredClone(groupedGeneration) : await correctedResponse(generate, validate, request, {
           enabled: options.correctProtocol === true,
           canCorrect: () => !finalResponseOnly,
           onCorrection: async info => {
@@ -424,7 +495,12 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             await options.onProgress?.({ stage: 'protocol-correction', fileId: file.id, path: file.path, ...info });
           },
         });
-        if (inlineRisk) {
+        if (inlineInteraction) {
+          Object.assign(riskEntry, generated.interactionRisk);
+          activeRisks = riskEntry.risks;
+          if (riskEntry.limitation) result.limitations.push({ fileId: file.id, text: riskEntry.limitation });
+          delete generated.interactionRisk;
+        } else if (inlineRisk) {
           const response = generated.inlineRisks;
           if (response === undefined) { riskEntry.status = 'absent'; result.limitations.push({ fileId: file.id, text: '合并主审未返回风险问题，保留有效发现但不声明独立风险规划完成' }); }
           else {
@@ -433,7 +509,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           }
           delete generated.inlineRisks;
         }
-        if (options.enableRiskPlanning === true && (!groupedGeneration || batch.interaction) && !batch.synthesis && batch.round === 1) {
+        if (options.enableRiskPlanning === true && !priorStage && !combinedInteraction && (!groupedGeneration || batch.interaction) && !batch.synthesis && batch.round === 1) {
           const coverage = riskReadCoverage(activeRisks,(state.retrievalAudit??[]).slice(auditStart),scope?.catalog()??[],input.id);
           (riskEntry.generations ??= []).push({ round: batch.round, windowIds: batch.windowIds, coverage });
           // Preserve the single-generation field without unioning evidence across windows.
@@ -443,16 +519,24 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         }
         request.signal.throwIfAborted();
         if(rounds>1)generated.findings.forEach(f=>{f.reviewRound=batch.round;});
-        result.findings.push(...generated.findings);
+        if (options.enableStageContinuation && !priorStage && !state.retrievalLimited) {
+          const record = { key, fileId: file.id, phase, round: batch.round, windowIds: batch.windowIds ?? [], ...(batch.interaction ? { groupId: batch.interaction.id } : {}), generation: { findings: structuredClone(generated.findings), limitations: structuredClone(generated.limitations) } };
+          acceptedStages.set(key, { generation: generated, record, completed: false });
+          checkpointStages();
+        }
+        for (const finding of generated.findings) { const index = priorStage ? result.findings.findIndex(existing => existing.id === finding.id) : -1; if (index < 0) result.findings.push(finding); else result.findings[index] = finding; }
         if (generated.findings.some(f => f.attribution.status === 'missing')) result.limitations.push({ fileId: file.id, text: '部分发现缺少变更归因，仅校验了定位，尚不能确认属于本次回归' });
         result.limitations.push(...generated.limitations.map(text => ({ fileId: file.id, text })));
         if (!groupedGeneration && !scheduled.slice(batchIndex + 1).some(next => !next.synthesis && !next.interaction)) releaseStage('primary:' + file.id);
-        if (options.enableVerification === true && generated.findings.length) {
+        if (options.enableStageContinuation && !batch.interaction && !batch.synthesis && state.windowCoverage && batch.round === 1) { state.windowCoverage.completed = [...new Set([...state.windowCoverage.completed, ...batch.windowIds])]; state.windowCoverage.pending = state.windowCoverage.pending.filter(id => !batch.windowIds.includes(id)); }
+        if (options.enableVerification === true && generated.findings.length && !priorStage?.completed) {
+          if (yieldedUnits.has('verification:' + file.id)) { defer(Object.assign(new Error('Verification allocation is waiting for released capacity'), { code: 'READER_CALL_BUDGET_EXCEEDED' }), 'verification:' + file.id); return; }
           for (const finding of generated.findings) finding.verification = { status: 'pending', causality: 'unverified' };
           try {
             activeStage = 'verification';
             const verdicts = await verificationLoop(trackedModel, { ...request, onProtocolEvent, reviewPhase: 'verification' }, generated.findings, stageScope('verification:' + file.id), {
-              correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, onBudgetLimited,
+              correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, onBudgetLimited, yieldOnBudget: options.enableStageContinuation === true,
+              enableMigrationRegression: options.enableMigrationRegression === true, migrationContracts: report.migrationContracts?.contracts ?? [], migrationSnapshot: input,
               onRetrieved: records => { (state.retrievalAudit ??= []).push(...records); },
               onTruncated: () => { result.limitations.push({ fileId: file.id, text: '复核检索结果达到数量上限' }); },
             });
@@ -465,11 +549,14 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             for (const finding of generated.findings) finding.verification = { status: 'incomplete', causality: 'unverified' };
             result.limitations.push({ fileId: file.id, text: '候选复核未完成：' + (error?.message ?? String(error)) });
             request.signal.throwIfAborted();
+            if (defer(error, 'verification:' + file.id)) return;
           }
         }
+        if (acceptedStages.has(key)) acceptedStages.get(key).completed = !options.enableVerification || generated.findings.every(finding => finding.verification?.status === 'completed');
         if (batch.synthesis) state.synthesisStatus = 'completed';
         if (batch.interaction) {
           const interaction=report.interactions.find(p => p.groupId === batch.interaction.id);
+          if (combinedInteraction) Object.assign(interaction, { method: 'group-primary-validated-channel', channelGroupId: combinedInteraction.groupId });
           if(rounds>1){interaction.completedRounds??=[];interaction.completedRounds.push(batch.round);interaction.reviewRounds=rounds;}
           if(batch.round===rounds)interaction.status='completed';
         }
@@ -478,13 +565,15 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           state.windowCoverage.pending = state.windowCoverage.pending.filter(id => !batch.windowIds.includes(id));
         }
         if(rounds>1)state.reviewPasses[batchIndex].status='completed';
+        if (retry) { const pending = deferredStages.find(stage => stage.key === key); if (pending) pending.succeeded = !options.enableVerification || generated.findings.every(finding => finding.verification?.status === 'completed'); }
         await options.onProgress?.({stage:'window-complete',snapshotId:input.id,fileId:file.id,path:file.path,windowIds:batch.windowIds,round:batch.round,findings:generated.findings,windowCoverage:state.windowCoverage});
         }catch(error){
           enclosingRequest.signal.throwIfAborted();
+          if (defer(error)) return;
           if(phase==='primary'||error.code==='MODEL_ARTIFACT_FAILED')throw error;
           if (['Model call budget exceeded', 'Model call budget exceeded before next review pass'].includes(error.message) || error.code === 'PROJECT_MODEL_CALL_LIMIT') {
             result.limitations.push({ fileId: file.id, text: phase + '模型调用额度不足，尚未启动的阶段保留 pending；已完成主审成果保留' });
-            break;
+            return false;
           }
           const failure={phase,status:'failed',code:error.code??'REVIEW_EXECUTION_FAILED',reason:error.message,round:batch.round,...(error.attempts?{attempts:error.attempts}:{}),...(error.diagnostic?{diagnostic:error.diagnostic}:{})};
           (state.stageFailures??=[]).push(failure);
@@ -494,11 +583,12 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           result.limitations.push({fileId:file.id,text:phase+'未完成：'+error.message+'；已完成主文件/窗口成果保留，不表示综合已通过'});
           await options.onProgress?.({stage:'synthesis-failed',snapshotId:input.id,fileId:file.id,path:file.path,...failure,windowCoverage:state.windowCoverage});
         }
-        }
+        };
+        for (const [batchIndex, batch] of scheduled.entries()) if (await executeStage(batch, batchIndex, enclosingRequest) === false) break;
       }, { instructions, input: payload }, chainTimeout, signal);
       if (signal?.aborted) throw signal.reason;
 
-      state.status = state.retrievalLimited ? 'pending' : 'completed';
+      state.status = state.retrievalLimited || state.continuationPending ? 'pending' : 'completed';
       if (state.retrievalLimited) {
         const codes = new Set([...(state.retrievalLimits ?? []), ...(state.groupRetrievalLimits ?? [])].map(limit => limit.code));
         state.reason = codes.has('RETRIEVAL_ROUND_BUDGET_EXCEEDED')
@@ -526,6 +616,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       }
       state.resumeEligible = state.status === 'completed' && !state.stageFailures?.length && !state.reviewPasses?.some(pass => pass.status !== 'completed') && !state.windowCoverage?.pending?.length && !state.retrievalLimited && result.findings.every(f => f.verification?.status === 'completed') && report.interactions.filter(item => item.fileIds?.includes(file.id)).every(item => item.status === 'completed');
       await options.onProgress?.({stage:'file-complete',snapshotId:input.id,file:state,findings:result.findings});
+      checkpointStages();
       await options.onResumeCheckpoint?.({ ...report, files: fileResults.filter(Boolean).map(item => item.state), findings: fileResults.filter(Boolean).flatMap(item => item.findings), limitations: [...report.limitations, ...fileResults.filter(Boolean).flatMap(item => item.limitations)] });
     }
   };
@@ -558,17 +649,17 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   }
   if (options.enableGroupPrimary === true && scope && rounds === 1) {
     const seen = new Set();
-    const groups = report.businessGrouping?.groups ?? report.grouping?.groups ?? [];
+    const groups = [...(report.migrationContracts?.groups ?? []), ...(report.businessGrouping?.groups ?? report.grouping?.groups ?? [])];
     for (const group of groups) {
-      if (group.fileIds.some(id => seen.has(id) || options.resumeState?.completed?.some(row => row.fileId === id))) continue;
-      const prepared = prepareGroupPrimary(input, group, { instructions, scope, maxInputBytes, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning === true });
+      if (group.fileIds.some(id => seen.has(id) || options.resumeState?.completed?.some(row => row.fileId === id) || options.resumeState?.stageGenerations?.some(row => row.fileId === id))) continue;
+      const prepared = prepareGroupPrimary(input, group, { instructions, scope, maxInputBytes, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning === true, enableGroupInteractions: options.enableGroupInteractions === true, migrationContracts: report.migrationContracts?.contracts ?? [] });
       if (!prepared) continue;
       groupPrepared.set(group.id, prepared);
       for (const id of group.fileIds) seen.add(id);
     }
     report.primaryGroups = [...groupPrepared].map(([groupId, p]) => ({ groupId, fileIds: p.fileIds, mode: 'group-primary' }));
   }
-  if (scope && options.optimizeReviewCalls === true) {
+  if (scope && (options.optimizeReviewCalls === true || options.enableStageContinuation === true)) {
     const units = [];
     const reusable = new Set((options.resumeState?.completed ?? []).map(row => row.fileId));
     for (const [id, prepared] of groupPrepared) units.push({ id: 'group:' + id, weight: prepared.fileIds.length * 4 });
@@ -591,7 +682,46 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     try { await runFile(index); }
     catch (error) { controller.abort(error); throw error; }
   }, dependencies, fileConcurrency);
+  if (options.enableStageContinuation === true && deferredStages.length && !signal.aborted) {
+    const primaryDone = input.files.filter(file => file.eligibility === 'reviewable' && (options.resumeState?.completed?.some(row => row.fileId === file.id) || primaryStageKeys.get(file.id)?.length && primaryStageKeys.get(file.id).every(key => acceptedStages.has(key)))).map(file => file.id);
+    const units = deferredStages.map(stage => ({ id: hash(stage.key), kind: stage.phase, fileIds: stage.fileIds, dependencies: stage.fileIds.map(id => 'primary:' + id) }));
+    const continuationOptions = { rounds, maxInputBytes, enableMigrationContracts: options.enableMigrationContracts === true, enableMigrationRegression: options.enableMigrationRegression === true };
+    let continuation = createStageContinuation(input, continuationOptions, { completedPrimary: primaryDone, units, maxAttempts: 2 });
+    if (options.resumeState?.continuation?.state) {
+      const fresh = continuation.checkpoint(), prior = options.resumeState.continuation.state;
+      for (const unit of fresh.units) { const old = prior.units.find(item => item.id === unit.id && item.kind === unit.kind && JSON.stringify(item.fileIds) === JSON.stringify(unit.fileIds)); if (old && old.status !== 'completed') { unit.attempts = Math.min(fresh.maxAttempts, old.attempts); unit.stopped = unit.attempts >= fresh.maxAttempts; unit.pendingReason = unit.stopped ? 'STAGE_ATTEMPTS_EXHAUSTED' : 'STAGE_INTERRUPTED'; } }
+      continuation = createStageContinuation(input, continuationOptions, { completedPrimary: primaryDone, units, checkpoint: fresh, maxAttempts: 2 });
+    }
+    for (let pass = 0; pass < 2; pass++) {
+      let progressed = false;
+      for (const stage of deferredStages) {
+        if (stage.done || !continuation.ready().some(unit => unit.id === hash(stage.key))) continue;
+        if (performance.now() >= fileDeadlines.get(stage.fileId) || signal.aborted || report.modelCalls >= maxCalls) { continuation.stop(hash(stage.key), 'STAGE_NO_PROGRESS'); continue; }
+        const admitted = !yieldedUnits.has(stage.allocationId) ? { resumed: true } : stage.requests.length ? readerAllocation.resume(stage.allocationId, stage.requests) : readerAllocation.resumeBudget(stage.allocationId);
+        if (!admitted.resumed) continue;
+        yieldedUnits.delete(stage.allocationId);
+        const token = continuation.start(hash(stage.key), { signal });
+        stage.attempts++; await stage.run();
+        progressed = true;
+        if (stage.succeeded && !yieldedUnits.has(stage.allocationId)) { stage.done = true; continuation.complete(hash(stage.key), token.attempt, { signal }); if (!deferredStages.some(other => other !== stage && !other.done && other.allocationId === stage.allocationId)) readerAllocation.release(stage.allocationId); }
+        else { continuation.yield(hash(stage.key), stage.reason); if (!yieldedUnits.has(stage.allocationId)) continuation.stop(hash(stage.key), 'STAGE_FAILED'); }
+      }
+      if (!progressed) break;
+    }
+    report.stageContinuation = continuation.summary();
+    report.continuation = continuation.checkpoint();
+    report.continuationOptions = continuationOptions;
+    for (const file of input.files) {
+      const result = fileResults[input.files.indexOf(file)];
+      const pending = deferredStages.filter(stage => stage.fileId === file.id && !stage.done);
+      if (result?.state.continuationPending && !pending.length) { result.state.continuationPending = false; if (result.state.status === 'pending' && primaryDone.includes(file.id) && !result.state.stageFailures?.length && !result.state.reviewPasses?.some(pass => pass.status !== 'completed')) result.state.status = result.state.retrievalLimited ? 'pending' : 'completed'; }
+    }
+    checkpointStages();
+    await options.onResumeCheckpoint?.({ ...report, files: fileResults.map(result => result.state), findings: fileResults.flatMap(result => result.findings), limitations: [...report.limitations, ...fileResults.flatMap(result => result.limitations)] });
+  }
+  for (const id of yieldedUnits) readerAllocation?.release(id);
   if (checkpointFailed) throw checkpointFailure;
+  for (const result of fileResults) if (result?.state.continuationPending === false) { const state = result.state; state.resumeEligible = state.status === 'completed' && !state.stageFailures?.length && !state.reviewPasses?.some(pass => pass.status !== 'completed') && !state.windowCoverage?.pending?.length && !state.retrievalLimited && result.findings.every(finding => finding.verification?.status === 'completed') && report.interactions.filter(item => item.fileIds?.includes(state.fileId)).every(item => item.status === 'completed'); }
   report.files = fileResults.map(result => result.state);
   report.findings = fileResults.flatMap(result => result.findings);
   report.limitations.push(...fileResults.flatMap(result => result.limitations));
@@ -663,7 +793,12 @@ function renderFinding(output, finding, index, duplicates) {
   }
 
 export function markdownReport(report) {
-  const output = ['# Code Review 报告', '', '状态：' + report.status, '快照：' + report.snapshotId, '', '## 覆盖情况'];
+  const output = ['# Code Review 报告', '', '状态：' + report.status, '快照：' + report.snapshotId, ...reportSummaryMarkdown(report), '', '## 审查发现'];
+  if (!report.findings.length) output.push(report.status === 'completed' ? '在已审查范围内未发现具体问题；不代表代码已被证明正确。' : '当前没有有效问题记录，但审查存在未完成项或限制，不能视为通过。');
+  const duplicates = new Map();
+  for (const group of groupDuplicateFindings(report.findings)) for (const index of group.findingIndices.slice(1)) duplicates.set(index, group.findingIndices[0]);
+  for (const [index, finding] of report.findings.entries()) renderFinding(output, finding, index, duplicates);
+  output.push('', '## 覆盖情况');
   if (report.callerDiscovery) output.push('- 引用方发现：扫描 '+report.callerDiscovery.scanned.length+' 个文件，捕获 '+report.callerDiscovery.capturedPaths.length+' 个上下文；仅批准目录字面引用导航，不证明函数调用或完整覆盖。');
   if(report.businessRequirement)output.push('- 业务需求：SHA256 '+safe(report.businessRequirement.hash)+' · '+report.businessRequirement.bytes+' bytes；不可信约束，不是证据或权限，全文不在报告重复。');
   for (const file of report.files) for (const correction of file.anchorCorrections ?? []) output.push('- 定位纠正：' + safe(correction.originalCandidate.fileId) + ' · ' + safe(correction.status) + ' · ' + safe(correction.reason) + '；原完整候选保留JSON，仅定位不证明因果');
@@ -685,15 +820,7 @@ export function markdownReport(report) {
   for (const interaction of report.interactions ?? []) output.push('- 跨文件综合 ' + safe(interaction.groupId) + '：' + safe(interaction.status) + (interaction.failureCode ? ' · ' + safe(interaction.failureCode) : '') + (interaction.reason ? ' — ' + safe(interaction.reason) : '') + '；与组末主文件共享生命周期，不证明完整交互覆盖');
   if (report.rules?.length) output.push('', '## 项目规则', '规则仅为已批准约束数据，不扩大权限或证明缺陷。', ...report.rules.map(rule => '- ' + safe(rule.path) + ' · SHA256 ' + safe(rule.hash)));
   if (report.followup?.suggestedPaths.length) output.push('', '## 后续选择建议', '仅为原快照未完成项；不会自动续审。再次执行需新预览、新审批，并显式选择规则和上下文。阻断项需先处理原因；关联上下文不等于主文件已审查。', ...report.followup.items.filter(item => item.followup).map(item => '- ' + safe(item.path) + '：' + item.status + (item.incompleteVerification ? '（候选复核未完成）' : '')));
-  output.push('', '## 审查发现');
-  if (!report.findings.length) output.push(report.status === 'completed' ? '在已审查范围内未发现具体问题；不代表代码已被证明正确。' : '当前没有有效问题记录，但审查存在未完成项或限制，不能视为通过。');
   output.push(...diagnosticsMarkdown(report.diagnostics));
-  // Recompute from exact data rather than trusting potentially stale group metadata.
-  const duplicates = new Map();
-  for (const group of groupDuplicateFindings(report.findings)) {
-    for (const index of group.findingIndices.slice(1)) duplicates.set(index, group.findingIndices[0]);
-  }
-  for (const [index, finding] of report.findings.entries()) renderFinding(output, finding, index, duplicates);
   if (report.limitations.length) output.push('', '## 限制', ...report.limitations.map(l => '- ' + safe(l.text)));
   return output.join('\n') + '\n';
 }

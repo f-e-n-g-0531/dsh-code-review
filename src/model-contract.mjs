@@ -9,11 +9,11 @@ const INTERACTION_CONTRACT = '本阶段返回 {"findings":[],"limitations":[]}�
 const FINDINGS_CONTRACT = '本阶段最终返回 {"findings":[],"limitations":[]}。每项finding必须含fileId、severity（critical/high/medium/low）、title、evidence、trigger、impact、suggestion和anchor；fileId原样复制file.id，不用文件名替代。行定位写成 anchor:{kind:"line",side:"new",start:1,end:1,snippet:"逐行原文"}（仅为形状示例，不是证据）；start/end用原来源一基行号而非窗口内序号，精确匹配原行；old/new按当前阶段允许侧选择，示例不改变授权；仅当没有retrievalFinalization且仍有检索余量时，需要更多证据可按检索协议先返回requests。';
 
 function stageContract(p, instructions) {
-  if (Array.isArray(p.candidates)) return VERDICT_CONTRACT;
+  if (Array.isArray(p.candidates)) return VERDICT_CONTRACT + (Array.isArray(p.migrationContracts) && p.migrationContracts.length ? ' 若明确按宿主migrationContracts跨文件比较，regression仅在原classification/reason/oldEvidence/newEvidence之外附带migrationContractId；必须逐字来自本次宿主contract.id，不允许模型声明新的contract、source授权或角色。缺边证据保留uncertain；未启用时仍按原同主文件规则。' : '');
   if (/返回\{groups:/.test(instructions)) return GROUPS_CONTRACT;
   if (/仅制定审查计划/.test(instructions)) return instructions.includes(RISK_PLAN_SCHEMA) ? '本阶段严格按上述risks schema返回，禁止requests/findings；身份逐项核对输入。' : RISK_CONTRACT;
-  if (p.sourceMode === 'group-primary') return '本阶段返回{reviews:[{fileId,findings:[],limitations:[],risks:可选数组}],limitations:[]}；每项fileId仅来自reviews[].file.id，按文件原始坐标审查，不将分组自动视为交互证据。可按批准检索协议单独返回requests。';
-  if (p.sourceMode === 'file-interaction') return INTERACTION_CONTRACT;
+  if (p.sourceMode === 'group-primary') return '本阶段返回{reviews:[{fileId,findings:[],limitations:[],risks:可选数组}],limitations:[]}；每项fileId仅来自reviews[].file.id，按文件原始坐标审查，不将分组自动视为交互证据。可按批准检索协议单独返回requests。' + (p.groupInteraction ? ' 根结果可附带可选interactions:{groupId,findings:[],limitations:[]}，groupId严格来自groupInteraction.groupId；只有本次实际read覆盖各成员编辑并通过交互校验才替代独立交互阶段。缺失/非法交互不抹主审结果且保留独立阶段；reviews成员不能夹带interaction发现。' : '');
+  if (p.sourceMode === 'file-interaction') return INTERACTION_CONTRACT + (instructions.includes('INLINE_INTERACTION_RISKS') ? ' 可同时返回risks数组，风险schema与原指令一致；风险是假设而非已确认发现，不代替交互证据。' : '');
   if (p.file) return FINDINGS_CONTRACT;
   return '';
 }

@@ -1,4 +1,5 @@
-import { VERIFICATION_INSTRUCTIONS } from './prompts.mjs';
+import { prepareMigrationRegression, migrationRegressionMetadata } from './migration-regression.mjs';
+import { VERIFICATION_INSTRUCTIONS, MIGRATION_VERIFICATION_INSTRUCTIONS } from './prompts.mjs';
 import { CONTEXT_SIDE_NOTICE } from './context-identity.mjs';
 import { defectGuidance } from './defect-guidance.mjs';
 import { modelWireBudget } from './model-wire-budget.mjs';
@@ -15,13 +16,17 @@ export { VERIFICATION_INSTRUCTIONS };
 export async function verificationLoop(model, request, candidates, scope, options = {}) {
   request.signal?.throwIfAborted();
   if (!Array.isArray(candidates) || candidates.length > 50) throw new Error('Invalid candidates');
+  if (options.enableMigrationRegression !== undefined && typeof options.enableMigrationRegression !== 'boolean') throw new Error('Invalid migration regression policy');
   if (!candidates.length) return [];
   const ids = candidates.map((_, i) => 'c' + (i + 1));
   const envelope = request.input ? JSON.parse(request.input) : {};
   const rules = envelope.rules ?? [];
-  const input = JSON.stringify({ contextSideNotice:CONTEXT_SIDE_NOTICE, ...(envelope.businessRequirement!==undefined?{businessRequirement:envelope.businessRequirement,requirementNotice:envelope.requirementNotice}:{}), defectGuidance: [...new Set(candidates.map(f => scope.catalog().find(s => s.fileId === f.fileId)?.path).filter(Boolean))].map(path => envelope.file?.path === path && envelope.defectGuidance ? envelope.defectGuidance : envelope.files?.find(f=>f.path===path)?.defectGuidance ?? defectGuidance(path)), rules, candidates: candidates.map((finding, i) => ({ candidateId: ids[i], finding })) });
+  const project = options.migrationSnapshot?.projectScope || options.migrationSnapshot?.files?.some(file => file.reviewMode === 'project') || envelope.file?.reviewMode === 'project';
+  if (options.enableMigrationRegression === true && !project && options.migrationContracts?.length && options.migrationSnapshot?.id !== envelope.snapshotId) throw new Error('Migration verification snapshot mismatch');
+  const migrationContext = options.enableMigrationRegression === true && !project && options.migrationContracts?.length ? prepareMigrationRegression(options.migrationSnapshot, scope, options.migrationContracts, candidates) : undefined;
+  const input = JSON.stringify({ ...(envelope.snapshotId ? { snapshotId: envelope.snapshotId } : {}), ...(migrationContext ? { migrationContracts: migrationRegressionMetadata(migrationContext) } : {}), contextSideNotice:CONTEXT_SIDE_NOTICE, ...(envelope.businessRequirement!==undefined?{businessRequirement:envelope.businessRequirement,requirementNotice:envelope.requirementNotice}:{}), defectGuidance: [...new Set(candidates.map(f => scope.catalog().find(s => s.fileId === f.fileId)?.path).filter(Boolean))].map(path => envelope.file?.path === path && envelope.defectGuidance ? envelope.defectGuidance : envelope.files?.find(f=>f.path===path)?.defectGuidance ?? defectGuidance(path)), rules, candidates: candidates.map((finding, i) => ({ candidateId: ids[i], finding })) });
   const seedReceipts = new Map();
-  const verificationRequest = { ...request, input, instructions:envelope.file?.reviewMode==='project'?VERIFICATION_INSTRUCTIONS+' 本次为当前项目源码审查，空old只是传输占位，不是历史版本。不要要求回归因果；regression.classification用uncertain并说明不适用，仅凭new侧原文核实当前缺陷和反证。':VERIFICATION_INSTRUCTIONS };
+  const verificationRequest = { ...request, input, instructions:envelope.file?.reviewMode==='project'?VERIFICATION_INSTRUCTIONS+' 本次为当前项目源码审查，空old只是传输占位，不是历史版本。不要要求回归因果；regression.classification用uncertain并说明不适用，仅凭new侧原文核实当前缺陷和反证。':VERIFICATION_INSTRUCTIONS + (migrationContext ? ' ' + MIGRATION_VERIFICATION_INSTRUCTIONS : '') };
   // Explicit final-only mode has extra finalization metadata/instructions and
   // permits no retrieval rounds. Do not spend its budget on optional prefetch.
   const initialRetrieved = options.maxRounds === 0 ? [] : verificationSeeds(candidates, scope, {
@@ -39,5 +44,5 @@ export async function verificationLoop(model, request, candidates, scope, option
   // read under this invocation's receipt table and the shared approved budget.
   const response = await retrievalLoop(model, verificationRequest, retrievalScope, { ...options, initialRetrieved });
   request.signal?.throwIfAborted();
-  return validateCandidateVerification(response, ids, scope.read, resolveEvidence, { catalog: scope.catalog(), fileIds: Object.fromEntries(ids.map((id, i) => [id, candidates[i].fileId])) });
+  return validateCandidateVerification(response, ids, scope.read, resolveEvidence, { enableMigrationRegression: options.enableMigrationRegression === true && !project, migrationContext, catalog: scope.catalog(), fileIds: Object.fromEntries(ids.map((id, i) => [id, candidates[i].fileId])) });
 }

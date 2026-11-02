@@ -34,11 +34,13 @@ export function modelResultStage(input, instructions = '') {
 export function modelResultTools(input, instructions = '') {
   const stage = modelResultStage(input, instructions);
   if (!stage) return [];
+  let p; try { p = JSON.parse(input); } catch { return []; }
+  const migrationIds = Array.isArray(p.migrationContracts) ? p.migrationContracts.map(contract => contract?.id).filter(id => typeof id === 'string' && id.length > 0 && id.length <= 200).slice(0, 128) : [];
+  const regression = migrationIds.length ? object({ classification: { enum: ['introduced', 'preexisting', 'uncertain'] }, reason: text, oldEvidence: array({ type: 'integer', minimum: 0 }), newEvidence: array({ type: 'integer', minimum: 0 }), migrationContractId: { type: 'string', maxLength: 200, enum: [...new Set(migrationIds)] } }, ['classification', 'reason', 'oldEvidence', 'newEvidence']) : { type: 'object' };
   const final = stage === 'findings' ? review : stage === 'risks' ? object({ risks: array(risk) }) :
     stage === 'groups' ? object({ groups: array(object({ fileIds: strings, reason: { type: 'string' } })) }) :
-    stage === 'reviews' ? object({ reviews: array(object({ fileId: { type: 'string' }, findings, limitations: strings, risks: array(risk) }, ['fileId', 'findings', 'limitations'])), limitations: strings }) :
-    object({ verdicts: array(object({ candidateId: text, verdict: { enum: ['supported', 'refuted', 'uncertain'] }, reason: text, evidence: array({ type: 'object' }), regression: { type: 'object' } }, ['candidateId', 'verdict', 'reason', 'evidence'])) });
-  let p; try { p = JSON.parse(input); } catch { return []; }
+    stage === 'reviews' ? object({ reviews: array(object({ fileId: { type: 'string' }, findings, limitations: strings, risks: array(risk) }, ['fileId', 'findings', 'limitations'])), limitations: strings, ...(p.groupInteraction ? { interactions: object({ groupId: { const: p.groupInteraction.groupId }, findings, limitations: strings }) } : {}) }, ['reviews', 'limitations']) :
+    object({ verdicts: array(object({ candidateId: text, verdict: { enum: ['supported', 'refuted', 'uncertain'] }, reason: text, evidence: array({ type: 'object' }), regression }, ['candidateId', 'verdict', 'reason', 'evidence'])) });
   const parameters = p.retrievalFinalization || stage === 'risks' || stage === 'groups' ? final : { type: 'object', oneOf: [final, requests] };
   return [{ name: RESULT_TOOL_NAME, description: 'Submit only the current approved review stage result or approved retrieval requests as JSON data. Does not execute actions.', parameters }];
 }
@@ -52,7 +54,7 @@ export function validateNativeResult(text, input, instructions) {
   const p = JSON.parse(input);
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
   if (Object.hasOwn(value, 'requests')) return !p.retrievalFinalization && !['risks', 'groups'].includes(stage) && Object.keys(value).length === 1 && Array.isArray(value.requests);
-  const allowed = stage === 'findings' ? ['findings', 'limitations', 'risks'] : stage === 'reviews' ? ['reviews', 'limitations'] : [stage];
+  const allowed = stage === 'findings' ? ['findings', 'limitations', 'risks'] : stage === 'reviews' ? ['reviews', 'limitations', ...(p.groupInteraction ? ['interactions'] : [])] : [stage];
   const required = stage === 'findings' ? ['findings', 'limitations'] : stage === 'reviews' ? ['reviews', 'limitations'] : [stage];
   return !!stage && Object.keys(value).every(k => allowed.includes(k)) && required.every(k => Array.isArray(value[k]));
 }

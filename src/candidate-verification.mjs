@@ -15,7 +15,7 @@ export function validateCandidateVerification(value, candidateIds, read, resolve
   }
   const results = new Map(value.verdicts.map(item => {
     const evidence = item.evidence.map(ref => validateEvidenceReference(resolveEvidence(ref), read));
-    const regression = validateRegressionAssessment(item.regression, evidence, comparison.catalog ?? [], comparison.fileIds?.[item.candidateId]);
+    const regression = validateRegressionAssessment(item.regression, evidence, comparison.catalog ?? [], comparison.fileIds?.[item.candidateId], { ...comparison, candidateId: item.candidateId });
     return [item.candidateId, { candidateId: item.candidateId, verdict: item.verdict, reason: item.reason, evidence, regression, causality: 'unverified' }];
   }));
   return candidateIds.map(id => results.get(id));

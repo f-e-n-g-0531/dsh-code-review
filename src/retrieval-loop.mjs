@@ -46,11 +46,13 @@ function roundBudgetError() {
   return error;
 }
 
-export async function retrievalLoop(model, request, scope, { correctProtocol = false, maxRounds = Number.MAX_SAFE_INTEGER, maxInputBytes = 96 * 1024, beforeCall = () => {}, onTruncated = () => {}, onRetrieved = () => {}, onBudgetLimited = () => {}, initialRetrieved = [], allowExhaustedInitial = false, enableSearchSeeds = false } = {}) {
+export async function retrievalLoop(model, request, scope, { correctProtocol = false, maxRounds = Number.MAX_SAFE_INTEGER, maxInputBytes = 96 * 1024, beforeCall = () => {}, onTruncated = () => {}, onRetrieved = () => {}, onBudgetLimited = () => {}, initialRetrieved = [], initialContext, yieldOnBudget = false, allowExhaustedInitial = false, enableSearchSeeds = false } = {}) {
   if (!Number.isSafeInteger(maxRounds) || maxRounds < 0 || !Number.isSafeInteger(maxInputBytes) || maxInputBytes < 1) throw new Error('Invalid retrieval loop budget');
   // Only internal callers can seed this loop; the public model response cannot supply it.
   const allowedSeeds = new Set(scope.catalog().map(item => item.id));
-  if (!Array.isArray(initialRetrieved) || initialRetrieved.length > 50 || initialRetrieved.some(item => item?.request?.kind !== 'read' || !allowedSeeds.has(item.request.id) || item.result?.sourceId !== item.request.id || typeof item.result?.text !== 'string')) throw new Error('Invalid initial retrieval evidence');
+  const validateSeeds = items => { if (!Array.isArray(items) || items.length > 50 || items.some(item => item?.request?.kind !== 'read' || !allowedSeeds.has(item.request.id) || item.result?.sourceId !== item.request.id || typeof item.result?.text !== 'string')) throw new Error('Invalid initial retrieval evidence'); };
+  validateSeeds(initialRetrieved);
+  if (initialContext !== undefined && typeof initialContext !== 'function') throw new Error('Invalid initial evidence context producer');
   const retrieved = structuredClone(initialRetrieved);
   if (retrieved.length) {
     const seeded = retrievalRequest(request, scope, retrieved);
@@ -60,6 +62,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
   const delivered = new Set();
   let protocolCorrection, finalization, searchSeedAttempts = 0, currentRound = 0;
   const finalize = async error => {
+    if (yieldOnBudget && ['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(error.code)) throw error;
     finalization = { code: error.code, reason: error.message, ...(scope.budget ? { budget: scope.budget() } : {}) };
     await onBudgetLimited(finalization);
     await request.onProtocolEvent?.({ action: 'retrieval-budget-finalization', ...finalization });
@@ -100,6 +103,16 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
     request.signal?.throwIfAborted();
     beforeCall();
     request.signal?.throwIfAborted();
+    // Optional redelivery starts only after model-call admission. Never spend a
+    // stage's reader budget on a call already vetoed by the shared model gate.
+    if (round === 0 && !finalization && initialContext) {
+      const seeds = initialContext(retrieved, records => ({ ...request, ...nextRequest(records) }));
+      validateSeeds(seeds);
+      retrieved.push(...seeds);
+      ({ input, instructions } = nextRequest(retrieved));
+      if (!fits({ ...request, input, instructions })) throw new Error('Retrieval input budget exceeded');
+      request.signal?.throwIfAborted();
+    }
     for (const item of retrieved) {
       if (!item.result.omitted && !delivered.has(item)) {
         recordRetrieval(item.request, item.result, onTruncated, onRetrieved);
@@ -132,7 +145,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
       batch = scope.transaction ? scope.transaction(execute) : execute();
     } catch (error) {
       request.signal?.throwIfAborted();
-      if (!finalization && budgetFailure(error)) { await finalize(error); continue; }
+      if (!finalization && budgetFailure(error)) { if (yieldOnBudget) throw Object.assign(error, { pendingRequests: parseRetrievalResponse(parsed) }); await finalize(error); continue; }
       if (finalization || !correctProtocol || protocolCorrection || !(/Invalid retrieval batch|Invalid read request|Invalid search request|Invalid find request|Invalid line range|Line range outside source/.test(error.message))) throw error;
       protocolCorrection = { code: error.code ?? 'MODEL_INVALID_RETRIEVAL' };
       await request.onProtocolEvent?.({ action: 'retrieval-protocol-correction', code: protocolCorrection.code });
