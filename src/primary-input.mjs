@@ -1,6 +1,5 @@
 import { sourceSegments } from './source-segments.mjs';
 import { primaryContextFocus } from './primary-context.mjs';
-import { changeRegion } from './change-region.mjs';
 import { CONTEXT_SIDE_NOTICE } from './context-identity.mjs';
 import { approvedCallerBindings } from './caller-binding-input.mjs';
 import { REQUIREMENT_NOTICE } from './business-requirement.mjs';
@@ -12,7 +11,7 @@ import { inferContextRelations } from './context-relations.mjs';
 import { prepareWindowSynthesis } from './window-synthesis.mjs';
 import { planWindowBatches } from './window-batches.mjs';
 import { changeWindows } from './change-windows.mjs';
-import { changeMap } from './change-map.mjs';
+import { reviewChangeMap } from './review-change-map.mjs';
 import { initialInputBudget } from './input-budget.mjs';
 import { changeScopeNotice } from './git-change-scope.mjs';
 import { chooseRiskStrategy, riskPlanningMode as validateRiskPlanningMode } from './risk-strategy.mjs';
@@ -25,18 +24,7 @@ const optional = h => h.confidence === 'namespace-member-syntax-only' || h.confi
 export function preparePrimaryInput(input, file, { instructions, scope, grouping, maxInputBytes, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, round, focusPrimaryContext = false }) {
   validateRiskPlanningMode(riskPlanningMode);
   if (typeof focusPrimaryContext !== 'boolean') throw new Error('focusPrimaryContext must be boolean');
-  let changes = changeMap(file.left.text, file.right.text);
-  if (changes.status === 'limited') {
-    const region = changeRegion(file.left.text, file.right.text);
-    if (region.status === 'changed') {
-      changes = {
-        status: 'changed', precision: 'envelope',
-        reason: 'Exact diff unavailable; broad region includes potentially unchanged lines, not exact edits or causal proof.',
-        edits: [{ id: 'envelope1', old: region.old, new: region.new }],
-        hunks: [{ id: 'envelope-h1', old: region.old, new: region.new, editIds: ['envelope1'] }],
-      };
-    }
-  }
+  const changes = reviewChangeMap(file.left.text, file.right.text);
 
   let base = {
     ...(input.projectScope ? { projectScope: input.projectScope, reviewNotice: 'Full current-file review; empty left is a sentinel, not a historical baseline. changes are transport coordinates only, do not infer introduced regression.' } : {}),

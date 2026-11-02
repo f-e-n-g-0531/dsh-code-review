@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { buildResumeState, validateResumeState, resumePreview } from '../src/review-resume.mjs';
+import { buildResumeState, validateResumeState, resumePreview, RESUME_CHECKPOINT_CAPACITY_LIMITATION } from '../src/review-resume.mjs';
+import { reviewSnapshot } from '../src/review.mjs';
 import { stageKey } from '../src/review-stage-state.mjs';
 import { createStageContinuation } from '../src/stage-continuation.mjs';
 const snapshot=()=>({id:'s',files:['a','b'].map(id=>({id,path:id+'.js',eligibility:'reviewable',left:{text:'old();\n'},right:{text:'new();\n'},properties:[]})),context:[{path:'context.js',text:'context'}]});
@@ -36,5 +37,64 @@ test('eight MiB cap and unsafe host imports fail without evaluating getters or s
 
 test('host export omits optional undefined report fields but private import rejects undefined',()=>{const r=report();r.files[1].reason=undefined;r.files[1].optional={detail:undefined};const cp=buildResumeState(snapshot(),options(),r);assert.equal(Object.hasOwn(cp.completed[0].state,'reason'),false);assert.deepEqual(cp.completed[0].state.optional,{});assert.deepEqual(validateResumeState(cp,snapshot(),options()),cp);const forged=structuredClone(cp);forged.completed[0].state.reason=undefined;assert.throws(()=>validateResumeState(forged,snapshot(),options()));});
 
+
+test('whole-result byte overflow keeps deterministic complete units and truthful saved counts', () => {
+  const s = snapshot(), o = options(), r = report(), { o: machine, m } = continuation(s);
+  r.stageGenerations = Array.from({ length: 6 }, (_, i) => ({ ...generation('a', i + 1), generation: { findings: [], limitations: Array(100).fill('x'.repeat(7990)) } }));
+  r.files[1].detail = 'y'.repeat(4 * 1024 * 1024); r.continuationOptions = machine; r.continuation = m.checkpoint();
+  const stagesOnly = buildResumeState(s, o, { ...r, files: [], continuation: undefined, continuationOptions: undefined });
+  assert.equal(stagesOnly.stageGenerations.length, 6);
+  const completedOnly = buildResumeState(s, o, { ...r, stageGenerations: [], continuation: undefined, continuationOptions: undefined });
+  assert.equal(completedOnly.completed.length, 1);
+  const cp = buildResumeState(s, o, r); assert.ok(Buffer.byteLength(JSON.stringify(cp)) <= 8 * 1024 * 1024);
+  assert.equal(cp.completed.length, 1); assert.ok(cp.stageGenerations.length > 0 && cp.stageGenerations.length < 6); assert.equal(cp.continuation, undefined);
+  assert.deepEqual(validateResumeState(cp, s, o), cp); assert.equal(resumePreview(cp, 'old').reusableGenerations, cp.stageGenerations.length);
+  assert.equal(r.resumeLimitations.length, 1); assert.equal(r.resumeLimitations[0].omitted.stageGenerations, 6 - cp.stageGenerations.length);
+  assert.equal(r.resumeLimitations[0].omitted.continuation, 1); assert.equal(r.limitations.filter(row => row.text === RESUME_CHECKPOINT_CAPACITY_LIMITATION).length, 1);
+  const again = buildResumeState(s, o, r); assert.deepEqual(again, cp); assert.equal(r.resumeLimitations.length, 1);
+  assert.equal(r.limitations.filter(row => row.text === RESUME_CHECKPOINT_CAPACITY_LIMITATION).length, 1);
+});
+
+test('aggregate node capacity drops whole completed chain and filters interactions and continuation', () => {
+  const s = snapshot(), o = options(), r = report(), { o: machine, m } = continuation(s);
+  r.files = s.files.map(f => ({ fileId: f.id, path: f.path, status: 'completed', resumeEligible: true, detail: [Array(80000).fill(0), Array(80000).fill(0)] }));
+  r.stageGenerations = []; r.interactions = [{ groupId: 'g', fileIds: ['a', 'b'], status: 'completed' }];
+  r.continuationOptions = machine; r.continuation = m.checkpoint();
+  const cp = buildResumeState(s, o, r); assert.deepEqual(cp.completed.map(row => row.fileId), ['a']); assert.deepEqual(cp.interactions, []); assert.equal(cp.continuation, undefined);
+  assert.equal(r.resumeLimitations[0].omitted.completed, 1); assert.equal(r.resumeLimitations[0].omitted.interactions, 1);
+  assert.deepEqual(validateResumeState(cp, s, o), cp);
+  const oversizedImport = structuredClone(cp); oversizedImport.completed.push({ ...cp.completed[0], fileId: 'b', path: 'b.js', state: { ...cp.completed[0].state, fileId: 'b', path: 'b.js' } });
+  assert.throws(() => validateResumeState(oversizedImport, s, o), /Invalid stage resume/);
+});
+
+test('oversized optional chain cannot mask later malformed schema or execute accessors', () => {
+  const s = snapshot(), o = options(); let ran = 0;
+  for (const mutate of [
+    r => { Object.defineProperty(r.files[1], 'hidden', { enumerable: true, get() { ran++; return 1; } }); },
+    r => { r.stageGenerations.push({ ...generation('a', 2), generation: { findings: [], limitations: [], invented: true } }); },
+    r => { r.stageGenerations.push(generation()); },
+    r => { r.files[1].bad = Object.create({ inherited: true }); },
+    r => { r.files[1].bad = { toJSON() { ran++; return {}; } }; },
+    r => { Object.defineProperty(r, 'resumeLimitations', { enumerable: true, get() { ran++; return []; } }); },
+    r => { r.resumeLimitations = {}; },
+    r => { const row = {}; Object.defineProperty(row, 'code', { enumerable: true, get() { ran++; return 'unsafe'; } }); r.resumeLimitations = [row]; },
+  ]) { const r = report(); r.files[1].detail = 'x'.repeat(9 * 1024 * 1024); mutate(r); assert.throws(() => buildResumeState(s, o, r)); }
+  assert.equal(ran, 0);
+  const getter = report(); Object.defineProperty(getter, 'files', { enumerable: true, get() { ran++; return []; } });
+  assert.throws(() => buildResumeState(s, o, getter)); assert.equal(ran, 0);
+  const hugeUnit = report(); hugeUnit.files[1].detail = 'x'.repeat(9 * 1024 * 1024);
+  const cp = buildResumeState(s, o, hugeUnit); assert.deepEqual(cp.completed, []); assert.equal(hugeUnit.resumeLimitations[0].omitted.completed, 1);
+});
+
+test('persistence failure and cancellation identities are never swallowed as export capacity', async () => {
+  const s = { ...snapshot(), vcs: 'git' }, io = Object.assign(new Error('disk write failed'), { code: 'EIO' });
+  await assert.rejects(reviewSnapshot(s, async () => ({ findings: [], limitations: [] }), {
+    enableStageContinuation: true, onResumeCheckpoint: async r => { buildResumeState(s, options(), r); throw io; },
+  }), error => error === io);
+  const controller = new AbortController(), cancelled = new Error('explicit cancel'); controller.abort(cancelled);
+  let sends = 0;
+  const stopped = await reviewSnapshot(s, async () => { sends++; throw new Error('must not send'); }, { signal: controller.signal, enableStageContinuation: true });
+  assert.equal(stopped.status, 'cancelled'); assert.equal(sends, 0); assert.equal(controller.signal.reason, cancelled);
+});
 
 test('schema discriminator accessor is rejected before reading it for either opt-in or legacy imports',()=>{let hits=0;for(const opt of [options(),{}]){const value={};Object.defineProperty(value,'schemaVersion',{enumerable:true,get(){hits++;return 2;}});assert.throws(()=>validateResumeState(value,snapshot(),opt));}assert.equal(hits,0);const inherited=Object.create({get schemaVersion(){hits++;return 2;}});assert.throws(()=>validateResumeState(inherited,snapshot(),options()));assert.equal(hits,0);});

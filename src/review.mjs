@@ -36,7 +36,9 @@ import { createEvidenceContext } from './evidence-context.mjs';
 import { prepareInteractionRisk, consumeInteractionRisks } from './interaction-risk.mjs';
 import { reportSummaryMarkdown } from './report-summary.mjs';
 import { validateGroupInteraction } from './group-interaction.mjs';
-import { stageKey, prepareStageGenerations } from './review-stage-state.mjs';
+import { stageKey } from './review-stage-state.mjs';
+import { createStageGenerationCache } from './stage-generation-cache.mjs';
+import { reviewChangeMap } from './review-change-map.mjs';
 import { createStageContinuation } from './stage-continuation.mjs';
 import { buildMigrationContracts } from './migration-contracts.mjs';
 
@@ -54,7 +56,7 @@ function validateResponse(response, file, knownChanges) {
   if (Buffer.byteLength(typeof response === 'string' ? response : JSON.stringify(response) ?? '') > 128 * 1024) throw new Error('Review response too large');
   if (typeof response === 'string') response = JSON.parse(response);
   if (!response || !Array.isArray(response.findings) || response.findings.length > 50 || !Array.isArray(response.limitations) || response.limitations.length > 50 || response.limitations.some(s => !nonempty(s))) throw protocolError('MODEL_INVALID_REVIEW_RESPONSE', 'Invalid review response');
-  const changes = knownChanges ?? changeMap(file.left.text, file.right.text);
+  const changes = knownChanges ?? reviewChangeMap(file.left.text, file.right.text);
   const findings = response.findings.map(raw => {
     if (!raw || raw.fileId !== file.id) throw protocolError('MODEL_INVALID_FINDING_IDENTITY', 'Invalid finding identity or severity');
     if (!['critical', 'high', 'medium', 'low'].includes(raw.severity)) throw protocolError('MODEL_INVALID_FINDING_SEVERITY', 'Invalid finding identity or severity');
@@ -189,11 +191,12 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       } });
   };
   const groupPrepared = new Map(), groupResults = new Map(), groupStarted = new Map(), groupInteractions = new Map();
-  const acceptedStages = new Map(prepareStageGenerations(input, options.resumeState?.stageGenerations ?? []).filter(record => record.phase === 'primary').map(record => [record.key, { generation: record.generation, record, restored: true }]));
+  const generationCache = createStageGenerationCache(input, options.resumeState?.stageGenerations ?? []);
+  const acceptedStages = new Map(generationCache.records().filter(record => record.phase === 'primary').map(record => [record.key, { generation: record.generation, record, restored: true }]));
   const deferredStages = [], yieldedUnits = new Set(), fileDeadlines = new Map(), primaryStageKeys = new Map();
   const checkpointStages = () => {
     if (!options.enableStageContinuation) return;
-    report.stageGenerations = prepareStageGenerations(input, [...acceptedStages.values()].map(entry => entry.record).filter(record => record?.phase === 'primary'));
+    report.stageGenerations = generationCache.records().filter(record => record.phase === 'primary');
   };
   let readerAllocation;
   const stageScope = id => readerAllocation
@@ -357,9 +360,10 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         const key = stageKey(file.id, { phase: batch.interaction ? 'file-interaction' : batch.synthesis ? 'window-synthesis' : 'primary', round: batch.round, windowIds: batch.windowIds ?? [], ...(batch.interaction ? { groupId: batch.interaction.id } : {}) });
         const priorStage = acceptedStages.get(key);
         if (retry && priorStage?.completed) return;
+        let cacheRejected = false;
         const allocationId = batch.interaction ? 'interaction:' + batch.interaction.id : batch.synthesis ? 'synthesis:' + file.id : 'primary:' + file.id;
         const defer = (error, unitId = allocationId) => {
-          if (!options.enableStageContinuation || !readerAllocation || !['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(error?.code)) return false;
+          if (cacheRejected || !options.enableStageContinuation || !readerAllocation || !['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(error?.code)) return false;
           if (!yieldedUnits.has(unitId)) { readerAllocation.yield(unitId, { reason: error.code }); yieldedUnits.add(unitId); }
           let pending = deferredStages.find(item => item.key === key);
           if (pending && pending.allocationId !== unitId) { const previousUnit = pending.allocationId; pending.allocationId = unitId; if (!deferredStages.some(other => other !== pending && !other.done && other.allocationId === previousUnit)) { yieldedUnits.delete(previousUnit); readerAllocation.release(previousUnit); } }
@@ -521,8 +525,15 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         if(rounds>1)generated.findings.forEach(f=>{f.reviewRound=batch.round;});
         if (options.enableStageContinuation && !priorStage && !state.retrievalLimited) {
           const record = { key, fileId: file.id, phase, round: batch.round, windowIds: batch.windowIds ?? [], ...(batch.interaction ? { groupId: batch.interaction.id } : {}), generation: { findings: structuredClone(generated.findings), limitations: structuredClone(generated.limitations) } };
-          acceptedStages.set(key, { generation: generated, record, completed: false });
-          checkpointStages();
+          const admission = generationCache.admit(record);
+          if (admission.accepted) {
+            acceptedStages.set(key, { generation: generated, record: admission.record, completed: false });
+            checkpointStages();
+          } else {
+            cacheRejected = true;
+            (state.stageCacheLimits ??= []).push({ phase, round: batch.round, code: admission.code });
+            result.limitations.push({ fileId: file.id, text: '阶段生成未纳入续审缓存：' + admission.code + '；保留本次有效审查结果和独立复核，不复用未缓存生成、不扩大容量。' });
+          }
         }
         for (const finding of generated.findings) { const index = priorStage ? result.findings.findIndex(existing => existing.id === finding.id) : -1; if (index < 0) result.findings.push(finding); else result.findings[index] = finding; }
         if (generated.findings.some(f => f.attribution.status === 'missing')) result.limitations.push({ fileId: file.id, text: '部分发现缺少变更归因，仅校验了定位，尚不能确认属于本次回归' });
@@ -530,7 +541,13 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         if (!groupedGeneration && !scheduled.slice(batchIndex + 1).some(next => !next.synthesis && !next.interaction)) releaseStage('primary:' + file.id);
         if (options.enableStageContinuation && !batch.interaction && !batch.synthesis && state.windowCoverage && batch.round === 1) { state.windowCoverage.completed = [...new Set([...state.windowCoverage.completed, ...batch.windowIds])]; state.windowCoverage.pending = state.windowCoverage.pending.filter(id => !batch.windowIds.includes(id)); }
         if (options.enableVerification === true && generated.findings.length && !priorStage?.completed) {
-          if (yieldedUnits.has('verification:' + file.id)) { defer(Object.assign(new Error('Verification allocation is waiting for released capacity'), { code: 'READER_CALL_BUDGET_EXCEEDED' }), 'verification:' + file.id); return; }
+          if (yieldedUnits.has('verification:' + file.id)) {
+            if (!defer(Object.assign(new Error('Verification allocation is waiting for released capacity'), { code: 'READER_CALL_BUDGET_EXCEEDED' }), 'verification:' + file.id)) {
+              for (const finding of generated.findings) finding.verification = { status: 'incomplete', causality: 'unverified' };
+              result.limitations.push({ fileId: file.id, text: '复核额度等待释放且生成未缓存，不能继续本阶段；候选仍未复核，不重新生成或标为完成。' });
+            }
+            return;
+          }
           for (const finding of generated.findings) finding.verification = { status: 'pending', causality: 'unverified' };
           try {
             activeStage = 'verification';

@@ -9,11 +9,18 @@ const digest = value => hash(JSON.stringify(canonical(value)));
 const MAX_BYTES = 8 * 1024 * 1024;
 const stageEnabled = options => options?.execution?.enableStageContinuation === true || options?.enableStageContinuation === true;
 const invalid = () => { throw new Error('Invalid stage resume checkpoint'); };
+// Private export-only sentinel: never infer capacity from an arbitrary error/code.
+class ResumeStorageCapacityError extends Error {
+  constructor() { super('Resume checkpoint exceeds storage capacity'); this.code = 'RESUME_STORAGE_CAPACITY_EXCEEDED'; }
+}
+const capacity = mode => { if (mode === 'export') throw new ResumeStorageCapacityError(); if (mode !== 'scan') invalid(); };
+export const RESUME_CHECKPOINT_CAPACITY_LIMITATION = '续审检查点容量受限：仅保存适配容量的完整历史单元，未保存部分将重新执行；不影响本次发现或授予证据权限。';
 const exact = (value, keys) => { if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(k => !keys.includes(k))) invalid(); };
 const RECEIPT_KEYS = new Set(['receiptId', 'receipts', 'retrievalAudit', 'retrieved', 'resolveEvidence']);
-function privateClone(value, { stripReceipts = false } = {}, seen = new Set(), depth = 0, budget = { nodes: 0, bytes: 0 }) {
-  if (++budget.nodes > 300000 || depth > 32) invalid();
-  if (typeof value === 'string') { budget.bytes += Buffer.byteLength(value); if (budget.bytes > MAX_BYTES) invalid(); return value; }
+function privateClone(value, { stripReceipts = false, capacityMode } = {}, seen = new Set(), depth = 0, budget = { nodes: 0, bytes: 0 }) {
+  if (depth > 32) invalid();
+  if (++budget.nodes > 300000) capacity(capacityMode);
+  if (typeof value === 'string') { budget.bytes += Buffer.byteLength(value); if (budget.bytes > MAX_BYTES) capacity(capacityMode); return value; }
   if (value === null || typeof value === 'boolean' || typeof value === 'number' && Number.isFinite(value)) return value;
   if (!value || typeof value !== 'object' || seen.has(value) || ![Object.prototype, Array.prototype, null].includes(Object.getPrototypeOf(value))) invalid();
   if (Array.isArray(value) && (value.length > 100000 || Object.keys(value).length !== value.length)) invalid();
@@ -26,11 +33,57 @@ function privateClone(value, { stripReceipts = false } = {}, seen = new Set(), d
     // Imported checkpoints remain JSON-only and reject undefined explicitly.
     if (stripReceipts && !Array.isArray(value) && d.value === undefined) continue;
     if (RECEIPT_KEYS.has(key)) { if (stripReceipts) continue; invalid(); }
-    out[key] = privateClone(d.value, { stripReceipts }, seen, depth + 1, budget);
+    out[key] = privateClone(d.value, { stripReceipts, capacityMode }, seen, depth + 1, budget);
   }
   seen.delete(value);return out;
 }
-function bounded(value) { if (Buffer.byteLength(JSON.stringify(value)) > MAX_BYTES) invalid(); return value; }
+function bounded(value, capacityMode) { if (Buffer.byteLength(JSON.stringify(value)) > MAX_BYTES) capacity(capacityMode); return value; }
+
+function exportWithinCapacity(value) {
+  const cloned = bounded(privateClone(value, { stripReceipts: true, capacityMode: 'export' }), 'export');
+  // Accepted-stage import has a stricter aggregate node budget than the wrapper.
+  const stageBudget = { nodes: 0, bytes: 0 };
+  privateClone(cloned.stageGenerations, { capacityMode: 'export' }, new Set(), 0, stageBudget);
+  if (stageBudget.nodes > 200000) throw new ResumeStorageCapacityError();
+  return cloned;
+}
+function capacityFits(value) {
+  try { exportWithinCapacity(value); return true; }
+  catch (error) { if (error instanceof ResumeStorageCapacityError) return false; throw error; }
+}
+function boundedExport(result, report, snapshot) {
+  // Every unit has already passed structural and semantic checks before admission.
+  // Only the serialized storage/node aggregate may degrade; unknown errors escape.
+  if (capacityFits(result)) return prepareV2(exportWithinCapacity(result), snapshot);
+  const next = { schemaVersion: 2, snapshotId: result.snapshotId, identityHash: result.identityHash, completed: [], interactions: [], stageGenerations: [] };
+  exportWithinCapacity(next); // Even an unusable identity shell must fail normally.
+  const omitted = { completed: 0, stageGenerations: 0, interactions: 0, continuation: 0, businessGrouping: 0 };
+  for (const row of result.completed) {
+    const candidate = { ...next, completed: [...next.completed, row] };
+    if (capacityFits(candidate)) next.completed.push(row); else omitted.completed++;
+  }
+  if (result.businessGrouping !== undefined) {
+    if (capacityFits({ ...next, businessGrouping: result.businessGrouping })) next.businessGrouping = result.businessGrouping; else omitted.businessGrouping++;
+  }
+  for (const row of result.stageGenerations) {
+    if (capacityFits({ ...next, stageGenerations: [...next.stageGenerations, row] })) next.stageGenerations.push(row); else omitted.stageGenerations++;
+  }
+  if (result.continuation !== undefined) {
+    // Historical continuation cannot imply completion for a dropped primary unit.
+    if (!omitted.stageGenerations && !omitted.completed && capacityFits({ ...next, continuation: result.continuation })) next.continuation = result.continuation; else omitted.continuation++;
+  }
+  const kept = new Set(next.completed.map(row => row.fileId));
+  for (const row of result.interactions) {
+    if (row.fileIds.every(id => kept.has(id)) && capacityFits({ ...next, interactions: [...next.interactions, row] })) next.interactions.push(row); else omitted.interactions++;
+  }
+  const limitation = { code: 'RESUME_CHECKPOINT_CAPACITY_EXCEEDED', text: RESUME_CHECKPOINT_CAPACITY_LIMITATION, omitted };
+  report.resumeLimitations ??= [];
+  const previous = report.resumeLimitations.findIndex(row => row.code === limitation.code);
+  if (previous < 0) report.resumeLimitations.push(limitation); else report.resumeLimitations[previous] = limitation;
+  report.limitations ??= [];
+  if (!report.limitations.some(row => row.text === limitation.text)) report.limitations.push({ text: limitation.text });
+  return prepareV2(exportWithinCapacity(next), snapshot);
+}
 function continuationState(snapshot, wrapper) {
   exact(wrapper, ['options', 'state']);
   const o = wrapper.options, cp = wrapper.state;
@@ -60,7 +113,28 @@ const safeFile = file => !file?.stageFailures?.length && !file?.reviewPasses?.so
 // neither source authority nor model approval. Exact whole-snapshot binding is
 // deliberately conservative: any changed context/rule/source invalidates reuse.
 export function buildResumeState(snapshot, options, report) {
-  if (typeof snapshot?.id !== 'string' || !Array.isArray(snapshot.files) || !report || !Array.isArray(report.files) || !Array.isArray(report.findings)) throw new Error('Invalid resume checkpoint');
+  if (typeof snapshot?.id !== 'string' || !Array.isArray(snapshot.files) || !report || typeof report !== 'object') throw new Error('Invalid resume checkpoint');
+  if (stageEnabled(options)) {
+    // Scan the entire export payload before any filtering/size admission. Unlike
+    // imports this scan records no storage entitlement, but never executes hooks.
+    if (![Object.prototype, null].includes(Object.getPrototypeOf(report))) invalid();
+    const noticeDescriptor = Object.getOwnPropertyDescriptor(report, 'resumeLimitations');
+    if (noticeDescriptor && (!noticeDescriptor.enumerable || !Object.hasOwn(noticeDescriptor, 'value') || !Array.isArray(noticeDescriptor.value))) invalid();
+    const keys = ['files', 'findings', 'limitations', 'interactions', 'businessGrouping', 'stageGenerations', 'continuationOptions', 'continuation', 'resumeLimitations'];
+    const candidate = {};
+    for (const key of keys) {
+      const descriptor = Object.getOwnPropertyDescriptor(report, key);
+      if (descriptor) { if (!descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) invalid(); candidate[key] = descriptor.value; }
+    }
+    const safe = privateClone(candidate, { stripReceipts: true, capacityMode: 'scan' });
+    // Preserve mutation target only for explicit capacity notices below.
+    return buildStageResumeState(snapshot, options, safe, report);
+  }
+  return buildStageResumeState(snapshot, options, report, report);
+}
+
+function buildStageResumeState(snapshot, options, report, noticeTarget) {
+  if (!Array.isArray(report.files) || !Array.isArray(report.findings)) throw new Error('Invalid resume checkpoint');
   const approved = new Map(snapshot.files.filter(file => file.eligibility === 'reviewable').map(file => [file.id, file]));
   const completed = [];
   for (const state of report.files) {
@@ -81,9 +155,21 @@ export function buildResumeState(snapshot, options, report) {
   const result = { schemaVersion: 1, snapshotId: snapshot.id, identityHash: identity, completed, ...(businessGrouping ? { businessGrouping } : {}), interactions };
   if (stageEnabled(options)) {
     result.schemaVersion = 2;
-    result.stageGenerations = prepareStageGenerations(snapshot, report.stageGenerations ?? []).filter(row => row.phase === 'primary' && !completed.some(item => item.fileId === row.fileId));
-    if (report.continuation !== undefined) result.continuation = continuationState(snapshot, privateClone({ options: report.continuationOptions, state: report.continuation }));
-    return prepareV2(bounded(privateClone(result, { stripReceipts: true })), snapshot);
+    const stageKeys = new Set();
+    result.stageGenerations = (report.stageGenerations ?? []).flatMap(record => {
+      const [row] = prepareStageGenerations(snapshot, [record]);
+      if (stageKeys.has(row.key)) invalid(); stageKeys.add(row.key);
+      return row.phase === 'primary' && !completed.some(item => item.fileId === row.fileId) ? [row] : [];
+    });
+    if (report.continuation !== undefined) result.continuation = continuationState(snapshot, { options: report.continuationOptions, state: report.continuation });
+    // Check every completed chain, including units later omitted for capacity.
+    for (const item of completed) {
+      const file = approved.get(item.fileId);
+      if (!file || !safeFile(item.state) || item.state.fileId !== item.fileId || item.state.path !== item.path ||
+          !Array.isArray(item.findings) || item.findings.some(f => f?.fileId !== item.fileId || f.verification?.status !== 'completed') ||
+          !Array.isArray(item.limitations) || item.limitations.some(row => row?.fileId !== item.fileId)) throw new Error('Invalid completed resume chain');
+    }
+    return boundedExport(result, noticeTarget, snapshot);
   }
   if (Buffer.byteLength(JSON.stringify(result)) > 8 * 1024 * 1024) throw new Error('Resume checkpoint exceeds storage limit');
   return result;

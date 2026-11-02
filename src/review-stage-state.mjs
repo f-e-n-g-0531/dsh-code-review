@@ -1,11 +1,15 @@
 import { hash } from './content.mjs';
 import { changeMap } from './change-map.mjs';
+import { reviewChangeMap } from './review-change-map.mjs';
 import { changeWindows } from './change-windows.mjs';
 import { sourceSegments } from './source-segments.mjs';
 import { validateWindowFindings } from './window-findings.mjs';
 import { validateAttribution } from './attribution.mjs';
 
 const LIMIT = 8 * 1024 * 1024;
+// Host-only accepted generation: member model 50 + group model 50 + host notes 2.
+// This is checkpoint/report metadata, never a wider model response or evidence grant.
+export const MAX_STAGE_LIMITATIONS = 102;
 const PHASES = ['primary', 'window-synthesis', 'file-interaction'];
 const DROP = ['verification', 'regression', 'priorRun', 'retrievalAudit', 'receipts', 'receiptId'];
 const fail = () => { throw Object.assign(new Error('Invalid accepted stage generation'), { code: 'INVALID_STAGE_GENERATION' }); };
@@ -71,6 +75,7 @@ function normalizeFinding(raw, file, changes, phase, files) {
     if (raw.attribution?.status === 'missing' && Object.keys(raw.attribution).some(k => !['status', 'causality'].includes(k))) fail();
     attribution = validateAttribution(value, { ...file, properties: file.properties ?? [] }, changes);
     if (raw.attribution?.status !== undefined && raw.attribution.status !== attribution.status) fail();
+    for (const key of ['precision', 'notice', 'causality']) if (raw.attribution?.[key] !== undefined && raw.attribution[key] !== attribution[key]) fail();
   }
   const result = { fileId: file.id, path: file.path, severity: raw.severity, anchor, attribution };
   for (const key of ['title', 'evidence', 'trigger', 'impact', 'suggestion']) result[key] = raw[key];
@@ -120,8 +125,8 @@ export function prepareStageGenerations(snapshot, records, { maxBytes = LIMIT, v
     seen.add(key);
     exact(record.generation, ['findings', 'limitations', ...DROP]);
     const g = record.generation;
-    if (!Array.isArray(g.findings) || g.findings.length > 50 || !Array.isArray(g.limitations) || g.limitations.length > 50 || g.limitations.some(s => !text(s))) fail();
-    const changes = changeMap(file.left.text, file.right.text);
+    if (!Array.isArray(g.findings) || g.findings.length > 50 || !Array.isArray(g.limitations) || g.limitations.length > MAX_STAGE_LIMITATIONS || g.limitations.some(s => !text(s))) fail();
+    const changes = reviewChangeMap(file.left.text, file.right.text);
     const findings = g.findings.map(raw => {
       if (raw.reviewRound !== undefined && raw.reviewRound !== round) fail();
       return normalizeFinding(raw, file, changes, phase, files);

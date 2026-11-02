@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { stageKey, prepareStageGenerations } from '../src/review-stage-state.mjs';
+import { stageKey, prepareStageGenerations, MAX_STAGE_LIMITATIONS } from '../src/review-stage-state.mjs';
+import { validateFindings as actualValidateFindings } from '../src/review.mjs';
+import { reviewChangeMap } from '../src/review-change-map.mjs';
 import { hash } from '../src/content.mjs';
 import { validateAttribution } from '../src/attribution.mjs';
 function validateFindings(g, file) {
@@ -108,7 +110,7 @@ test('synthesis records require canonical windows and cannot mark provenance com
 test('precise schema size caps and bounded counts reject excess without silent omission', () => {
   for(const maxBytes of [0,-1,Infinity,1.5,8*1024*1024+1])rejects(()=>prepareStageGenerations(snapshot(),[],{maxBytes}));
   rejects(()=>prepareStageGenerations(snapshot(),[record()],{maxBytes:10}));
-  for(const r of [{...record(),unknown:true},record({}, {findings:[],limitations:[],status:'completed'}),record({}, {findings:Array.from({length:51},rawFinding),limitations:[]}),record({}, {findings:[],limitations:['']}),record({}, {findings:[],limitations:Array(51).fill('limit')})])rejects(()=>prepare([r]));
+  for(const r of [{...record(),unknown:true},record({}, {findings:[],limitations:[],status:'completed'}),record({}, {findings:Array.from({length:51},rawFinding),limitations:[]}),record({}, {findings:[],limitations:['']}),record({}, {findings:[],limitations:Array(103).fill('limit')})])rejects(()=>prepare([r]));
   const f=rawFinding();f.reviewRound=2;rejects(()=>prepare([record({}, {findings:[f],limitations:[]})]));
 });
 
@@ -122,6 +124,36 @@ test('private imports never execute accessor toJSON or prototype hooks and rejec
 test('additional prepared-scope validator is synchronous fail-closed and receives no past receipt', () => {
   let called=0;const out=prepareStageGenerations(snapshot(),[record()],{validateGeneration(g,file,descriptor){called++;assert.equal(file.id,'f');assert.equal(descriptor.phase,'primary');assert.equal(g.findings[0].verification,undefined);}});assert.equal(called,1);assert.equal(out.length,1);
   rejects(()=>prepareStageGenerations(snapshot(),[record()],{validateGeneration:()=>false}));rejects(()=>prepareStageGenerations(snapshot(),[record()],{validateGeneration:()=>Promise.resolve(true)}));
+});
+
+test('host-only merged limitation cap accepts 102 but model protocol remains bounded at 50', () => {
+  assert.equal(MAX_STAGE_LIMITATIONS, 102);
+  const limits = Array.from({ length: 102 }, (_, i) => 'bounded host limitation ' + i);
+  const [saved] = prepare([record({}, { findings: [], limitations: limits })]);
+  assert.deepEqual(saved.generation.limitations, limits);
+  assert.deepEqual(prepare([saved]), [saved]);
+  rejects(() => prepare([record({}, { findings: [], limitations: [...limits, 'overflow'] })]));
+  assert.throws(() => actualValidateFindings({ findings: [], limitations: Array(51).fill('model') }, source()), /Invalid review response/);
+});
+
+test('source-derived envelope stages roundtrip IDs while fake precision windows and attribution remain rejected', () => {
+  const before = Array.from({ length: 1200 }, (_, i) => 'old line ' + i + ' ' + 'a'.repeat(30) + '\n').join('');
+  const file = { ...source(), left: { text: before }, right: { text: before.replaceAll('old line', 'new line') } };
+  const s = { id: 'envelope', files: [file] }, changes = reviewChangeMap(file.left.text, file.right.text);
+  assert.equal(changeMap(file.left.text, file.right.text).status, 'limited'); assert.equal(changes.precision, 'envelope');
+  const windows = sourceSegments(changeWindows(file, changes)), window = windows[0];
+  const raw = rawFinding(); raw.anchor = { kind: 'line', side: 'new', start: window.new.start, end: window.new.start, snippet: file.right.text.split('\n')[window.new.start - 1] };
+  raw.attribution.editIds = ['envelope1'];
+  const g = actualValidateFindings({ findings: [raw], limitations: [] }, file);
+  const r = record({ windowIds: [window.id] }, g), [saved] = prepareStageGenerations(s, [r]);
+  assert.deepEqual(saved.generation, g); assert.equal(saved.generation.findings[0].attribution.precision, 'envelope');
+  assert.deepEqual(prepareStageGenerations(s, JSON.parse(JSON.stringify([saved]))), [saved]);
+  for (const patch of [{ precision: 'exact' }, { notice: 'exact evidence' }, { causality: 'proven' }, { editIds: ['e1'] }]) {
+    const bad = structuredClone(saved); delete bad.generation.findings[0].id; Object.assign(bad.generation.findings[0].attribution, patch); rejects(() => prepareStageGenerations(s, [bad]));
+  }
+  const fake = structuredClone(saved); fake.windowIds = ['envelope-h1-s99999']; fake.key = stageKey('f', fake); rejects(() => prepareStageGenerations(s, [fake]));
+  const outside = structuredClone(saved), other = windows[1]; outside.generation.findings[0].anchor = { kind: 'line', side: 'new', start: other.new.start, end: other.new.start, snippet: file.right.text.split('\n')[other.new.start - 1] };
+  delete outside.generation.findings[0].id; rejects(() => prepareStageGenerations(s, [outside]));
 });
 
 test('sparse arrays and accessor-hook mutations cannot bypass normalized output schema', () => {
