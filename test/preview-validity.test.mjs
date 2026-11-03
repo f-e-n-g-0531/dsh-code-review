@@ -20,7 +20,7 @@ test('preview validity distinguishes failure without restoring confirmation', ()
     [preview, { ...owner, agent: {} }, 0, 'PREVIEW_OWNER_CHANGED'],
     [preview, { ...owner, cwd: '/other' }, 0, 'PREVIEW_DIRECTORY_CHANGED'],
     [preview, { ...owner, route: { provider: 'test', model: 'other' } }, 0, 'PREVIEW_MODEL_CHANGED'],
-  ]) assert.throws(() => previewValidity(p, who, clock), error => error.code === code && /fresh confirmation/.test(error.message));
+  ]) assert.throws(() => previewValidity(p, who, clock), error => error.code === code && /verify current explicit user authorization/.test(error.message) && /do not reuse old approval/.test(error.message) && /no duplicate confirmation/.test(error.message) && /explicit wait-for-confirmation/.test(error.message));
 });
 test('authorization wait cancellation and route changes cannot send model input', async () => {
   for (const change of ['cancel','route']) {

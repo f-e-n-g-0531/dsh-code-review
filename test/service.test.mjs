@@ -20,6 +20,10 @@ test('rule selection is previewed and authorized before sending', async () => {
   const e = exec(), p = await service.preview({ rulePaths: ['rules.md'] }, e);
   assert.equal(calls, 0); assert.equal(p.plan.minimumCalls, 1); assert.equal(p.plan.items[0].status, 'ready'); assert.ok(!JSON.stringify(p.plan).includes('RULE_TEXT')); assert.deepEqual(p.rules, [{ path: rule.path, hash: rule.hash }]);
   assert.match(p.notice, /规则全文/);
+  assert.match(p.notice, /直接执行，不重复询问确认/);
+  assert.match(p.notice, /明确要求等待确认时不得执行/);
+  assert.match(p.notice, /超出授权或边界不明确时才询问/);
+  assert.doesNotMatch(p.notice, /获得确认后执行/);
   const result = await service.execute({ previewId: p.previewId, confirmed: true }, e);
   assert.equal(calls, 1); assert.equal(result.report.files[0].initialInputBytes, p.plan.items[0].initialInputBytes); assert.deepEqual(result.report.rules, p.rules);
   assert.match(result.markdown, /fixture-hash/);

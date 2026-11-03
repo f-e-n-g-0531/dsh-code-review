@@ -1,5 +1,5 @@
 // Saved evidence is a ledger, not renewed source authority or automatic resume.
-const NOTICE = 'Saved approved manifest (when present) plus checkpoints; before that, only observed scope, not a complete denominator. Completed windows are not a completed file. New source sends require fresh preview and confirmation; no approval is restored from this ledger.';
+const NOTICE = 'Saved approved manifest (when present) plus checkpoints; before that, only observed scope, not a complete denominator. Completed windows are not a completed file. New source sends require fresh preview and current explicit user authorization; no approval is restored from this ledger. A matching explicit resume request needs no duplicate confirmation; preview-only or explicit wait-for-confirmation does not authorize execution, and scope/model/destination changes require authorization.';
 
 export function recoveryCoverage(record) {
   const states = new Map(), windows = new Map(), stages = new Map();

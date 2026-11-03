@@ -13,7 +13,7 @@ import { reviewProjectBatches, projectConcurrency as validateProjectConcurrency,
 import { createDshModel } from './dsh-model.mjs';
 import { retrievalRounds } from './review-execution-policy.mjs';
 
-const PREVIEW_NOTICE_SUFFIX = ' Full current source audit, not regression-only diff. Shared session execution budget: no internal elapsed-time or model-call cutoff, 16MiB capture memory protection. Blocked/excluded/pending files are not reviewed successfully. No untracked/ignored/external bodies; no complete semantic call graph. Independent approved batches run with bounded concurrency; per-batch evidence and global model-call budgets remain enforced. Show scope and model before confirmed execute.';
+const PREVIEW_NOTICE_SUFFIX = ' Full current source audit, not regression-only diff. Shared session execution budget: no internal elapsed-time or model-call cutoff, 16MiB capture memory protection. Blocked/excluded/pending files are not reviewed successfully. No untracked/ignored/external bodies; no complete semantic call graph. Independent approved batches run with bounded concurrency; per-batch evidence and global model-call budgets remain enforced. Inspect scope and model against current explicit user authorization before execute. A matching explicit review request needs no duplicate confirmation; do not execute preview-only or explicit wait-for-confirmation requests, and ask if scope/model/destination exceeds authorization or is unclear. Host permissions and snapshot/identity checks remain required.';
 const REPORT_NOTICE_SUFFIX = ' Coverage counts processing of selected tracked files only, not proof of correctness. Excluded and blocked are never completed. No cross-batch whole-program semantic coverage is claimed.';
 
 function owner(exec) {
