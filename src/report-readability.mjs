@@ -5,12 +5,23 @@ const brief = value => { const text = String(value ?? ''); return escape(text.le
 const html = value => String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const stages = { primary: '主审', verification: '独立复核', synthesis: '综合', 'window-synthesis': '跨窗口综合', interaction: '跨文件综合' };
 const stage = value => Object.hasOwn(stages, value) ? stages[value] : String(value ?? '未标明阶段');
+const reasonKeys = ['failureCode', 'blockCode', 'code', 'reason', 'pendingReason'];
+const hasReason = record => typeof record === 'string' ? record !== '' : reasonKeys.some(key => record?.[key] != null && record[key] !== '');
+const unknownReason = label => /未知|原因未记录/.test(label);
+const unitKeys = ['id', 'kind', 'fileIds', 'dependencies', 'status', 'attempts', 'pendingReason', 'stopped'];
+const unitMetadata = unit => Object.fromEntries(unitKeys.filter(key => Object.hasOwn(unit ?? {}, key)).map(key => [key, unit[key]]));
 
 function reason(record = {}) {
-  const value = typeof record === 'string' ? record : record?.failureCode ?? record?.blockCode ?? record?.code ?? record?.reason;
+  const value = typeof record === 'string' ? record : record?.failureCode ?? record?.blockCode ?? record?.code ?? record?.reason ?? record?.pendingReason;
   const text = String(value ?? '');
   // Dependency state must not be relabelled as an input-budget failure.
   if (/dependenc|primary.*incomplete|member.*incomplete|prerequisite|依赖.*未完成|主审.*未完成/i.test(text)) return '依赖的主审或前置阶段未完成';
+  if (/STAGE_ATTEMPTS_EXHAUSTED/i.test(text)) return '阶段尝试次数达到上限（不等同于模型调用或读取额度耗尽）';
+  if (/STAGE_ALLOCATION_WAITING/i.test(text)) return '阶段等待读取分配（不代表总额度已耗尽）';
+  if (/STAGE_NO_PROGRESS/i.test(text)) return '阶段未取得进展而停止（未记录具体预算耗尽原因）';
+  if (/STAGE_INTERRUPTED/i.test(text)) return '阶段执行中断，尚待续审';
+  if (/STAGE_FAILED/i.test(text)) return '阶段执行失败';
+  if (/STAGE_TIMEOUT/i.test(text)) return '阶段执行超时';
   if (/RETRIEVAL_ROUND_BUDGET_EXCEEDED|检索轮数|retrieval.*round.*(budget|limit)/i.test(text)) return '单阶段检索轮数达到上限（读取额度可能仍有余量）';
   if (/READER_CALL_BUDGET_EXCEEDED|reader.*call.*(budget|limit)|读取调用.*(不足|耗尽|上限)/i.test(text)) return '阶段分配或共享读取调用次数不足';
   if (/READER_OUTPUT_BUDGET_EXCEEDED|reader.*output.*(budget|limit)|读取.*字节|输出字节/i.test(text)) return '阶段分配或共享读取输出字节预算不足';
@@ -23,19 +34,25 @@ function reason(record = {}) {
   return text ? '未知／其他原因（完整原文见附录）' : '原因未记录（未知；不推测为预算不足）';
 }
 
-function fileReasons(file, findings) {
+function fileReasons(file, findings, units = []) {
   const result = [];
   const limits = [...rows(file?.retrievalLimits), ...rows(file?.groupRetrievalLimits)];
   const failures = rows(file?.stageFailures);
-  const hasReason = record => record != null && ['failureCode', 'blockCode', 'code', 'reason'].some(key => record[key] != null && record[key] !== '');
+  // Compare phase-local evidence before rendering: a legacy unknown must not
+  // obscure a concrete continuation reason for that same stage. Raw values stay in the appendix.
+  const evidence = [...failures, ...limits, ...units.map(item => item.evidence)];
+  const phase = record => record?.phase ?? record?.stage ?? record?.kind;
+  const explained = record => unknownReason(reason(record)) && evidence.some(other => phase(record) != null && phase(other) === phase(record) && !unknownReason(reason(other)));
   if (['pending', 'blocked', 'failed', 'cancelled', 'running'].includes(file?.status)) {
     // A missing top-level code does not erase concrete phase/group evidence.
-    const evidence = hasReason(file) ? [file] : [...failures, ...limits].filter(hasReason);
-    result.push(...(evidence.length ? evidence : [file]).map(reason));
+    const causes = hasReason(file) && !explained(file) ? [file] : [...failures, ...limits].filter(record => hasReason(record) && !explained(record));
+    if (causes.length) result.push(...causes.map(reason));
+    else if (!units.length) result.push(reason(file));
   }
-  for (const failure of failures) result.push(stage(failure?.phase ?? failure?.stage) + '未完成；' + reason(failure));
+  for (const failure of failures.filter(record => !explained(record))) result.push(stage(phase(failure)) + '未完成；' + reason(failure));
+  for (const item of units.filter(item => !explained(item.evidence))) result.push(stage(item.record.kind) + '未完成；' + reason(item.evidence));
   if (file?.retrievalLimited || limits.length) {
-    result.push(...(limits.length ? limits.map(reason) : [reason(file)]));
+    result.push(...(limits.length ? limits.filter(record => !explained(record)).map(reason) : units.length ? [] : [reason(file)]));
   }
   if (rows(file?.windowCoverage?.pending).length) result.push('变更窗口尚未完成');
   if (file?.continuationPending) result.push('阶段续审尚未完成');
@@ -53,9 +70,32 @@ function collect(report) {
     if (record == null || typeof record !== 'object') return [];
     return [...new Set([...(record.path != null ? [String(record.path)] : []), ...(record.fileId != null ? [identity(record.fileId)] : []), ...rows(record.fileIds).map(identity)])];
   };
-  const unfinished = files.map(record => ({ record, reasons: fileReasons(record, findings), paths: record?.path != null ? [String(record.path)] : paths(record) })).filter(item => item.reasons.length);
+  const allUnits = rows(report?.continuation?.units);
+  const byId = new Map(allUnits.filter(unit => unit?.id != null).map(unit => [unit.id, unit]));
+  const completedPrimary = rows(report?.continuation?.completedPrimary);
+  const dependency = id => {
+    const unit = byId.get(id);
+    if (unit) return { ...unitMetadata(unit), paths: paths(unit) };
+    if (typeof id === 'string' && id.startsWith('primary:')) {
+      const fileId = id.slice(8);
+      return { id, kind: 'primary', fileIds: [fileId], paths: [identity(fileId)], status: completedPrimary.includes(fileId) ? 'completed' : 'pending' };
+    }
+    return { id, status: 'unknown' };
+  };
+  const units = allUnits.flatMap((record, position) => {
+    if (!record || record.status === 'completed') return [];
+    const dependencies = rows(record.dependencies).map(dependency);
+    const blocked = dependencies.some(dep => dep.status !== 'completed');
+    // An explicit reason always wins. Dependency readiness is not a call-budget signal.
+    const evidence = !hasReason(record) && blocked ? { ...record, pendingReason: 'DEPENDENCY' } : record;
+    return [{ record, position, dependencies, evidence, paths: paths(record) }];
+  });
+  const unfinished = files.map(record => {
+    const associated = record?.fileId == null ? [] : units.filter(item => rows(item.record.fileIds).includes(record.fileId));
+    return { record, reasons: fileReasons(record, findings, associated), paths: record?.path != null ? [String(record.path)] : paths(record) };
+  }).filter(item => item.reasons.length);
   const interactions = rows(report?.interactions).filter(record => record?.status !== 'completed').map(record => ({ record, reasons: [reason(record)], paths: paths(record) }));
-  return { unfinished, interactions, limitations: rows(report?.limitations), paths };
+  return { unfinished, interactions, units, limitations: rows(report?.limitations), paths };
 }
 
 function grouped(items) {
@@ -83,7 +123,7 @@ export function readabilityMarkdown(report = {}) {
   const output = ['', '## 未完成范围与原因', '以下为处理状态与限制记录数，非缺陷数；同一文件可能涉及多个阶段，限制不自动表示待审或缺陷。'];
   summary(output, '未完成条目', data.unfinished);
   summary(output, '跨文件综合未完成', data.interactions);
-  if (!data.unfinished.length && !data.interactions.length) output.push(report?.partial || data.limitations.length ? '- 报告仍有部分完成标记或限制；未逐项记录待续审范围，不表示全部查完。' : '- 未记录未完成条目或跨文件综合；这不是正确性证明。');
+  if (!data.unfinished.length && !data.interactions.length) output.push(report?.status === 'partial' || report?.partial || data.limitations.length ? '- 报告仍有部分完成标记或限制；未逐项记录待续审范围，不表示全部查完。' : '- 未记录未完成条目或跨文件综合；这不是正确性证明。');
   if (data.limitations.length) output.push('- 另有 ' + data.limitations.length + ' 条限制记录，按原文聚合保留在本报告限制附录；不将这些限制全部计入未完成范围。');
   if (data.unfinished.length || data.interactions.length) output.push('- 以上仅列有界摘要；全部路径、身份、阶段及原始记录见本报告限制附录。');
   output.push('', '## 下一步');
@@ -139,9 +179,13 @@ export function limitationDetailsMarkdown(report = {}) {
     for (const item of items) output.push('- ' + (item.paths.length ? item.paths.map(escape).join('、') : '未标明文件身份') + '：' + item.reasons.map(escape).join('；'));
     // State/reason metadata includes window IDs and pass statuses; full source and candidates already
     // exist in the complete report JSON and must not be duplicated into this appendix.
-    const keys = ['fileId', 'path', 'groupId', 'fileIds', 'status', 'failureCode', 'blockCode', 'code', 'reason', 'stage', 'phase', 'stageFailures', 'retrievalLimited', 'retrievalLimits', 'groupRetrievalLimits', 'continuationPending', 'synthesisStatus', 'verificationStatus', 'windowCoverage', 'reviewPasses'];
+    const keys = ['fileId', 'path', 'groupId', 'fileIds', 'status', 'failureCode', 'blockCode', 'code', 'reason', 'pendingReason', 'stage', 'phase', 'stageFailures', 'retrievalLimited', 'retrievalLimits', 'groupRetrievalLimits', 'continuationPending', 'synthesisStatus', 'verificationStatus', 'windowCoverage', 'reviewPasses'];
     output.push('以下仅为状态与原因元数据；源码、候选及其他完整字段见完整源报告 JSON。');
     originalDetails(output, packed(items.map(item => Object.fromEntries(keys.filter(key => Object.hasOwn(item.record ?? {}, key)).map(key => [key, item.record[key]])))));
+  }
+  if (data.units.length) {
+    output.push('', '### 未完成阶段续审元数据', '按 continuation.units 原始索引保留对应阶段及依赖身份；record 为原始状态元数据，resolvedReason 仅为展示解释，不覆盖原始 pendingReason。');
+    originalDetails(output, data.units.map(item => ({ position: item.position, record: unitMetadata(item.record), paths: item.paths, resolvedReason: reason(item.evidence), dependencies: item.dependencies })));
   }
   return output;
 }

@@ -30,24 +30,39 @@ export function createReviewReaderAllocation(root, units, { maxResumeAttempts = 
     return { ...remaining, remainingCalls: Math.max(0, remaining.remainingCalls - protectedCalls), remainingOutputBytes: Math.max(0, remaining.remainingOutputBytes - protectedBytes) };
   };
   const check = (state, cost) => { const remaining = available(state); if (cost.calls > remaining.remainingCalls) fail('call'); if (cost.outputBytes > remaining.remainingOutputBytes) fail('output'); };
-  const resumeWithCost = (id, costForAttempt) => {
-    const state = states.get(id);
+  // Only the host knows dependencies. An explicit COMPLETE current ready-ID set
+  // filters FIFO opportunities, never the protected floors in available().
+  const readyIds = eligibleIds => {
+    if (eligibleIds === undefined) return null;
+    if (!(Array.isArray(eligibleIds) || eligibleIds instanceof Set) || eligibleIds.size > states.size || eligibleIds.length > states.size) throw new Error('Invalid reader resume eligibility');
+    const ready = new Set(eligibleIds);
+    if ([...ready].some(id => !states.has(id))) throw new Error('Invalid reader resume eligibility');
+    return ready;
+  };
+  const resumeWithCost = (id, costForAttempt, { eligibleIds, exact = false } = {}) => {
+    const state = states.get(id), ready = readyIds(eligibleIds);
     if (!state || state.released || !state.yielded) throw new Error('Reader allocation unit unavailable');
     if (state.resumeAttempts >= maxResumeAttempts) return { resumed: false, reason: 'READER_RESUME_ATTEMPTS_EXHAUSTED', attempts: state.resumeAttempts };
-    const head = yielded.find(key => { const row = states.get(key); return row && !row.released && row.yielded && row.resumeAttempts < maxResumeAttempts && row.yieldRevision < releaseRevision; });
-    if (head !== id || state.yieldRevision >= releaseRevision) return { resumed: false, reason: 'READER_RESUME_WAITING', attempts: state.resumeAttempts };
-    state.resumeAttempts++; state.yieldRevision = releaseRevision;
-    yielded.splice(yielded.indexOf(id), 1); yielded.push(id);
+    const waiting = () => ({ resumed: false, reason: 'READER_RESUME_WAITING', attempts: state.resumeAttempts });
+    // One first exact admission may use existing own-floor/cache capacity. Later
+    // opportunities require a release; readiness changes cannot reset this gate.
+    const opportunity = row => row.yieldRevision < releaseRevision || (exact && row.resumeAttempts === 0);
+    const head = yielded.find(key => { const row = states.get(key); return (!ready || ready.has(key)) && row && !row.released && row.yielded && row.resumeAttempts < maxResumeAttempts && opportunity(row); });
+    if (head !== id || !opportunity(state)) return waiting();
+    let failure = null;
     try {
       const cost = costForAttempt();
       if (!cost || !Number.isSafeInteger(cost.calls) || cost.calls < 0 || !Number.isSafeInteger(cost.outputBytes) || cost.outputBytes < 0) throw new Error('Reader allocation preflight unavailable');
       check(state, cost);
-      state.yielded = false; state.pendingReason = null; yielded.splice(yielded.indexOf(id), 1);
-      return { resumed: true, reason: null, attempts: state.resumeAttempts };
     } catch (error) {
       if (!['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(error?.code)) throw error;
-      return { resumed: false, reason: error.code, attempts: state.resumeAttempts };
+      failure = error.code;
     }
+    state.resumeAttempts++; state.yieldRevision = releaseRevision;
+    yielded.splice(yielded.indexOf(id), 1);
+    if (failure) { yielded.push(id); return { resumed: false, reason: failure, attempts: state.resumeAttempts }; }
+    state.yielded = false; state.pendingReason = null;
+    return { resumed: true, reason: null, attempts: state.resumeAttempts };
   };
   const scopes = new Map();
   return Object.freeze({
@@ -99,17 +114,17 @@ export function createReviewReaderAllocation(root, units, { maxResumeAttempts = 
       state.yielded = true; state.yieldRevision = releaseRevision; state.pendingReason = reason; yielded.push(id);
       return { yielded: true, attempts: state.resumeAttempts };
     },
-    resume(id, requests = []) {
+    resume(id, requests = [], { eligibleIds } = {}) {
       const state = states.get(id);
       if (!state || state.released || !state.yielded) throw new Error('Reader allocation unit unavailable');
       if (!Array.isArray(requests) || !requests.length) return { resumed: false, reason: 'READER_RESUME_REQUESTS_REQUIRED', attempts: state.resumeAttempts };
-      return resumeWithCost(id, () => root.preflight(requests));
+      return resumeWithCost(id, () => root.preflight(requests), { eligibleIds, exact: true });
     },
     // Scalar admission is only a retry opportunity, never authority to read.
     // Every actual read still goes through exact preflight and root accounting.
-    resumeBudget(id, { requiredCalls = 1, requiredOutputBytes = 1 } = {}) {
+    resumeBudget(id, { requiredCalls = 1, requiredOutputBytes = 1, eligibleIds } = {}) {
       if (![requiredCalls, requiredOutputBytes].every(value => Number.isSafeInteger(value) && value >= 0) || requiredCalls + requiredOutputBytes === 0) throw new Error('Invalid reader resume budget');
-      return resumeWithCost(id, () => ({ calls: requiredCalls, outputBytes: requiredOutputBytes }));
+      return resumeWithCost(id, () => ({ calls: requiredCalls, outputBytes: requiredOutputBytes }), { eligibleIds });
     },
     release(id) { const state = states.get(id); if (!state) return; if (state.inTransaction) throw new Error('Reader allocation transaction active'); if (!state.released) { state.released = true; releaseRevision++; } },
     summary() { const usage = root.usage(); return { units: states.size, releasedUnits: [...states.values()].filter(state => state.released).length, calls: usage.calls, outputBytes: usage.outputBytes, ...(usage.cacheHits !== undefined ? { cacheHits: usage.cacheHits } : {}) }; },

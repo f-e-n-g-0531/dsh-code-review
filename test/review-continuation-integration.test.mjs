@@ -100,7 +100,8 @@ test('two window generations sharing a yielded verification unit resume without 
  },{...options,maxInputBytes:11000});
  assert.equal(primary.get('f1'),2);assert.equal(primary.get('f2'),1);assert.equal(primary.get('f3'),1);
  assert.equal(report.findings.length,2);assert.ok(report.findings.every(f=>f.verification.status==='completed'));
- assert.deepEqual(verified.sort((a,b)=>a-b),[11,81]);assert.equal(report.stageContinuation.completed,2);assert.equal(report.stageContinuation.pending,0);
+ assert.deepEqual(verified.sort((a,b)=>a-b),[11,81]);assert.equal(report.stageContinuation.completed,3);assert.equal(report.stageContinuation.pending,0);
+ assert.ok(report.continuation.units.some(unit=>unit.kind==='synthesis' && unit.status==='completed'));
  assert.equal(new Set(verifierStarts).size,verifierStarts.length);assert.ok(report.readerBudget.calls<=50);assert.equal(report.readerBudget.maxCalls,50);
 });
 
@@ -117,7 +118,7 @@ test('two rounds sharing a yielded interaction unit queue siblings until unrelat
   return{findings:[],limitations:[]};
  },{...options,enableGrouping:true,reviewRounds:2});
  assert.equal(report.interactions.length,1);assert.equal(report.interactions[0].status,'completed');
- assert.deepEqual([...primary.values()],[2,2,2]);assert.equal(interactionStarts.length,3);assert.equal(interactionStarts[0].lateDone,false);assert.ok(interactionStarts.slice(1).every(row=>row.lateDone));
+ assert.deepEqual([...primary.values()],[2,2,2]);assert.equal(interactionStarts.length,2);assert.ok(interactionStarts.every(row=>row.lateDone));
  assert.equal(report.stageContinuation.completed,2);assert.equal(report.stageContinuation.pending,0);assert.ok(report.readerBudget.calls<=50);assert.equal(report.readerBudget.maxCalls,50);
  assert.ok(report.files.every(file=>!file.stageFailures?.length));assert.ok(report.files.every(file=>file.resumeEligible===true));
  assert.deepEqual([...new Set(report.interactions[0].completedRounds)].sort(),[1,2]);

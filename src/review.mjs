@@ -196,7 +196,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   const generationCache = createStageGenerationCache(input, options.resumeState?.stageGenerations ?? []);
   const acceptedStages = new Map(generationCache.records().filter(record => record.phase === 'primary').map(record => [record.key, { generation: record.generation, record, restored: true }]));
   const primarySuspensions = new Map(), correctedStages = new Set();
-  const deferredStages = [], yieldedUnits = new Set(), fileDeadlines = new Map(), primaryStageKeys = new Map();
+  const deferredStages = [], yieldedUnits = new Set(), queuedStageUnits = new Set(), fileDeadlines = new Map(), primaryStageKeys = new Map();
   const checkpointStages = () => {
     if (!options.enableStageContinuation) return;
     report.stageGenerations = generationCache.records().filter(record => record.phase === 'primary');
@@ -204,7 +204,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   let readerAllocation;
   const stageScope = id => readerAllocation
     ? configureWireBudget(readerAllocation.scope(id), { nativeOutputTools: options.nativeOutputTools === true }) : scope;
-  const releaseStage = id => { if (!yieldedUnits.has(id)) readerAllocation?.release(id); };
+  const releaseStage = id => { if (!yieldedUnits.has(id) && !queuedStageUnits.has(id) && !deferredStages.some(stage => !stage.done && stage.allocationId === id)) readerAllocation?.release(id); };
   const contextSeeds = (reader, request, existing = [], buildRequest = records => retrievalRequest(request, reader, records)) => {
     if (!evidenceContext || !reader || maxRetrievalRounds === 0) return [];
     const payload = JSON.parse(request.input), catalog = reader.catalog();
@@ -282,7 +282,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     }
     if (signal?.aborted) { state.status = 'cancelled'; state.reason = '用户取消'; return; }
     const assignedGroup = [...groupPrepared].find(([, value]) => value.fileIds.includes(file.id));
-    if (!assignedGroup && (report.modelCalls >= maxCalls || options.remainingCalls?.() <= 0)) { state.reason = '模型调用预算耗尽'; return; }
+    if (!assignedGroup && (report.modelCalls >= maxCalls || options.remainingCalls?.() <= 0)) { state.reason = '模型调用预算耗尽'; state.failureCode = 'PROJECT_MODEL_CALL_LIMIT'; return; }
     const prepared = preparePrimaryInput(input, file, { instructions, scope, grouping: report.grouping, maxInputBytes, riskPlanningMode: options.riskPlanningMode, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning, skipSmallRiskPlans: options.skipSmallRiskPlans });
     const { changes, payload } = prepared;
     Object.assign(state, prepared.metadata);
@@ -300,8 +300,9 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         if (report.modelCalls >= maxCalls) throw new Error('Model call budget exceeded');
         report.modelCalls++;
       };
-      let activeReader = scope, activeStage = 'primary';
+      let activeReader = scope, activeStage = 'primary', activeStageLimited = false;
       const onBudgetLimited = info => {
+        activeStageLimited = true;
         if (activeStage !== 'primary') (state.secondaryRetrievalLimits ??= []).push({ phase: activeStage, ...info });
         state.retrievalLimited = true;
         (state.retrievalLimits ??= []).push(info);
@@ -404,6 +405,22 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         const phase=batch.interaction?'file-interaction':batch.synthesis?'window-synthesis':'primary';
         try{
         activeStage = phase;
+        activeStageLimited = phase === 'primary' && !!groupedGeneration?.groupLimits?.length;
+        // Seal the complete primary sweep before spending reads on secondary synthesis.
+        // A scheduled dependency is not a reader failure and does not consume a retry.
+        if (options.enableStageContinuation && !retry && (batch.synthesis || batch.interaction)) {
+          if (!deferredStages.some(stage => stage.key === key)) deferredStages.push({
+            key, allocationId, fileId: file.id, phase: batch.synthesis ? 'synthesis' : 'interaction',
+            fileIds: batch.interaction?.fileIds ?? [file.id], attempts: 0, requests: [], reason: 'STAGE_DEPENDENCY_PENDING',
+            run: () => invoke(next => executeStage(batch, batchIndex, next, true), { instructions, input: payload }, timeoutMs > 0 ? Math.max(1, fileDeadlines.get(file.id) - performance.now()) : 0, signal),
+          });
+          queuedStageUnits.add(allocationId);
+          if (options.enableVerification) queuedStageUnits.add('verification:' + file.id);
+          if (batch.synthesis) state.continuationPending = true;
+          if (batch.synthesis) state.synthesisStatus = 'pending';
+          if (batch.interaction) Object.assign(report.interactions.find(item => item.groupId === batch.interaction.id), { status: 'pending', reason: 'STAGE_DEPENDENCY_PENDING' });
+          return;
+        }
         if (options.enableStageContinuation && (batch.synthesis || batch.interaction) && (batch.interaction?.fileIds ?? [file.id]).some(id => deferredStages.some(stage => stage.fileId === id && stage.phase === 'primary' && !acceptedStages.has(stage.key)))) {
           defer(Object.assign(new Error('Stage is waiting for accepted primary generations'), { code: 'READER_CALL_BUDGET_EXCEEDED' })); return;
         }
@@ -560,7 +577,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         }
         request.signal.throwIfAborted();
         if(rounds>1)generated.findings.forEach(f=>{f.reviewRound=batch.round;});
-        if (options.enableStageContinuation && !priorStage && !state.retrievalLimited) {
+        if (options.enableStageContinuation && !priorStage && !activeStageLimited) {
           const record = { key, fileId: file.id, phase, round: batch.round, windowIds: batch.windowIds ?? [], ...(batch.interaction ? { groupId: batch.interaction.id } : {}), generation: { findings: structuredClone(generated.findings), limitations: structuredClone(generated.limitations) } };
           const admission = generationCache.admit(record);
           if (admission.accepted) {
@@ -607,19 +624,19 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           }
         }
         if (acceptedStages.has(key)) acceptedStages.get(key).completed = !options.enableVerification || generated.findings.every(finding => finding.verification?.status === 'completed');
-        if (batch.synthesis) state.synthesisStatus = 'completed';
+        if (batch.synthesis) state.synthesisStatus = activeStageLimited ? 'pending' : 'completed';
         if (batch.interaction) {
           const interaction=report.interactions.find(p => p.groupId === batch.interaction.id);
           if (combinedInteraction) Object.assign(interaction, { method: 'group-primary-validated-channel', channelGroupId: combinedInteraction.groupId });
-          if(rounds>1){interaction.completedRounds??=[];interaction.completedRounds.push(batch.round);interaction.reviewRounds=rounds;}
-          if(batch.round===rounds)interaction.status='completed';
+          if(rounds>1){interaction.completedRounds??=[];if(!activeStageLimited)interaction.completedRounds.push(batch.round);interaction.reviewRounds=rounds;}
+          if(batch.round===rounds) { interaction.status = activeStageLimited || rounds > 1 && new Set(interaction.completedRounds).size !== rounds ? 'pending' : 'completed'; if (activeStageLimited) interaction.reason = state.secondaryRetrievalLimits?.at(-1)?.code ?? 'STAGE_FAILED'; }
         }
         if (state.windowCoverage && batch.round === 1) {
           state.windowCoverage.completed.push(...batch.windowIds);
           state.windowCoverage.pending = state.windowCoverage.pending.filter(id => !batch.windowIds.includes(id));
         }
         if(rounds>1)state.reviewPasses[batchIndex].status='completed';
-        if (retry) { const pending = deferredStages.find(stage => stage.key === key); if (pending) pending.succeeded = !options.enableVerification || generated.findings.every(finding => finding.verification?.status === 'completed'); }
+        if (retry) { const pending = deferredStages.find(stage => stage.key === key); if (pending) { pending.succeeded = !activeStageLimited && (!options.enableVerification || generated.findings.every(finding => finding.verification?.status === 'completed')); if (activeStageLimited) pending.reason = state.retrievalLimits?.at(-1)?.code ?? 'STAGE_FAILED'; } }
         await options.onProgress?.({stage:'window-complete',snapshotId:input.id,fileId:file.id,path:file.path,windowIds:batch.windowIds,round:batch.round,findings:generated.findings,windowCoverage:state.windowCoverage});
         }catch(error){
           enclosingRequest.signal.throwIfAborted();
@@ -740,7 +757,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   }, dependencies, fileConcurrency);
   if (options.enableStageContinuation === true && deferredStages.length && !signal.aborted) {
     const primaryDone = input.files.filter(file => file.eligibility === 'reviewable' && (options.resumeState?.completed?.some(row => row.fileId === file.id) || primaryStageKeys.get(file.id)?.length && primaryStageKeys.get(file.id).every(key => acceptedStages.has(key)))).map(file => file.id);
-    const units = deferredStages.map((stage, index) => ({ id: hash(stage.key), kind: stage.phase, fileIds: stage.fileIds,
+    const units = deferredStages.map((stage, index) => ({ id: hash(stage.key), kind: stage.phase, fileIds: stage.fileIds, pendingReason: stage.reason,
       dependencies: stage.phase === 'primary'
         ? deferredStages.slice(0, index).filter(other => other.phase === 'primary' && other.fileId === stage.fileId).map(other => hash(other.key))
         : stage.fileIds.flatMap(id => { const pending = deferredStages.filter(other => other.phase === 'primary' && other.fileId === id); return pending.length ? pending.map(other => hash(other.key)) : ['primary:' + id]; }) }));
@@ -753,17 +770,26 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     }
     for (let pass = 0; pass < 2; pass++) {
       let progressed = false;
-      for (const stage of deferredStages) {
+      for (const stage of [...deferredStages].sort((a, b) => (a.phase === 'primary' ? 0 : a.phase === 'verification' ? 1 : 2) - (b.phase === 'primary' ? 0 : b.phase === 'verification' ? 1 : 2))) {
         if (stage.done || !continuation.ready().some(unit => unit.id === hash(stage.key))) continue;
-        if (performance.now() >= fileDeadlines.get(stage.fileId) || signal.aborted || report.modelCalls >= maxCalls) { continuation.stop(hash(stage.key), 'STAGE_NO_PROGRESS'); continue; }
-        const admitted = !yieldedUnits.has(stage.allocationId) ? { resumed: true } : stage.requests.length ? readerAllocation.resume(stage.allocationId, stage.requests) : readerAllocation.resumeBudget(stage.allocationId);
-        if (!admitted.resumed) continue;
+        if (performance.now() >= fileDeadlines.get(stage.fileId) || signal.aborted || report.modelCalls >= maxCalls || options.remainingCalls?.() <= 0) {
+          stage.reason = signal.aborted ? 'STAGE_CANCELLED' : performance.now() >= fileDeadlines.get(stage.fileId) ? 'STAGE_TIMEOUT' : 'PROJECT_MODEL_CALL_LIMIT';
+          continuation.stop(hash(stage.key), stage.reason); continue;
+        }
+        const eligibleIds = [...new Set(deferredStages.filter(candidate => !candidate.done && continuation.ready().some(unit => unit.id === hash(candidate.key))).map(candidate => candidate.allocationId))];
+        const admitted = !yieldedUnits.has(stage.allocationId) ? { resumed: true } : stage.requests.length ? readerAllocation.resume(stage.allocationId, stage.requests, { eligibleIds }) : readerAllocation.resumeBudget(stage.allocationId, { eligibleIds });
+        if (!admitted.resumed) { stage.reason = ['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(admitted.reason) ? admitted.reason : 'STAGE_ALLOCATION_WAITING'; continue; }
         yieldedUnits.delete(stage.allocationId);
+        if (!stage.allocationId.startsWith('verification:') || !deferredStages.some(other => other !== stage && !other.done && other.fileId === stage.fileId)) queuedStageUnits.delete(stage.allocationId);
         const token = continuation.start(hash(stage.key), { signal });
         stage.attempts++; await stage.run();
         progressed = true;
-        if (stage.succeeded && !yieldedUnits.has(stage.allocationId)) { stage.done = true; continuation.complete(hash(stage.key), token.attempt, { signal }); if (!deferredStages.some(other => other !== stage && !other.done && other.allocationId === stage.allocationId)) readerAllocation.release(stage.allocationId); }
-        else { continuation.yield(hash(stage.key), stage.reason); if (!yieldedUnits.has(stage.allocationId)) continuation.stop(hash(stage.key), 'STAGE_FAILED'); }
+        if (stage.succeeded && !yieldedUnits.has(stage.allocationId)) { stage.done = true; continuation.complete(hash(stage.key), token.attempt, { signal }); if (!deferredStages.some(other => other !== stage && !other.done && other.allocationId === stage.allocationId) && !queuedStageUnits.has(stage.allocationId)) readerAllocation?.release(stage.allocationId); }
+        else { const cause = stage.reason === 'STAGE_DEPENDENCY_PENDING' ? 'STAGE_FAILED' : stage.reason ?? 'STAGE_FAILED'; continuation.yield(hash(stage.key), cause); if (!yieldedUnits.has(stage.allocationId)) continuation.stop(hash(stage.key), cause); }
+        if (!deferredStages.some(other => !other.done && other.fileId === stage.fileId)) {
+          queuedStageUnits.delete('verification:' + stage.fileId);
+          releaseStage('verification:' + stage.fileId);
+        }
       }
       if (!progressed) break;
     }
@@ -771,6 +797,10 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     for (const [id, keys] of primaryStageKeys) if (!primaryDone.includes(id) && keys.length && keys.every(key => acceptedStages.has(key))) primaryDone.push(id);
     report.stageContinuation = continuation.summary();
     report.continuation = continuation.checkpoint();
+    for (const unit of report.continuation.units) if (unit.status !== 'completed') {
+      const stage = deferredStages.find(item => hash(item.key) === unit.id);
+      if (stage?.reason && !unit.stopped) unit.pendingReason = stage.reason;
+    }
     report.continuationOptions = continuationOptions;
     for (const file of input.files) {
       const result = fileResults[input.files.indexOf(file)];
@@ -780,7 +810,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     checkpointStages();
     await options.onResumeCheckpoint?.({ ...report, files: fileResults.map(result => result.state), findings: fileResults.flatMap(result => result.findings), limitations: [...report.limitations, ...fileResults.flatMap(result => result.limitations)] });
   }
-  for (const id of yieldedUnits) readerAllocation?.release(id);
+  for (const id of new Set([...yieldedUnits, ...queuedStageUnits])) readerAllocation?.release(id);
   if (checkpointFailed) throw checkpointFailure;
   for (const result of fileResults) if (result?.state.continuationPending === false) { const state = result.state; state.resumeEligible = state.status === 'completed' && !state.stageFailures?.length && !state.reviewPasses?.some(pass => pass.status !== 'completed') && !state.windowCoverage?.pending?.length && !state.retrievalLimited && result.findings.every(finding => finding.verification?.status === 'completed') && report.interactions.filter(item => item.fileIds?.includes(state.fileId)).every(item => item.status === 'completed'); }
   report.files = fileResults.map(result => result.state);
@@ -795,7 +825,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   report.selection = { total: input.files.length, reviewable: reviewableCount, excluded: input.files.filter(f => f.eligibility === 'excluded').length, blocked: input.files.filter(f => f.eligibility === 'blocked').length };
   if (!reviewableCount) report.limitations.push({ text: input.files.length ? '没有可审查文件；排除或阻塞不表示代码审核通过。' : '未选择变更文件，没有执行代码审核。' });
   const unfinished = report.files.some(f => !['completed', 'excluded'].includes(f.status));
-  report.status = signal?.aborted ? 'cancelled' : unfinished || report.limitations.length ? 'partial' : 'completed';
+  report.status = signal?.aborted ? 'cancelled' : unfinished || report.limitations.length || report.stageContinuation?.pending || report.files.some(file => file.synthesisStatus && file.synthesisStatus !== 'completed') ? 'partial' : 'completed';
   if (report.files.some(f => f.status === 'failed') && !report.files.some(f => f.status === 'completed')) report.status = signal?.aborted ? 'cancelled' : 'failed';
   report.coverage = Object.fromEntries(['completed', 'excluded', 'blocked', 'failed', 'cancelled', 'pending'].map(s => [s, report.files.filter(f => f.status === s).length]));
   if (scope) {
@@ -804,7 +834,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   }
   report.regressionCoverage = Object.fromEntries(['introduced', 'preexisting', 'uncertain', 'unassessed'].map(classification => [classification, report.findings.filter(f => (f.verification?.regression?.classification ?? 'unassessed') === classification).length]));
   report.findingGroups = groupDuplicateFindings(report.findings);
-  for (const state of report.files) state.resumeEligible = state.status === 'completed' && !state.stageFailures?.length && !state.reviewPasses?.some(pass => pass.status !== 'completed') && !state.windowCoverage?.pending?.length && !state.retrievalLimited && report.findings.filter(f => f.fileId === state.fileId).every(f => f.verification?.status === 'completed') && report.interactions.filter(item => item.fileIds?.includes(state.fileId)).every(item => item.status === 'completed');
+  for (const state of report.files) state.resumeEligible = state.status === 'completed' && !state.continuationPending && (!state.synthesisStatus || state.synthesisStatus === 'completed') && !state.stageFailures?.length && !state.reviewPasses?.some(pass => pass.status !== 'completed') && !state.windowCoverage?.pending?.length && !state.retrievalLimited && report.findings.filter(f => f.fileId === state.fileId).every(f => f.verification?.status === 'completed') && report.interactions.filter(item => item.fileIds?.includes(state.fileId)).every(item => item.status === 'completed');
   await options.onResumeCheckpoint?.(report);
   report.followup = coverageFollowup(report);
   if (scope) report.readerBudget = { ...scope.usage(), ...scope.budget(), ...readerLimits };

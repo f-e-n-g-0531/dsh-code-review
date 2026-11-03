@@ -7,16 +7,33 @@ export { RETRIEVAL_INSTRUCTIONS };
 
 function compactFollowup(input) {
   const p = JSON.parse(input);
-  if (p.windows) {
-    p.windows = p.windows.map(w => ({ ...w, old: { ...w.old, text: undefined }, new: { ...w.new, text: undefined } }));
-    p.windowBodyNotice = 'Window bodies deferred; use approved catalog read. Omitted results are not evidence.';
-  }
-  if (p.sourceMode === 'window-synthesis') {
-    for (const key of ['contextRelations', 'contextRelationNotice', 'cppCallSites', 'cppCallNotice', 'callerBindings', 'callerBindingNotice', 'windowNotice', 'defectGuidance', 'contextNotice', 'contextMode']) delete p[key];
-    if (p.changes) p.changes = { status: p.changes.status, precision: p.changes.precision, edits: p.changes.edits };
-    p.followupNotice = 'Synthesis metadata compacted; windowIndex retains original coordinates. Read approved sides for evidence.';
-  }
-  return JSON.stringify(p);
+  let removed = false;
+  const strip = (source, keys = ['text']) => {
+    if (!source || typeof source !== 'object') return;
+    for (const key of keys) if (typeof source[key] === 'string' && source[key].length) {
+      delete source[key];
+      removed = true;
+    }
+  };
+  const file = value => {
+    if (!value || typeof value !== 'object') return;
+    // Full snapshot files use left/right; windows use old/new. Never traverse
+    // arbitrary claims, exact edits, or retrieved results looking for text.
+    for (const side of ['left', 'right', 'old', 'new']) strip(value[side]);
+  };
+  const envelope = value => {
+    file(value.file);
+    for (const key of ['relatedFiles', 'files', 'windows']) {
+      if (Array.isArray(value[key])) value[key].forEach(file);
+    }
+    if (Array.isArray(value.context)) value.context.forEach(item => strip(item, ['text', 'oldText']));
+  };
+  envelope(p);
+  if (Array.isArray(p.reviews)) p.reviews.forEach(envelope);
+  if (!removed) return input;
+  p.followupSourceNotice = 'Repeated initial source bodies deferred; identity, sides and original coordinates remain. Use approved catalog reader operations for source evidence. Previously supplied bodies are not independent reads or complete coverage; deferred/omitted bodies are not evidence. Retrieved results and receipts are unchanged.';
+  const compact = JSON.stringify(p);
+  return Buffer.byteLength(compact) < Buffer.byteLength(input) ? compact : input;
 }
 
 export function retrievalRequest(request, scope, retrieved = []) {
@@ -105,7 +122,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
     let parsed = pendingResponse;
     if (!parsed) {
     let { input, instructions } = nextRequest(retrieved);
-    if (correctProtocol && retrieved.length && !fits({ ...request, input, instructions })) input = compactFollowup(input);
+    if (correctProtocol && round > 0 && !fits({ ...request, input, instructions })) input = compactFollowup(input);
     if (!fits({ ...request, input, instructions })) throw new Error('Retrieval input budget exceeded');
     request.signal?.throwIfAborted();
     beforeCall();
@@ -174,7 +191,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
             next.instructions = request.instructions + '\n' + RETRIEVAL_INSTRUCTIONS + FINAL_SUFFIX;
           }
           next.input = JSON.stringify(value);
-          if (correctProtocol) next.input = compactFollowup(next.input);
+          if (correctProtocol && !fits(next)) next.input = compactFollowup(next.input);
           return next;
         }, signal: request.signal,
       });
@@ -186,7 +203,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
       let candidate = [...retrieved, item];
       let next = nextRequest(candidate);
       if (correctProtocol) {
-        while (retrieved.length && !fits({ ...next, input: compactFollowup(next.input) })) {
+        while (retrieved.length && !fits(next) && !fits({ ...next, input: compactFollowup(next.input) })) {
           retrieved.shift();
           await request.onProtocolEvent?.({ action: 'prior-retrieval-deferred', notice: 'Prior returned fragment no longer in current prompt; reread approved source for evidence.' });
           candidate = [...retrieved, item];

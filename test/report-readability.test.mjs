@@ -78,7 +78,7 @@ test('unknown long causes stay out of body and partial status cannot imply compl
   const report={files:[{path:'p',status:'pending',reason:long}]};
   assert.doesNotMatch(main(report),/UNKNOWN_ORIGINAL_/);
   assert.ok(appendix(report).includes(long));
-  for(const extra of [{partial:true},{limitations:['restricted']}]) {
+  for(const extra of [{status:'partial'},{partial:true},{limitations:['restricted']}]) {
     assert.match(main({files:[],...extra}),/不表示全部查完/);
     assert.doesNotMatch(main({files:[],...extra}),/未记录未完成条目/);
   }
@@ -108,4 +108,96 @@ test('shared-text packing reconstructs record differences and duplicate position
   assert.deepEqual(restored,records);
   const missingText=appendix({limitations:[{text:null,extra:1},{extra:2}]});
   assert.match(missingText,/&quot;|"text": null/);
+});
+
+const stageUnit = (id, kind, fileIds, pendingReason, extra = {}) => ({ id, kind, fileIds, dependencies: [], status: 'pending', attempts: 1, pendingReason, stopped: true, ...extra });
+const jsonBlocks = text => [...text.matchAll(/<pre>([\s\S]*?)<\/pre>/g)].map(match => JSON.parse(match[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&')));
+
+test('pending files use only their unfinished continuation units and hide unit IDs in the body', () => {
+  const files = Array.from({ length: 19 }, (_, i) => ({ fileId: 'f' + i, path: 'path/' + i, status: 'pending' }));
+  const units = files.map((file, i) => stageUnit('RAW_UNIT_' + i, 'primary', [file.fileId], i === 0 ? 'READER_CALL_BUDGET_EXCEEDED' : 'STAGE_ATTEMPTS_EXHAUSTED'));
+  const report = { files, continuation: { units } };
+  const text = main(report);
+  assert.match(text, /未完成条目：19 条记录/);
+  assert.doesNotMatch(text, /未知|原因未记录|RAW_UNIT/);
+  const callLine = text.split('\n').find(line => line.includes('阶段分配或共享读取调用次数不足'));
+  assert.ok(callLine.includes('path/0'));
+  assert.ok(!callLine.includes('path/1'));
+  const attemptLine = text.split('\n').find(line => line.includes('阶段尝试次数达到上限'));
+  assert.ok(attemptLine.includes('path/1'));
+  assert.ok(!attemptLine.includes('path/0'));
+  const metadata = jsonBlocks(appendix(report)).at(-1);
+  assert.deepEqual(metadata.map(item => item.record), units);
+  assert.deepEqual(metadata.map(item => item.position), units.map((_, i) => i));
+});
+
+test('dependency-blocked units explain unfinished prerequisites without inventing call exhaustion', () => {
+  const units = [stageUnit('RAW_PRIMARY', 'primary', ['a'], 'STAGE_NO_PROGRESS'), stageUnit('RAW_VERIFY', 'verification', ['b'], null, { dependencies: ['RAW_PRIMARY', 'primary:b', 'missing-dependency'], stopped: false, attempts: 0 })];
+  const report = { files: [{ fileId: 'a', path: 'a.cpp', status: 'pending' }, { fileId: 'b', path: 'b.cpp', status: 'pending' }], continuation: { units, completedPrimary: [] } };
+  const text = main(report);
+  assert.match(text, /阶段未取得进展而停止/);
+  assert.match(text, /独立复核未完成；依赖的主审或前置阶段未完成/);
+  assert.doesNotMatch(text, /原因未记录|读取调用次数不足|模型调用额度不足|RAW_PRIMARY|RAW_VERIFY|missing/);
+  const metadata = jsonBlocks(appendix(report)).at(-1);
+  assert.deepEqual(metadata[1].record, units[1]);
+  assert.deepEqual(metadata[1].dependencies[0].fileIds, ['a']);
+  assert.equal(metadata[1].dependencies[0].pendingReason, 'STAGE_NO_PROGRESS');
+  assert.equal(metadata[1].dependencies[1].id, 'primary:b');
+  assert.equal(metadata[1].dependencies[1].status, 'pending');
+  assert.deepEqual(metadata[1].dependencies[2], { id: 'missing-dependency', status: 'unknown' });
+});
+
+test('completed prerequisites and completed units cannot create a budget or dependency cause', () => {
+  const units = [stageUnit('DONE_POISON', 'primary', ['a'], 'READER_CALL_BUDGET_EXCEEDED', { status: 'completed' }), stageUnit('WAIT', 'verification', ['a'], null, { dependencies: ['DONE_POISON', 'primary:a'] })];
+  const report = { files: [{ fileId: 'a', path: 'a', status: 'pending' }], continuation: { units, completedPrimary: ['a'] } };
+  assert.match(main(report), /原因未记录/);
+  assert.doesNotMatch(main(report), /读取调用次数不足|依赖的主审或前置阶段未完成/);
+  const onlyDone = { files: [{ fileId: 'a', path: 'a', status: 'completed' }], continuation: { units: [units[0]] } };
+  assert.doesNotMatch(main(onlyDone), /未完成条目：/);
+  assert.doesNotMatch(appendix(onlyDone), /DONE_POISON/);
+});
+
+test('same-stage legacy unknown is folded but unknown raw metadata survives immutably', () => {
+  const unknown = '</pre><script>FUTURE_REASON</script>';
+  const units = [stageUnit('KNOWN', 'verification', ['a'], 'STAGE_ATTEMPTS_EXHAUSTED'), stageUnit('UNKNOWN', 'synthesis', ['b'], unknown), stageUnit('DEPENDENCY_CODE', 'interaction', ['c'], 'DEPENDENCY')];
+  const report = { files: [{ fileId: 'a', path: 'a', status: 'pending', stageFailures: [{ phase: 'verification', reason: unknown }] }, { fileId: 'b', path: 'b', status: 'pending' }, { fileId: 'c', path: 'c', status: 'pending' }], continuation: { units }, limitations: [{ text: 'safe' }] };
+  const before = structuredClone(report);
+  const freeze = value => { if (value && typeof value === 'object') { Object.values(value).forEach(freeze); Object.freeze(value); } };
+  freeze(report);
+  const text = main(report), details = appendix(report);
+  assert.equal(text.split('\n').filter(line => line.includes('未知／其他原因')).length, 1);
+  const unknownLine = text.split('\n').find(line => line.includes('未知／其他原因'));
+  assert.ok(unknownLine.includes('b'));
+  assert.ok(!unknownLine.includes('；a'));
+  assert.match(text, /阶段尝试次数达到上限/);
+  assert.match(text, /依赖的主审或前置阶段未完成/);
+  assert.doesNotMatch(text, /FUTURE_REASON|KNOWN|UNKNOWN|DEPENDENCY_CODE/);
+  assert.doesNotMatch(details, /<script>/);
+  assert.match(details, /&lt;script&gt;/);
+  const metadata = jsonBlocks(details).at(-1);
+  assert.deepEqual(metadata.map(item => item.record), units);
+  assert.equal(metadata[1].record.pendingReason, unknown);
+  assert.deepEqual(report, before);
+  assert.equal(appendix(report), details);
+});
+
+test('unknown unit reasons in another stage remain visible and explicit reasons override dependency inference', () => {
+  const units = [stageUnit('ROOT', 'primary', ['a'], 'STAGE_ATTEMPTS_EXHAUSTED'), stageUnit('FUTURE', 'verification', ['a'], 'FUTURE_UNIT_CAUSE', { dependencies: ['ROOT'], source: 'DO_NOT_COPY_SOURCE', candidates: ['DO_NOT_COPY_CANDIDATE'] })];
+  const report = { files: [{ fileId: 'a', path: 'a', status: 'pending' }], continuation: { units } };
+  const text = main(report), details = appendix(report);
+  assert.match(text, /主审未完成；阶段尝试次数达到上限/);
+  assert.match(text, /独立复核未完成；未知／其他原因/);
+  assert.doesNotMatch(text, /依赖的主审或前置阶段未完成|FUTURE_UNIT_CAUSE/);
+  assert.match(details, /FUTURE_UNIT_CAUSE/);
+  assert.doesNotMatch(details, /DO_NOT_COPY_SOURCE|DO_NOT_COPY_CANDIDATE/);
+  assert.equal(jsonBlocks(details).at(-1)[1].record.pendingReason, 'FUTURE_UNIT_CAUSE');
+});
+
+test('file pendingReason works directly and duplicate stage unknown remains recoverable in JSON', () => {
+  const report = { files: [{ fileId: 'a', path: 'a', status: 'pending', stage: 'primary', pendingReason: 'UNKNOWN_LEGACY' }], continuation: { units: [stageUnit('UNIT', 'primary', ['a'], 'STAGE_NO_PROGRESS')] } };
+  assert.doesNotMatch(main(report), /未知|原因未记录/);
+  assert.match(appendix(report), /UNKNOWN_LEGACY/);
+  const direct = { files: [{ path: 'a', status: 'pending', pendingReason: 'DEPENDENCY' }] };
+  assert.match(main(direct), /依赖的主审或前置阶段未完成/);
+  assert.match(appendix(direct), /"pendingReason": "DEPENDENCY"/);
 });

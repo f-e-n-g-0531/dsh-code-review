@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 const KINDS = new Set(['primary', 'verification', 'synthesis', 'interaction']);
-const REASONS = new Set(['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED', 'STAGE_INTERRUPTED', 'STAGE_CANCELLED', 'STAGE_TIMEOUT', 'STAGE_NO_PROGRESS', 'STAGE_ATTEMPTS_EXHAUSTED', 'STAGE_FAILED']);
+const REASONS = new Set(['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED', 'STAGE_INTERRUPTED', 'STAGE_CANCELLED', 'STAGE_TIMEOUT', 'STAGE_NO_PROGRESS', 'STAGE_ATTEMPTS_EXHAUSTED', 'STAGE_FAILED', 'STAGE_DEPENDENCY_PENDING', 'STAGE_ALLOCATION_WAITING', 'PROJECT_MODEL_CALL_LIMIT', 'RETRIEVAL_ROUND_BUDGET_EXCEEDED', 'RETRIEVAL_FINAL_RESPONSE_REQUIRED']);
 const fail = code => Object.assign(new Error(code), { code });
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().filter(key => value[key] !== undefined).map(key => [key, canonical(value[key])])) : value;
 const digest = value => createHash('sha256').update(JSON.stringify(canonical(value))).digest('hex');
@@ -15,7 +15,7 @@ export function createStageContinuation(snapshot, options, { completedPrimary = 
   const primary = [...completedPrimary].sort(), states = new Map();
   for (const unit of units) {
     if (!unit || typeof unit.id !== 'string' || !unit.id || unit.id.length > 500 || states.has(unit.id) || unit.id.startsWith('primary:') || !KINDS.has(unit.kind) || !Array.isArray(unit.fileIds) || !unit.fileIds.length || new Set(unit.fileIds).size !== unit.fileIds.length || unit.fileIds.some(id => !fileIds.has(id)) || !Array.isArray(unit.dependencies ?? []) || new Set(unit.dependencies ?? []).size !== (unit.dependencies ?? []).length) throw fail('INVALID_STAGE_UNIT');
-    states.set(unit.id, { id: unit.id, kind: unit.kind, fileIds: [...unit.fileIds], dependencies: [...(unit.dependencies ?? [])], status: 'pending', attempts: 0, pendingReason: null, stopped: false });
+    states.set(unit.id, { id: unit.id, kind: unit.kind, fileIds: [...unit.fileIds], dependencies: [...(unit.dependencies ?? [])], status: 'pending', attempts: 0, pendingReason: REASONS.has(unit.pendingReason) ? unit.pendingReason : null, stopped: false });
   }
   const visit = (id, visiting = new Set(), visited = new Set()) => {
     if (visited.has(id)) return;
