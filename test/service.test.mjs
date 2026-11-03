@@ -108,7 +108,7 @@ test('foreign owner, changed cwd, expired preview and unconfirmed execution fail
   let time = 0;
   const service = createReviewService(llm, { capture: async () => snapshot(), allowModelSending: true, authorize: async () => true, now: () => time });
   const e = exec(), p = await service.preview({}, e);
-  await assert.rejects(service.execute({ previewId: p.previewId, confirmed: true }, exec()), /owner/);
+  await assert.rejects(service.execute({ previewId: p.previewId, confirmed: true }, exec()), { code: 'PREVIEW_MISSING' });
   await assert.rejects(service.execute({ previewId: p.previewId, confirmed: false }, e), /Confirmed/);
   e.agent.session.header.cwd = '/other';
   await assert.rejects(service.execute({ previewId: p.previewId, confirmed: true }, e), /directory/);

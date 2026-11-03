@@ -17,19 +17,20 @@ async function terminalFixture(t,result,{failed=false}={}){
 }
 
 test('terminal status shows actual partial report coverage calls limits and total pagination without raw findings',async t=>{
- const report={status:'partial',files:Array.from({length:25},(_,i)=>({path:'PRIVATE_PATH_'+i,status:i<21?'completed':'pending'})),findings:Array.from({length:23},()=>({title:'PRIVATE_FINDING_BODY'})),limitations:[{text:'PRIVATE_LIMIT_REASON'}],coverage:{completed:21,excluded:0,blocked:0,failed:0,cancelled:0,pending:4},modelCalls:92,diagnostics:{modelCalls:92,readerBudget:{calls:50,maxCalls:50,outputBytes:81000,maxOutputBytes:262144,remainingCalls:0,remainingOutputBytes:181144},readerLimitReasons:[{code:'READER_CALL_BUDGET_EXCEEDED',calls:4},{code:'PRIVATE_LIMIT_REASON',calls:99}],readerLimits:{maxRounds:3},artifacts:{retained:92,omitted:0},raw:'PRIVATE_RAW_ARTIFACT'}};
+ const report={status:'partial',files:Array.from({length:25},(_,i)=>({path:'PRIVATE_PATH_'+i,status:i<21?'completed':'pending'})),findings:Array.from({length:23},()=>({title:'PRIVATE_FINDING_BODY'})),limitations:[{text:'PRIVATE_LIMIT_REASON'}],coverage:{completed:21,excluded:0,blocked:0,failed:0,cancelled:0,pending:4},modelCalls:92,diagnostics:{modelCalls:92,readerBudget:{calls:37,maxCalls:50,outputBytes:81000,maxOutputBytes:262144,remainingCalls:13,remainingOutputBytes:181144},readerLimitReasons:[{code:'READER_CALL_BUDGET_EXCEEDED',calls:4},{code:'PRIVATE_LIMIT_REASON',calls:99}],readerLimits:{maxRounds:3},artifacts:{retained:92,omitted:0},raw:'PRIVATE_RAW_ARTIFACT'}};
  const finalMarkdown='# Full final report\nPRIVATE_FINDING_BODY';const f=await terminalFixture(t,{report,markdown:finalMarkdown});
  const output=await f.tool('status').execute({jobId:f.id},f.exec),value=JSON.parse(output.json);
  assert.equal(value.status,'completed');assert.equal(value.resultSummary.status,'partial');assert.equal(value.resultSummary.totalFiles,25);assert.equal(value.resultSummary.totalFindings,23);assert.equal(value.resultSummary.totalLimitations,1);
  assert.match(output.markdown,/报告状态：partial/);assert.match(output.markdown,/completed 21/);assert.match(output.markdown,/pending 4/);assert.match(output.markdown,/模型调用：92/);assert.match(output.markdown,/限制项：1/);assert.match(output.markdown,/READER_CALL_BUDGET_EXCEEDED 4/);assert.match(output.markdown,/留存 92/);assert.match(output.markdown,/20\/25/);assert.match(output.markdown,/20\/23/);assert.match(output.markdown,/无需继续轮询/);
+ assert.match(output.markdown,/全局读取预算仍有余额/);
  assert.doesNotMatch(output.markdown,/PRIVATE_|正在准备|尚未完成|继续调用/);
  const page=await f.tool('status').execute({jobId:f.id,offset:20,limit:5},f.exec);assert.match(page.markdown,/5\/25/);assert.match(page.markdown,/3\/23/);
  const full=await f.tool('wait').execute({jobId:f.id,waitFor:'terminal',timeoutMs:1},f.exec);assert.equal(full.markdown,finalMarkdown);
 });
 
 test('terminal preview status says approval is required rather than running or report completion',async t=>{
- const f=await terminalFixture(t,{previewId:'preview-approved',files:Array.from({length:27},()=>({path:'PRIVATE_PREVIEW_PATH'})),plan:{minimumCalls:27},model:'fake'});
- const output=await f.tool('status').execute({jobId:f.id},f.exec);assert.match(output.markdown,/预览已完成/);assert.match(output.markdown,/尚未执行审查/);assert.match(output.markdown,/用户确认/);assert.match(output.markdown,/预览文件总量：27/);assert.doesNotMatch(output.markdown,/PRIVATE_|继续调用|正在准备|后台任务已接受/);
+ const f=await terminalFixture(t,{previewId:'preview-approved',files:Array.from({length:27},()=>({path:'PRIVATE_PREVIEW_PATH'})),plan:{minimumCalls:27},expiresAt:'2026-11-03T08:00:00.000Z',model:'fake'});
+ const output=await f.tool('status').execute({jobId:f.id},f.exec);assert.match(output.markdown,/预览已完成/);assert.match(output.markdown,/尚未执行审查/);assert.match(output.markdown,/用户确认/);assert.match(output.markdown,/预览文件总量：27/);assert.match(output.markdown,/不是总调用数或耗时上限/);assert.match(output.markdown,/2026-11-03T08:00:00.000Z/);assert.doesNotMatch(output.markdown,/PRIVATE_|继续调用|正在准备|后台任务已接受/);
 });
 
 test('terminal failure status does not print raw error or advise infinite waiting',async t=>{

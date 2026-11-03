@@ -56,3 +56,92 @@ test('restored checkpoint cannot mark a dependent stage complete before its prer
  const checkpoint=make().checkpoint();checkpoint.units[1].status='completed';checkpoint.units[1].attempts=1;
  assert.throws(()=>make({checkpoint}),{code:'INVALID_STAGE_CHECKPOINT'});
 });
+
+const primaryUnit = {id:'hashed-primary-unit',kind:'primary',fileIds:['f1']};
+const primaryPlan = [primaryUnit,{id:'secondary',kind:'verification',fileIds:['f1'],dependencies:[primaryUnit.id]}];
+const makePrimary = extra => createStageContinuation(snapshot,options,{units:primaryPlan,...extra});
+
+test('primary is runnable without completed baseline and resumes at a fresh attempt boundary',()=>{
+ const stage=makePrimary();assert.deepEqual(stage.ready().map(s=>s.id),[primaryUnit.id]);
+ const first=stage.start(primaryUnit.id);assert.equal(first.kind,'primary');assert.equal(first.requiresFreshEvidence,true);
+ stage.yield(primaryUnit.id,'READER_CALL_BUDGET_EXCEEDED');
+ const resumed=makePrimary({checkpoint:stage.checkpoint()});assert.deepEqual(resumed.checkpoint().completedPrimary,[]);
+ assert.deepEqual(resumed.ready().map(s=>s.id),[primaryUnit.id]);
+ const retry=resumed.start(primaryUnit.id);assert.equal(retry.attempt,2);
+ assert.throws(()=>resumed.complete(primaryUnit.id,first.attempt),{code:'STALE_STAGE_ATTEMPT'});
+ resumed.complete(primaryUnit.id,retry.attempt);
+ assert.deepEqual(resumed.ready().map(s=>s.id),['secondary']);
+ assert.deepEqual(resumed.checkpoint().completedPrimary,[]);
+ const restored=makePrimary({checkpoint:resumed.checkpoint()});
+ restored.complete('secondary',restored.start('secondary').attempt);
+ assert.equal(restored.summary().completed,2);assert.deepEqual(restored.ready(),[]);
+});
+
+test('secondary waits for explicit primary unit completion, not pending running or interrupted work',()=>{
+ const stage=makePrimary();assert.throws(()=>stage.start('secondary'),{code:'STAGE_NOT_READY'});
+ stage.start(primaryUnit.id);assert.deepEqual(stage.ready(),[]);
+ assert.throws(()=>stage.start('secondary'),{code:'STAGE_NOT_READY'});
+ const restored=makePrimary({checkpoint:stage.checkpoint()});
+ assert.equal(restored.ready()[0].pendingReason,'STAGE_INTERRUPTED');
+ assert.throws(()=>restored.start('secondary'),{code:'STAGE_NOT_READY'});
+ const forged=stage.checkpoint();forged.units[1].status='completed';forged.units[1].attempts=1;
+ assert.throws(()=>makePrimary({checkpoint:forged}),{code:'INVALID_STAGE_CHECKPOINT'});
+});
+
+test('primary cancellation stop and exhausted attempts never unlock secondary',()=>{
+ for(const mode of ['cancel','stop','exhaust']){
+  const stage=makePrimary(),token=stage.start(primaryUnit.id);
+  if(mode==='cancel'){
+   const controller=new AbortController();controller.abort();
+   assert.throws(()=>stage.complete(primaryUnit.id,token.attempt,{signal:controller.signal}),{name:'AbortError'});
+  }else if(mode==='stop')stage.stop(primaryUnit.id,'STAGE_TIMEOUT');
+  else{stage.yield(primaryUnit.id);stage.start(primaryUnit.id);stage.yield(primaryUnit.id);}
+  assert.equal(stage.summary().completed,0);assert.deepEqual(stage.ready(),[]);
+  assert.throws(()=>stage.start('secondary'),{code:'STAGE_NOT_READY'});
+  assert.deepEqual(makePrimary({checkpoint:stage.checkpoint()}).ready(),[]);
+  assert.deepEqual(stage.checkpoint().completedPrimary,[]);
+ }
+});
+
+test('secondary requires file-specific explicit primary coverage and preserves baseline dependency meaning',()=>{
+ const plan=[primaryUnit,
+  {id:'implicit',kind:'synthesis',fileIds:['f1']},
+  {id:'reserved',kind:'verification',fileIds:['f1'],dependencies:['primary:f1']},
+  {id:'uncovered',kind:'interaction',fileIds:['f1','f2'],dependencies:[primaryUnit.id]},
+  {id:'covered',kind:'interaction',fileIds:['f1','f2'],dependencies:[primaryUnit.id,'primary:f2']}];
+ const stage=makePrimary({completedPrimary:['f2'],units:plan});
+ stage.complete(primaryUnit.id,stage.start(primaryUnit.id).attempt);
+ assert.deepEqual(stage.ready().map(s=>s.id),['uncovered','covered']);
+ for(const id of ['implicit','reserved']){
+  assert.throws(()=>stage.start(id),{code:'STAGE_NOT_READY'});
+ }
+ assert.deepEqual(stage.checkpoint().completedPrimary,['f2']);
+ const withoutBaseline=makePrimary({units:plan});
+ withoutBaseline.complete(primaryUnit.id,withoutBaseline.start(primaryUnit.id).attempt);
+ assert.deepEqual(withoutBaseline.ready(),[]);
+});
+
+test('completed secondary or unrelated primary cannot substitute for required file primary completion',()=>{
+ for(const prerequisite of [
+  {id:'prerequisite',kind:'synthesis',fileIds:['f2']},
+  {id:'prerequisite',kind:'primary',fileIds:['f2']}
+ ]){
+  const plan=[prerequisite,{id:'dependent',kind:'verification',fileIds:['f1'],dependencies:['prerequisite']}];
+  const stage=makePrimary({completedPrimary:['f2'],units:plan});
+  stage.complete('prerequisite',stage.start('prerequisite').attempt);
+  assert.deepEqual(stage.ready(),[]);assert.throws(()=>stage.start('dependent'),{code:'STAGE_NOT_READY'});
+  const forged=stage.checkpoint();forged.units[1].status='completed';forged.units[1].attempts=1;
+  assert.throws(()=>makePrimary({completedPrimary:['f2'],units:plan,checkpoint:forged}),{code:'INVALID_STAGE_CHECKPOINT'});
+ }
+});
+
+test('primary units still enforce explicit prerequisites cycles and reserved ID namespace',()=>{
+ const plan=[{...primaryUnit,dependencies:['primary:f2']}];
+ const blocked=makePrimary({units:plan});assert.deepEqual(blocked.ready(),[]);
+ assert.throws(()=>blocked.start(primaryUnit.id),{code:'STAGE_NOT_READY'});
+ assert.equal(makePrimary({completedPrimary:['f2'],units:plan}).ready()[0].kind,'primary');
+ assert.throws(()=>makePrimary({units:[{...primaryUnit,id:'primary:f1'}]}),{code:'INVALID_STAGE_UNIT'});
+ assert.throws(()=>makePrimary({units:[{...primaryUnit,dependencies:['secondary']},primaryPlan[1]]}),{code:'INVALID_STAGE_DEPENDENCIES'});
+ const checkpoint=makePrimary().checkpoint();checkpoint.completedPrimary.push('f1');
+ assert.throws(()=>makePrimary({checkpoint}),{code:'STAGE_CONTINUATION_IDENTITY_MISMATCH'});
+});

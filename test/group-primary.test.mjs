@@ -17,3 +17,132 @@ test('native group transport recovery and private artifacts are counted once acr
 test('group generation failure never reruns members as hidden extra review calls',async()=>{let calls=0;const r=await reviewSnapshot(snapshot(),()=>{calls++;throw new Error('synthetic');},opts);assert.equal(calls,1);assert.equal(r.coverage.failed,2);assert.equal(r.modelCalls,1);});
 test('preview counts the same local group as one primary generation',()=>{const s=snapshot(),scope=createRetrievalScope(s);const plan=buildCoveragePlan(s,{...opts,instructions:REVIEW_INSTRUCTIONS,scope,maxInputBytes:98304,reviewRounds:1});assert.equal(plan.primaryGroups.length,1);assert.equal(plan.items.reduce((n,i)=>n+i.minimumCalls,0),1);});
 test('second member finding keeps exact identity and original anchor then independently verifies',async()=>{const s=snapshot();let phases=[];const finding={fileId:'b',severity:'high',title:'controlled',evidence:'controlled',trigger:'controlled',impact:'controlled',suggestion:'controlled',anchor:{kind:'line',side:'new',start:1,end:1,snippet:'unsafe();'},attribution:{editIds:['e1'],properties:[],beforeBehavior:'guard',afterBehavior:'unsafe',reason:'changed'}};const r=await reviewSnapshot(s,request=>{phases.push(request.reviewPhase);const p=JSON.parse(request.input);if(request.reviewPhase==='file-interaction')return{findings:[],limitations:[]};if(request.reviewPhase==='verification'){const read=p.retrieved.find(row=>row.result.receiptId);assert.ok(read);return{verdicts:p.candidates.map(c=>({candidateId:c.candidateId,verdict:'refuted',reason:'controlled',evidence:[{receiptId:read.result.receiptId}]}))};}const result=empty(p);result.reviews[1].findings=[finding];return result;},{...opts,enableVerification:true});assert.equal(r.findings.length,1);assert.equal(r.findings[0].fileId,'b');assert.equal(r.findings[0].verification.verdict,'refuted');assert.deepEqual(phases,['group-primary','verification','file-interaction']);});
+
+const continuationOptions = { ...opts, enableStageContinuation: true, enableRiskPlanning: false, readerBudgetPolicy: 'fixed', changesConcurrency: 1, maxRetrievalRounds: 10, timeoutMs: 5000 };
+const retrievalBatch = turn => ({ requests: Array.from({ length: 8 }, (_, i) => ({ kind: 'find', query: 'group-fallback-' + turn + '-' + i, limit: 1 })) });
+
+test('group local budget failure before acceptance falls back and really resumes after peer floors release', async () => {
+  let turns = 0, groupTurns = 0; const calls = [], budgets = [];
+  const report = await reviewSnapshot(snapshot(), request => {
+    if (request.reviewPhase === 'group-primary') return retrievalBatch('group-' + groupTurns++);
+    const p = JSON.parse(request.input); calls.push([p.file?.id, request.reviewPhase, request.callPurpose]);
+    if (request.reviewPhase === 'file-interaction') return { findings: [], limitations: [] };
+    if (p.file.id === 'a') {
+      budgets.push(p.retrievalBudget.remainingCalls);
+      assert.equal(p.retrievalFinalization, undefined);
+      if (++turns <= 3) return retrievalBatch(turns);
+    }
+    return { findings: [], limitations: [] };
+  }, continuationOptions);
+  assert.equal(report.primaryGroups.length, 1);
+  assert.equal(groupTurns, 3);
+  assert.equal(report.primaryGroupFallbacks[0].reason, 'resumable-file-primary');
+  assert.equal(calls.filter(([id, phase, purpose]) => id === 'a' && phase === 'primary' && purpose === 'primary-initial').length, 1);
+  assert.equal(calls.filter(([id, phase]) => id === 'b' && phase === 'primary').length, 1);
+  assert.ok(budgets.at(-1) > budgets[2], JSON.stringify({ budgets, continuation: report.stageContinuation, files: report.files }));
+  // The dependent interaction also waits for the resumed primary.
+  assert.equal(report.stageContinuation.completed, 2);
+  assert.equal(report.stageContinuation.pending, 0);
+  assert.equal(report.readerBudget.maxCalls, 50);
+  assert.equal(report.readerBudget.calls, 40);
+  assert.ok(report.files.every(file => file.status === 'completed'));
+});
+
+test('group fallback keeps round exhaustion final and does not mint an accepted generation', async () => {
+  let turns = 0, starts = 0, groupTurns = 0;
+  const report = await reviewSnapshot(snapshot(), request => {
+    if (request.reviewPhase === 'group-primary') return retrievalBatch('group-' + groupTurns++);
+    const p = JSON.parse(request.input);
+    if (request.reviewPhase === 'file-interaction' || p.file.id !== 'a') return { findings: [], limitations: [] };
+    if (request.callPurpose === 'primary-initial') starts++;
+    if (p.retrievalFinalization) return { findings: [], limitations: ['round cap'] };
+    return retrievalBatch(++turns);
+  }, { ...continuationOptions, maxRetrievalRounds: 3 });
+  assert.equal(starts, 1); assert.equal(turns, 3);
+  assert.equal(report.readerBudget.calls, 40);
+  assert.equal(report.status, 'partial');
+  assert.equal(report.stageGenerations.some(stage => stage.fileId === 'a'), false);
+});
+
+test('fallback retains an accepted peer finding, verifies with fresh receipts, and saves no receipt authority', async () => {
+  const s = snapshot(); let turns = 0, peerStarts = 0, verifications = 0, groupTurns = 0;
+  const candidate = { fileId: 'b', severity: 'high', title: 'Guard removed', evidence: 'Unsafe operation', trigger: 'bad state', impact: 'failure', suggestion: 'restore guard', anchor: { kind: 'line', side: 'new', start: 1, end: 1, snippet: 'unsafe();' }, attribution: { editIds: ['e1'], properties: [], beforeBehavior: 'guarded', afterBehavior: 'unguarded', reason: 'removed guard' } };
+  const report = await reviewSnapshot(s, request => {
+    if (request.reviewPhase === 'group-primary') return retrievalBatch('group-' + groupTurns++);
+    const p = JSON.parse(request.input);
+    if (request.reviewPhase === 'file-interaction') return { findings: [], limitations: [] };
+    if (request.reviewPhase === 'verification') {
+      verifications++;
+      const receipt = p.retrieved.find(row => row.result.receiptId)?.result.receiptId;
+      assert.ok(receipt);
+      return { verdicts: p.candidates.map(c => ({ candidateId: c.candidateId, verdict: 'supported', reason: 'Fresh approved source', evidence: [{ receiptId: receipt }] })) };
+    }
+    if (p.file.id === 'a' && ++turns <= 3) return retrievalBatch(turns);
+    if (p.file.id === 'b') { peerStarts++; return { findings: [candidate], limitations: [] }; }
+    return { findings: [], limitations: [] };
+  }, { ...continuationOptions, enableVerification: true });
+  assert.equal(peerStarts, 1); assert.equal(verifications, 1);
+  assert.equal(report.findings.length, 1);
+  assert.equal(report.findings[0].fileId, 'b');
+  assert.equal(report.findings[0].verification.status, 'completed');
+  assert.ok(report.files.every(file => file.status === 'completed'));
+  assert.ok(report.readerBudget.calls <= 50);
+  assert.doesNotMatch(JSON.stringify(buildResumeState(s, continuationOptions, report)), /receiptId/);
+});
+
+test('fallback cancellation after peer release cannot accept a resumed response', async () => {
+  const controller = new AbortController(), reason = new Error('cancel group fallback'); let turns = 0, groupTurns = 0;
+  await assert.rejects(reviewSnapshot(snapshot(), request => {
+    if (request.reviewPhase === 'group-primary') return retrievalBatch('group-' + groupTurns++);
+    const p = JSON.parse(request.input);
+    if (request.reviewPhase === 'file-interaction' || p.file.id !== 'a') return { findings: [], limitations: [] };
+    if (++turns <= 3) return retrievalBatch(turns);
+    controller.abort(reason);
+    return { findings: [], limitations: [] };
+  }, { ...continuationOptions, signal: controller.signal }), error => error === reason);
+  assert.equal(turns, 4);
+});
+
+test('fallback does not widen approved catalog authority', async () => {
+  let starts = 0, groupTurns = 0;
+  const report = await reviewSnapshot(snapshot(), request => {
+    if (request.reviewPhase === 'group-primary') return retrievalBatch('group-' + groupTurns++);
+    const p = JSON.parse(request.input);
+    if (request.reviewPhase === 'file-interaction' || p.file.id !== 'a') return { findings: [], limitations: [] };
+    starts++;
+    return { requests: [{ kind: 'read', id: 'unapproved-source', start: 1, count: 1 }] };
+  }, continuationOptions);
+  assert.equal(starts, 1);
+  assert.equal(report.readerBudget.calls, 16);
+  assert.equal(report.files.find(file => file.fileId === 'a').status, 'failed');
+  assert.equal(report.files.find(file => file.fileId === 'a').reason, 'Source not authorized');
+  assert.equal(report.stageGenerations.some(stage => stage.fileId === 'a'), false);
+});
+
+test('stage continuation preserves a successful single group generation without member replay', async () => {
+  const phases = [];
+  const report = await reviewSnapshot(snapshot(), request => {
+    phases.push(request.reviewPhase);
+    return request.reviewPhase === 'group-primary' ? empty(JSON.parse(request.input)) : { findings: [], limitations: [] };
+  }, continuationOptions);
+  assert.deepEqual(phases, ['group-primary', 'file-interaction']);
+  assert.equal(report.primaryGroupFallbacks, undefined);
+  assert.equal(report.coverage.completed, 2);
+  assert.ok(report.files.every(file => file.primaryMethod === 'group-primary'));
+  assert.equal(report.readerAllocation.releasedUnits, report.readerAllocation.units);
+});
+
+test('group protocol and cancellation failures never fall back to member generation', async () => {
+  let calls = 0;
+  const report = await reviewSnapshot(snapshot(), () => { calls++; return { requests: [{ kind: 'read', id: 'unapproved-source', start: 1, count: 1 }] }; }, continuationOptions);
+  assert.equal(calls, 1);
+  assert.equal(report.primaryGroupFallbacks, undefined);
+  assert.equal(report.coverage.failed, 2);
+  const controller = new AbortController(), reason = new Error('cancel active group');
+  calls = 0;
+  const cancelled = await reviewSnapshot(snapshot(), () => { calls++; controller.abort(reason); return retrievalBatch('cancel'); }, { ...continuationOptions, signal: controller.signal });
+  assert.equal(cancelled.primaryGroupFallbacks, undefined);
+  assert.equal(cancelled.coverage.completed, 0);
+  assert.ok(cancelled.files.every(file => file.status === 'cancelled'));
+  assert.equal(calls, 1);
+});

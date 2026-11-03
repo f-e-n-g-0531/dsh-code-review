@@ -193,6 +193,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   const groupPrepared = new Map(), groupResults = new Map(), groupStarted = new Map(), groupInteractions = new Map();
   const generationCache = createStageGenerationCache(input, options.resumeState?.stageGenerations ?? []);
   const acceptedStages = new Map(generationCache.records().filter(record => record.phase === 'primary').map(record => [record.key, { generation: record.generation, record, restored: true }]));
+  const primarySuspensions = new Map(), correctedStages = new Set();
   const deferredStages = [], yieldedUnits = new Set(), fileDeadlines = new Map(), primaryStageKeys = new Map();
   const checkpointStages = () => {
     if (!options.enableStageContinuation) return;
@@ -219,13 +220,29 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       groupResults.set(group.id, invoke(async request => {
       const prepared = groupPrepared.get(group.id), groupScope = stageScope('group:' + group.id); const limits = [], reads = [];
       const groupRequest = { ...request, nativeOutputTools: options.nativeOutputTools === true, input: prepared.payload, instructions: prepared.instructions, reviewPhase: 'group-primary' };
-      const response = await retrievalLoop(sharedModel, groupRequest, groupScope, {
+      let response;
+      try { response = await retrievalLoop(sharedModel, groupRequest, groupScope, {
         initialContext: (existing, build) => contextSeeds(groupScope, groupRequest, existing, build),
         maxRounds: maxRetrievalRounds, maxInputBytes, beforeCall: reserveShared, correctProtocol: options.correctProtocol === true,
+        yieldOnBudget: options.enableStageContinuation === true,
         enableSearchSeeds: options.enableSearchSeeds === true,
         onRetrieved: records => { reads.push(...records); (sharedState.retrievalAudit ??= []).push(...records); evidenceContext?.remember(records); },
         onBudgetLimited: info => { limits.push(info); (sharedState.retrievalLimits ??= []).push(info); },
-      });
+      }); } catch (error) {
+        // No generation has been validated yet. Only a local reader allocation
+        // failure can abandon this attempt; the root ledger is never replaced.
+        const rootBudget = scope.budget();
+        if (!options.enableStageContinuation || signal.aborted || request.signal?.aborted || checkpointFailed ||
+            !['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(error?.code) ||
+            rootBudget.remainingCalls <= 0 || rootBudget.remainingOutputBytes <= 0 || !readerAllocation) throw error;
+        const localBudget = groupScope.budget();
+        const dimension = error.code === 'READER_CALL_BUDGET_EXCEEDED' ? 'remainingCalls' : 'remainingOutputBytes';
+        if (localBudget[dimension] >= rootBudget[dimension]) throw error;
+        // A batch which cannot fit the root is not a local allocation failure.
+        if (error.pendingRequests?.length) scope.preflight(error.pendingRequests);
+        (report.primaryGroupFallbacks ??= []).push({ groupId: group.id, fileIds: [...prepared.fileIds], reason: 'resumable-file-primary', code: error.code });
+        return null;
+      }
       const results = validateGroupPrimary(response, prepared, input, validateResponse, scope.catalog());
       const interaction = validateGroupInteraction(response, prepared, input, reads, scope.catalog());
       groupInteractions.set(group.id, interaction);
@@ -238,6 +255,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           if (generated.groupRisk.sourceReadCoverage.some(item => item.unreadSourceIds.length)) generated.limitations.push('组风险计划请求的部分来源未在本次组生成读取；不表示已核查或排除风险条件');
         }
       }
+      for (const id of prepared.fileIds) releaseStage('primary:' + id);
       return results;
     }, { input: groupPrepared.get(group.id).payload, instructions: groupPrepared.get(group.id).instructions }, timeoutMs, signal));
     }
@@ -323,7 +341,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       });
       };
       const executor = scope
-        ? (request, onLimited = () => {}) => retrievalLoop(trackedModel, { ...request, nativeOutputTools: options.nativeOutputTools === true, onProtocolEvent }, activeReader, { correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, initialRetrieved: request.initialRetrieved ?? [], yieldOnBudget: options.enableStageContinuation === true && activeStage !== 'primary', initialContext: (existing, build) => contextSeeds(activeReader, request, existing, build), allowExhaustedInitial: request.allowExhaustedInitial === true, enableSearchSeeds: options.enableSearchSeeds === true && !request.reviewPhase?.includes('verification'), onBudgetLimited: info => { onBudgetLimited(info); onLimited(info); }, onRetrieved: records => {
+        ? (request, onLimited = () => {}) => retrievalLoop(trackedModel, { ...request, nativeOutputTools: options.nativeOutputTools === true, onProtocolEvent }, activeReader, { correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, initialRetrieved: request.initialRetrieved ?? [], yieldOnBudget: options.enableStageContinuation === true, initialContext: (existing, build) => contextSeeds(activeReader, request, existing, build), allowExhaustedInitial: request.allowExhaustedInitial === true, enableSearchSeeds: options.enableSearchSeeds === true && !request.reviewPhase?.includes('verification'), onBudgetLimited: info => { onBudgetLimited(info); onLimited(info); }, onRetrieved: records => {
           (state.retrievalAudit ??= []).push(...records);
           evidenceContext?.remember(records);
         }, onTruncated: () => {
@@ -332,8 +350,12 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         } })
         : request => { beforeCall(); return trackedModel(request); };
       const grouped = assignedGroup;
-      const groupedGeneration = grouped ? (await groupResult({ id: grouped[0] })).get(file.id) : null;
-      if (grouped) {
+      const groupedGeneration = grouped ? (await groupResult({ id: grouped[0] }))?.get(file.id) : null;
+      if (grouped && !groupedGeneration) {
+        state.primaryGroupFallback = grouped[0];
+        result.limitations.push({ fileId: file.id, text: '组主审局部检索分配不足，未接受组成果；保留已消费共享预算，回退可续跑单文件主审' });
+      }
+      if (groupedGeneration) {
         state.primaryGroupId = grouped[0]; state.primaryMethod = 'group-primary';
         if (groupedGeneration.groupLimits?.length) {
           state.retrievalLimited = true;
@@ -368,7 +390,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           let pending = deferredStages.find(item => item.key === key);
           if (pending && pending.allocationId !== unitId) { const previousUnit = pending.allocationId; pending.allocationId = unitId; if (!deferredStages.some(other => other !== pending && !other.done && other.allocationId === previousUnit)) { yieldedUnits.delete(previousUnit); readerAllocation.release(previousUnit); } }
           if (!pending) {
-            pending = { key, allocationId: unitId, fileId: file.id, phase: unitId.startsWith('verification:') ? 'verification' : phase === 'window-synthesis' ? 'synthesis' : 'interaction', fileIds: batch.interaction?.fileIds ?? [file.id], attempts: 0, run: () => invoke(next => executeStage(batch, batchIndex, next, true), { instructions, input: payload }, timeoutMs > 0 ? Math.max(1, fileDeadlines.get(file.id) - performance.now()) : 0, signal) };
+            pending = { key, allocationId: unitId, fileId: file.id, phase: unitId.startsWith('verification:') ? 'verification' : phase === 'primary' ? 'primary' : phase === 'window-synthesis' ? 'synthesis' : 'interaction', fileIds: batch.interaction?.fileIds ?? [file.id], attempts: 0, run: () => invoke(next => executeStage(batch, batchIndex, next, true), { instructions, input: payload }, timeoutMs > 0 ? Math.max(1, fileDeadlines.get(file.id) - performance.now()) : 0, signal) };
             deferredStages.push(pending);
           }
           pending.requests = error.pendingRequests ?? []; pending.reason = error.code; pending.done = false;
@@ -380,6 +402,9 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         const phase=batch.interaction?'file-interaction':batch.synthesis?'window-synthesis':'primary';
         try{
         activeStage = phase;
+        if (options.enableStageContinuation && (batch.synthesis || batch.interaction) && (batch.interaction?.fileIds ?? [file.id]).some(id => deferredStages.some(stage => stage.fileId === id && stage.phase === 'primary' && !acceptedStages.has(stage.key)))) {
+          defer(Object.assign(new Error('Stage is waiting for accepted primary generations'), { code: 'READER_CALL_BUDGET_EXCEEDED' })); return;
+        }
         if (!priorStage && yieldedUnits.has(allocationId)) { defer(Object.assign(new Error('Stage is waiting for released reader capacity'), { code: 'READER_CALL_BUDGET_EXCEEDED' })); return; }
         activeReader = priorStage || groupedGeneration && !batch.synthesis && !batch.interaction ? scope : stageScope(allocationId);
         // Consuming an already validated group member performs no new source/model work.
@@ -388,7 +413,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         const admission = !cachedPrimary && !combinedInteraction && activeReader && options.optimizeReviewCalls === true
           ? readerAdmission({ synthesis: batch.synthesis === true, interaction: !!batch.interaction, metadata: prepared.metadata }, activeReader.budget()) : { permitted: true };
         if (!admission.permitted) {
-          if ((batch.synthesis || batch.interaction) && defer(Object.assign(new Error('Stage reader allocation unavailable'), { code: admission.code }))) return;
+          if (defer(Object.assign(new Error('Stage reader allocation unavailable'), { code: admission.code }))) return;
           state.readerAdmission = { code: admission.code, remaining: activeReader.budget() };
           if (batch.synthesis || batch.interaction) throw Object.assign(new Error('Required evidence budget unavailable before stage admission'), { code: admission.code });
           state.reason = '检索预算不足以取得本阶段所需证据，未启动模型；需重新预览补审';
@@ -396,6 +421,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           state.retrievalLimited = true;
           return;
         }
+        const suspended = primarySuspensions.get(key);
         let batchPayload = batch.payload;
         const relevantContracts = report.migrationContracts?.contracts.filter(contract => contract.candidateFileIds.includes(file.id) || batch.interaction?.fileIds.some(id => contract.candidateFileIds.includes(id))) ?? [];
         if (relevantContracts.length) {
@@ -408,11 +434,11 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         const inlineRisk = !priorStage && (inlineInteraction || (!groupedGeneration && prepared.inlineRisk === true && batch.round === 1 && !batch.synthesis && !batch.interaction));
         const batchInstructions = inlineInteraction ? interactionStrategy.instructions : inlineRisk ? prepared.instructions : instructions;
         let riskEntry, activeRisks = [];
-        if (inlineRisk) {
+        if (inlineRisk && !suspended) {
           riskEntry = { status: 'pending', method: 'inline', windowIds: batch.windowIds, scope: inlineInteraction ? 'group-all-edits' : state.sourceMode === 'change-windows' ? 'all-edits' : 'full-file', ...(inlineInteraction ? { groupId: batch.interaction.id, sourceMode: 'file-interaction' } : {}), risks: [], decision: { required: true, reason: inlineInteraction ? 'inline-interaction' : 'inline-primary' } };
           (state.riskPlans ??= []).push(riskEntry);
         }
-        if (options.enableRiskPlanning === true && (!groupedGeneration || batch.interaction) && !inlineRisk && !combinedInteraction && !priorStage && !batch.synthesis && batch.round === 1) {
+        if (options.enableRiskPlanning === true && (!groupedGeneration || batch.interaction) && !inlineRisk && !combinedInteraction && !priorStage && !suspended && !batch.synthesis && batch.round === 1) {
           const reusable = !batch.interaction && riskInput.cacheable;
           riskEntry = reusable ? primaryRiskPlan : undefined;
           if (!riskEntry) {
@@ -453,16 +479,23 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             }
           }
         }
+        if (suspended) { batchPayload = suspended.payload; riskEntry = suspended.riskEntry; activeRisks = suspended.activeRisks; }
         if(report.modelCalls>=maxCalls && !priorStage && !combinedInteraction && !(groupedGeneration && !batch.synthesis && !batch.interaction))throw new Error('Model call budget exceeded before next review pass');
         if(rounds>1) state.reviewPasses[batchIndex].status='running';
         const request = { ...enclosingRequest, nativeOutputTools: options.nativeOutputTools === true, instructions: batchInstructions, input: batchPayload, reviewPhase: phase, allowExhaustedInitial: options.optimizeReviewCalls === true && !batch.synthesis && !batch.interaction && prepared.metadata.contextMode !== 'approved-retrieval' };
-        let auditStart = state.retrievalAudit?.length ?? 0;
-        let finalResponseOnly = false;
+        let auditStart = suspended?.auditStart ?? state.retrievalAudit?.length ?? 0;
+        const finalResponseOnly = suspended?.finalResponseOnly ?? { value: false };
         const generate = async attempt => {
           if (!initialInputBudget(attempt, scope, maxInputBytes).fits) throw new Error('Review correction input budget exceeded');
+          if (suspended?.resume) {
+            const resume = suspended.resume; suspended.resume = undefined;
+            try { return await resume(attempt.signal); }
+            catch (error) { if (error.resumeRetrieval) suspended.resume = error.resumeRetrieval; throw error; }
+          }
           const initialRetrieved = scope && options.enablePrimarySeeds === true && maxRetrievalRounds > 0 && !batch.synthesis && !batch.interaction
             ? primarySeeds(activeReader, attempt, { maxInputBytes, signal: attempt.signal }) : [];
-          return executor({ ...attempt, initialRetrieved }, () => { finalResponseOnly = true; });
+          try { return await executor({ ...attempt, initialRetrieved }, () => { finalResponseOnly.value = true; }); }
+          catch (error) { if (phase === 'primary' && ['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(error?.code)) primarySuspensions.set(key, { payload: batchPayload, riskEntry, activeRisks, auditStart, finalResponseOnly, resume: error.resumeRetrieval }); throw error; }
         };
         const validate = response => {
           if (options.enableAnchorCorrection === true) {
@@ -489,8 +522,9 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         };
         const generated = priorStage ? priorStage.generation : combinedInteraction ? { findings: structuredClone(combinedInteraction.findings), limitations: structuredClone(combinedInteraction.limitations) } : groupedGeneration && !batch.synthesis && !batch.interaction ? structuredClone(groupedGeneration) : await correctedResponse(generate, validate, request, {
           enabled: options.correctProtocol === true,
-          canCorrect: () => !finalResponseOnly,
+          canCorrect: () => !finalResponseOnly.value && !correctedStages.has(key),
           onCorrection: async info => {
+            correctedStages.add(key);
             // A fresh generation must establish its own synthesis/interaction read evidence.
             auditStart = state.retrievalAudit?.length ?? 0;
             (state.responseCorrections ??= []).push({ code: info.code, round: batch.round, phase });
@@ -499,6 +533,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             await options.onProgress?.({ stage: 'protocol-correction', fileId: file.id, path: file.path, ...info });
           },
         });
+        primarySuspensions.delete(key);
         if (inlineInteraction) {
           Object.assign(riskEntry, generated.interactionRisk);
           activeRisks = riskEntry.risks;
@@ -538,7 +573,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         for (const finding of generated.findings) { const index = priorStage ? result.findings.findIndex(existing => existing.id === finding.id) : -1; if (index < 0) result.findings.push(finding); else result.findings[index] = finding; }
         if (generated.findings.some(f => f.attribution.status === 'missing')) result.limitations.push({ fileId: file.id, text: '部分发现缺少变更归因，仅校验了定位，尚不能确认属于本次回归' });
         result.limitations.push(...generated.limitations.map(text => ({ fileId: file.id, text })));
-        if (!groupedGeneration && !scheduled.slice(batchIndex + 1).some(next => !next.synthesis && !next.interaction)) releaseStage('primary:' + file.id);
+        if (!groupedGeneration && !scheduled.slice(batchIndex + 1).some(next => !next.synthesis && !next.interaction) && !deferredStages.some(stage => stage.fileId === file.id && stage.phase === 'primary' && stage.key !== key && !acceptedStages.has(stage.key))) releaseStage('primary:' + file.id);
         if (options.enableStageContinuation && !batch.interaction && !batch.synthesis && state.windowCoverage && batch.round === 1) { state.windowCoverage.completed = [...new Set([...state.windowCoverage.completed, ...batch.windowIds])]; state.windowCoverage.pending = state.windowCoverage.pending.filter(id => !batch.windowIds.includes(id)); }
         if (options.enableVerification === true && generated.findings.length && !priorStage?.completed) {
           if (yieldedUnits.has('verification:' + file.id)) {
@@ -626,7 +661,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     }
     } finally {
       if (readerAllocation && file.eligibility === 'reviewable' && !options.resumeState?.completed?.some(row => row.fileId === file.id)) {
-        if (![...groupPrepared.values()].some(group => group.fileIds.includes(file.id))) releaseStage('primary:' + file.id);
+        if (options.enableStageContinuation || ![...groupPrepared.values()].some(group => group.fileIds.includes(file.id))) releaseStage('primary:' + file.id);
         releaseStage('verification:' + file.id);
         releaseStage('synthesis:' + file.id);
         for (const plan of interactionPlans.filter(plan => input.files.filter(member => plan.group.fileIds.includes(member.id)).at(-1)?.id === file.id)) releaseStage('interaction:' + plan.group.id);
@@ -682,7 +717,9 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     for (const [id, prepared] of groupPrepared) units.push({ id: 'group:' + id, weight: prepared.fileIds.length * 4 });
     for (const file of input.files.filter(file => file.eligibility === 'reviewable' && !reusable.has(file.id))) {
       const prepared = preparePrimaryInput(input, file, { instructions, scope, grouping: report.grouping, maxInputBytes, riskPlanningMode: options.riskPlanningMode, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning, skipSmallRiskPlans: options.skipSmallRiskPlans });
-      if (![...groupPrepared.values()].some(group => group.fileIds.includes(file.id))) units.push({ id: 'primary:' + file.id, weight: 4 * Math.max(1, prepared.batches?.length ?? 1) });
+      // Reserve fallback floors before the group starts; released immediately
+      // after successful validation, without granting a second root budget.
+      if (options.enableStageContinuation || ![...groupPrepared.values()].some(group => group.fileIds.includes(file.id))) units.push({ id: 'primary:' + file.id, weight: 4 * Math.max(1, prepared.batches?.length ?? 1) });
       if (prepared.synthesis?.status === 'ready') units.push({ id: 'synthesis:' + file.id, weight: 2 });
       if (options.enableVerification === true) units.push({ id: 'verification:' + file.id, weight: 2 });
     }
@@ -701,7 +738,10 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   }, dependencies, fileConcurrency);
   if (options.enableStageContinuation === true && deferredStages.length && !signal.aborted) {
     const primaryDone = input.files.filter(file => file.eligibility === 'reviewable' && (options.resumeState?.completed?.some(row => row.fileId === file.id) || primaryStageKeys.get(file.id)?.length && primaryStageKeys.get(file.id).every(key => acceptedStages.has(key)))).map(file => file.id);
-    const units = deferredStages.map(stage => ({ id: hash(stage.key), kind: stage.phase, fileIds: stage.fileIds, dependencies: stage.fileIds.map(id => 'primary:' + id) }));
+    const units = deferredStages.map((stage, index) => ({ id: hash(stage.key), kind: stage.phase, fileIds: stage.fileIds,
+      dependencies: stage.phase === 'primary'
+        ? deferredStages.slice(0, index).filter(other => other.phase === 'primary' && other.fileId === stage.fileId).map(other => hash(other.key))
+        : stage.fileIds.flatMap(id => { const pending = deferredStages.filter(other => other.phase === 'primary' && other.fileId === id); return pending.length ? pending.map(other => hash(other.key)) : ['primary:' + id]; }) }));
     const continuationOptions = { rounds, maxInputBytes, enableMigrationContracts: options.enableMigrationContracts === true, enableMigrationRegression: options.enableMigrationRegression === true };
     let continuation = createStageContinuation(input, continuationOptions, { completedPrimary: primaryDone, units, maxAttempts: 2 });
     if (options.resumeState?.continuation?.state) {
@@ -725,6 +765,8 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       }
       if (!progressed) break;
     }
+    // File completion is derived from accepted generations, not a stale pre-retry baseline.
+    for (const [id, keys] of primaryStageKeys) if (!primaryDone.includes(id) && keys.length && keys.every(key => acceptedStages.has(key))) primaryDone.push(id);
     report.stageContinuation = continuation.summary();
     report.continuation = continuation.checkpoint();
     report.continuationOptions = continuationOptions;

@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-const KINDS = new Set(['verification', 'synthesis', 'interaction']);
+const KINDS = new Set(['primary', 'verification', 'synthesis', 'interaction']);
 const REASONS = new Set(['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED', 'STAGE_INTERRUPTED', 'STAGE_CANCELLED', 'STAGE_TIMEOUT', 'STAGE_NO_PROGRESS', 'STAGE_ATTEMPTS_EXHAUSTED', 'STAGE_FAILED']);
 const fail = code => Object.assign(new Error(code), { code });
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().filter(key => value[key] !== undefined).map(key => [key, canonical(value[key])])) : value;
@@ -40,7 +40,17 @@ export function createStageContinuation(snapshot, options, { completedPrimary = 
     }
   }
   const get = id => { const state=states.get(id); if (!state) throw fail('UNKNOWN_STAGE_UNIT'); return state; };
-  const dependenciesReady = state => state.fileIds.every(id => primary.includes(id)) && state.dependencies.every(dep => dep.startsWith('primary:') ? primary.includes(dep.slice(8)) : get(dep).status === 'completed');
+  // The completedPrimary baseline is immutable. A pending primary may run without
+  // belonging to it; secondary work must name a completed primary unit explicitly
+  // when relying on primary work performed by this continuation. Reserved
+  // primary:<fileId> dependencies still refer only to the completed baseline.
+  const dependencyCompleted = dep => dep.startsWith('primary:') ? primary.includes(dep.slice(8)) : get(dep).status === 'completed';
+  const primaryCompleted = (state, fileId) => primary.includes(fileId) || state.dependencies.some(dep => {
+    if (dep.startsWith('primary:')) return false;
+    const prerequisite = get(dep);
+    return prerequisite.kind === 'primary' && prerequisite.status === 'completed' && prerequisite.fileIds.includes(fileId);
+  });
+  const dependenciesReady = state => (state.kind === 'primary' || state.fileIds.every(id => primaryCompleted(state, id))) && state.dependencies.every(dependencyCompleted);
   for (const state of states.values()) {
     if (state.status === 'completed' && (!dependenciesReady(state) || state.stopped || state.pendingReason !== null)) throw fail('INVALID_STAGE_CHECKPOINT');
   }

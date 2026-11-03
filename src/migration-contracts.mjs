@@ -3,7 +3,7 @@ import { createRetrievalScope } from './retrieval-scope.mjs';
 import { inferImportRelations } from './import-relations.mjs';
 import { inferCppRelations } from './cpp-relations.mjs';
 import { buildReviewGroups } from './review-groups.mjs';
-import { cppMigrationBindings } from './cpp-migration-bindings.mjs';
+import { cppMigrationBindings, cppExportRouteDefinitions } from './cpp-migration-bindings.mjs';
 
 const NOTICE = 'Conservative syntax navigation only; not semantic migration, call reachability, authorization, read coverage or causality proof.';
 const cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
@@ -148,9 +148,93 @@ export function buildMigrationContracts(snapshot, { maxContracts = 32, maxGroupF
       }
     }
   }
+  // An old public route may stop delegating altogether. Retain that old-side
+  // edge and compare only the same approved file/function coordinates on the
+  // new side; a matching name in another file is never a migration binding.
+  for (const bridge of graph.old) {
+    const enclosing = (definitions.get('old:' + bridge.from) ?? []).filter(d => bridge.callLine > d.start && bridge.callLine < d.end);
+    if (enclosing.length !== 1 || bridge.from === bridge.to) continue;
+    const previous = enclosing[0];
+    const oldText = byId.get(bridge.from)?.left?.text;
+    if (!oldText || !oldText.split('\n').slice(previous.start, bridge.callLine - 1).some(line => /^\s*if\s*\(/.test(line))) continue;
+    const next = (definitions.get('new:' + bridge.from) ?? []).filter(d => d.symbol === previous.symbol);
+    const target = (definitions.get('old:' + bridge.to) ?? []).find(d => d.start === bridge.declarationLine);
+    const oldRole = role(bridge.from, 'old', previous), newRole = next.length === 1 ? role(bridge.from, 'new', next[0]) : undefined;
+    const targetSource = source(bridge.to, 'old');
+    if (!oldRole || !newRole || !target || !targetSource) continue;
+    const key = JSON.stringify(['old-delegation', bridge.from, previous.symbol, bridge.to, bridge.symbol]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (result.contracts.length >= maxContracts) { unresolved.add('Migration contract limit reached; additional chains remain unresolved.'); continue; }
+    const baseline = { ...(byId.has(bridge.to) ? { fileId: bridge.to } : {}), sourceId: targetSource.id, side: targetSource.side,
+      path: byId.has(bridge.to) ? byId.get(bridge.to).oldPath ?? byId.get(bridge.to).path : targetSource.path,
+      sourcePath: targetSource.path, symbol: target.symbol, line: target.start, endLine: target.end, editIds: [] };
+    Object.assign(oldRole, { startLine: previous.start, endLine: previous.end });
+    Object.assign(newRole, { startLine: next[0].start, endLine: next[0].end });
+    baseline.startLine = target.start;
+    const callers = [caller(bridge, 'old')];
+    const navigationBindings = [...(previous.navigation ? [previous.navigation] : []), ...(next[0].navigation ? [next[0].navigation] : []),
+      ...(target.navigation ? [target.navigation] : []), ...(bridge.navigationBindings ?? [])];
+    result.contracts.push({ id: 'mc' + (result.contracts.length + 1), kind: 'old-delegation', snapshotId: snapshot.id,
+      candidateFileIds: [bridge.from], old: [oldRole], new: [newRole], baseline: [baseline], callers, navigationBindings,
+      sourceIds: [...new Set([oldRole.sourceId, newRole.sourceId, baseline.sourceId, ...callers.map(c => c.sourceId)])],
+      status: 'navigation-only', causality: 'unverified',
+      unresolved: ['Same-file entry continuity is syntax-only; delegation removal, guard ordering and shared-state effects require independent evidence.'] });
+  }
+  // Deleted exports cannot be paired by spelling or filename. Retain a bounded
+  // candidate route only when explicit singleton spelling, full parameter signature,
+  // a shared assignment and forwarding syntax independently connect all three roles.
+  const routeDefs = { old: [], new: [] };
+  for (const side of ['old', 'new']) for (const file of snapshot.files.filter(f => f.eligibility === 'reviewable' && /\.(?:cpp|cc|cxx)$/.test(f.path))) {
+    const text = (side === 'old' ? file.left : file.right)?.text;
+    const parsed = cppExportRouteDefinitions(text);
+    routeDefs[side].push(...parsed.map(def => ({ ...def, fileId: file.id })));
+    if (side === 'old') {
+      const starts = new Set(parsed.filter(d => d.exported).map(d => d.start));
+      for (const [index, line] of (text ?? '').split('\n').entries()) if (/extern\s+"C"[^\n]*\(/.test(line) && !starts.has(index + 1))
+        unresolved.add('Old public export syntax unsupported at ' + (file.oldPath ?? file.path) + ':L' + (index + 1) + '; old entry navigation unavailable.');
+    }
+  }
+  if (routeDefs.old.length > 2000 || routeDefs.new.length > 2000) {
+    unresolved.add('Deleted old public export route definition budget exceeded; candidate navigation unavailable.');
+    routeDefs.old = []; routeDefs.new = [];
+  }
+  for (const previous of routeDefs.old.filter(d => d.exported)) {
+    const oldRole = role(previous.fileId, 'old', previous);
+    if (!oldRole || routeDefs.new.some(d => d.symbol === previous.symbol && d.params === previous.params && d.exported)) continue;
+    const missing = 'Deleted old public entry ' + oldRole.path + ':L' + previous.start + ' (' + previous.symbol + '): ';
+    const calls = previous.lines.flatMap((line, index) => {
+      const m = /^\s*([A-Za-z_]\w*)::GetInstance\(\)->([A-Za-z_]\w*)\(([^;{}]*)\);\s*$/.exec(line);
+      return m ? [{ symbol: m[1] + '::' + m[2], args: m[3].split(',').map(a => a.trim()), line: previous.bodyStartLine + index }] : [];
+    });
+    if (calls.length !== 1) { unresolved.add(missing + 'singleton delegation unsupported or ambiguous.'); continue; }
+    const call = calls[0];
+    const targets = routeDefs.old.filter(d => d.symbol === call.symbol && d.params === previous.params && d.names.length === call.args.length);
+    if (targets.length !== 1 || !call.args.every(a => /^[A-Za-z_]\w*(?:\.c_str\(\))?$/.test(a))) {
+      unresolved.add(missing + 'old implementation identity/signature unresolved.'); continue;
+    }
+    const target = targets[0];
+    const assignments = target.lines.map(line => /^\s*([A-Za-z_]\w*)\s*=\s*([A-Za-z_]\w*)\s*;\s*$/.exec(line)).filter(Boolean)
+      .filter(m => target.names.includes(m[2]));
+    const next = routeDefs.new.filter(d => !d.exported && d.params === previous.params && assignments.some(m => d.lines.some(line => line.trim() === m[1] + ' = ' + m[2] + ';')) &&
+      d.lines.some(line => line.trim() === 'return ' + d.symbol.split('::').at(-1) + '(' + d.names.slice(0, -1).join(', ') + ');'));
+    if (next.length !== 1) { unresolved.add(missing + 'new entry candidate unsupported or ambiguous; no same-name fallback.'); continue; }
+    const current = next[0], newRole = role(current.fileId, 'new', current), src = source(target.fileId, 'old');
+    if (!newRole || !src) { unresolved.add(missing + 'changed candidate or historical implementation source unavailable.'); continue; }
+    if (result.contracts.length >= maxContracts) { unresolved.add(missing + 'contract budget exceeded.'); continue; }
+    Object.assign(oldRole, { startLine: previous.start, endLine: previous.end });
+    Object.assign(newRole, { startLine: current.start, endLine: current.end });
+    const baseline = { fileId: target.fileId, sourceId: src.id, side: 'old', path: byId.get(target.fileId).oldPath ?? byId.get(target.fileId).path,
+      sourcePath: src.path, symbol: target.symbol, line: target.start, startLine: target.start, endLine: target.end, editIds: [] };
+    result.contracts.push({ id: 'mc' + (result.contracts.length + 1), kind: 'deleted-export-route', snapshotId: snapshot.id,
+      old: [oldRole], new: [newRole], baseline: [baseline], candidateFileIds: [...new Set([previous.fileId, current.fileId])],
+      callers: [{ ...oldRole, line: call.line, callLine: call.line, editIds: [], targetFileId: target.fileId, targetSymbol: target.symbol }],
+      navigationBindings: [], sourceIds: [...new Set([oldRole.sourceId, newRole.sourceId, baseline.sourceId])], status: 'navigation-only', causality: 'unverified',
+      unresolved: ['Deleted export route is lexical candidate navigation only; singleton resolution, macros, transformed arguments, shared-state identity and cross-file causality are unsupported. Non-uncertain classification is not permitted.'] });
+  }
   for (const contract of result.contracts) contract.sourceIds = [...new Set([...contract.sourceIds, ...contract.navigationBindings.map(row => row.sourceId)])];
-  const edges = result.contracts.flatMap(c => [{ from: c.old[0].fileId, to: c.new[0].fileId, reason: 'migration-contract:' + c.id },
-    ...c.callers.filter(row => row.fileId && row.fileId !== row.targetFileId).map(row => ({ from: row.fileId, to: row.targetFileId, reason: 'migration-caller:' + c.id }))]);
+  const edges = result.contracts.flatMap(c => [...(c.old[0].fileId !== c.new[0].fileId ? [{ from: c.old[0].fileId, to: c.new[0].fileId, reason: 'migration-contract:' + c.id }] : []),
+    ...c.callers.filter(row => row.fileId && byId.has(row.targetFileId) && row.fileId !== row.targetFileId).map(row => ({ from: row.fileId, to: row.targetFileId, reason: 'migration-caller:' + c.id }))]);
   const involved = new Set(edges.flatMap(e => [e.from, e.to]));
   const grouped = buildReviewGroups(snapshot.files.filter(f => involved.has(f.id)), edges, { maxFiles: maxGroupFiles });
   result.groups = grouped.groups; result.links = grouped.links;

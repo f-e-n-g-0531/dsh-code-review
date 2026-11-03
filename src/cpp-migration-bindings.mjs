@@ -4,6 +4,33 @@ const cpp = name => /\.(?:c|cc|cpp|cxx|h|hh|hpp|hxx)$/.test(name);
 const id = '[A-Za-z_][A-Za-z0-9_]*';
 const signature = params => params.trim().replace(/\s+/g, ' ').replace(/\s*([*&])\s*/g, '$1');
 
+// Evidence coordinates only, never resolved C++ call or reachability identities.
+export function cppExportRouteDefinitions(text) {
+  if (typeof text !== 'string' || Buffer.byteLength(text) > 256 * 1024 || /\/\*|R"|\\\r?\n|[\x60]/.test(text)) return [];
+  const lines = text.split('\n').map(line => line.replace(/\r$/, '').replace(/\/\/.*$/, ''));
+  if (lines.some(line => /^\s*#\s*(?!include\b)/.test(line) || /\b(?:namespace|template|using|typedef)\b/.test(line))) return [];
+  const output = [];
+  for (let i = 0; i < lines.length; i++) {
+    const match = /^\s*(?:(extern\s+"C")\s+(?:[A-Z_]\w*\s+)?)?(void|bool|int)\s+((?:[A-Za-z_]\w*::)?[A-Za-z_]\w*)\s*\(([^(){};]*)\)\s*(\{)?\s*$/.exec(lines[i]);
+    if (!match || !match[1] && !match[3].includes('::')) continue;
+    const params = match[4].split(',').map(p => p.trim());
+    if (!params.every(p => /^(?:const\s+)?[A-Za-z_]\w*\s*[*&]?\s+[A-Za-z_]\w*$/.test(p))) continue;
+    const brace = match[5] ? i : i + 1;
+    if (!match[5] && !/^\s*\{\s*$/.test(lines[brace] ?? '')) continue;
+    let depth = 1, end;
+    for (let j = brace + 1; j < lines.length; j++) {
+      if (/['"\\]/.test(lines[j])) break;
+      for (const c of lines[j]) { if (c === '{') depth++; else if (c === '}') depth--; }
+      if (depth === 0) { end = j + 1; break; }
+      if (depth < 0) break;
+    }
+    if (end) output.push({ symbol: match[3], exported: Boolean(match[1]), params: signature(match[4]),
+      names: params.map(p => /([A-Za-z_]\w*)$/.exec(p)[1]), start: i + 1, bodyStartLine: brace + 2, end, lines: lines.slice(brace + 1, end - 1) });
+    if (output.length > 100) return [];
+  }
+  return output;
+}
+
 function linesOf(text, header) {
   if (typeof text !== 'string' || Buffer.byteLength(text) > 256 * 1024 || /\/\*|R"|\\\r?\n|[\x60]/.test(text)) return undefined;
   const lines = text.split('\n').map(line => line.replace(/\r$/, ''));
@@ -36,6 +63,9 @@ function headers(entry) {
       if (!plain) continue;
       if (/^(?:public|private|protected):$/.test(plain)) { access = plain.slice(0, -1); continue; }
       const method = /^(void|bool|int)\s+([A-Za-z_]\w*)\s*\(([^;{}]*)\)\s*;\s*$/.exec(plain);
+      // Plain fields do not bind calls; they only allow the containing declaration
+      // to remain navigable. Initializers, aliases and function pointers stay unsupported.
+      if (!method && /^(?:bool|int|float|double|[A-Za-z_]\w*\s*[*&]?)\s+[A-Za-z_]\w*\s*;$/.test(plain)) continue;
       if (!method || /[=<>]|\bconst\b/.test(method[3])) { methods = undefined; break; }
       methods.push({ name: method[2], returnType: method[1], params: signature(method[3]), line: j + 1, access });
     }

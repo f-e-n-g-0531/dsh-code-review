@@ -2,7 +2,7 @@
 
 供维护者核查实现依据。使用方法见 [README](README.md)，开发优先级见 [能力清单](CORE-ALIGNMENT-TASKS.md)。
 
-当前本轮对照固定为 alibaba/open-code-review 提交 `216dcf513593055a70165f793e96b52589d71b1b`，不随上游分支变化。下方文件索引仍是旧提交 `2d67596c961f80436deb2afa643efa2b1725d34c` 的历史阅读记录；未把旧记录冒充新提交逐文件复审。
+上一轮完整对照固定为 alibaba/open-code-review 提交 `216dcf513593055a70165f793e96b52589d71b1b`。本轮导出案例修复另核实上游 HEAD `8f9c8b771f65bed63a193e873f12cdffb050b748`，只补读 `internal/tool/file_read_diff.go` 的缺失差异导航和 `internal/diff/git.go` 的 tracked/gitignored 范围修复，不宣称完成该版本全量对照。差异算法参考旧固定版本 `internal/suggestdiff/diff.go` 与 `internal/diff/hunk.go`，不照搬无界二维表或忽略大小写／空白的对齐。下方文件索引仍是旧提交 `2d67596c961f80436deb2afa643efa2b1725d34c` 的历史阅读记录；未把旧记录冒充新提交逐文件复审。
 
 ## 对照结论
 

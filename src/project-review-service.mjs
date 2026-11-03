@@ -1,3 +1,4 @@
+import { previewValidity } from './preview-validity.mjs';
 import { REVIEW_RUNTIME } from './runtime-identity.mjs';
 import { buildResumeState, validateResumeState } from './review-resume.mjs';
 import { renderProjectReport } from './project-report.mjs';
@@ -116,10 +117,11 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
         for (const [id, p] of previews) if (p.expires <= now()) previews.delete(id);
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
-        previews.set(previewId, { ...current, args: captureArgs, snapshotId: s.id, resumeStates, sourceJobId, expires: now() + ttlMs });
+        const expires = now() + ttlMs;
+        previews.set(previewId, { ...current, args: captureArgs, snapshotId: s.id, resumeStates, sourceJobId, expires });
         return {
           ...(resumeStates ? { resume: { sourceJobId, reusableFiles: [...resumeStates.values()].reduce((sum, state) => sum + state.completed.length, 0) } } : {}),
-          previewId, snapshotId: s.id, reviewMode: 'project', repositoryRoot: s.root, vcs: s.vcs,
+          previewId, expiresAt: new Date(expires).toISOString(), validForMs: ttlMs, snapshotId: s.id, reviewMode: 'project', repositoryRoot: s.root, vcs: s.vcs,
           model: current.route, modelSendingEnabled: allowModelSending,
           totalTrackedNodes: s.totalTrackedNodes, selectedFiles: s.selectedFiles, selectionComplete: s.selectionComplete,
           inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes, batches: s.batches.length,
@@ -137,7 +139,8 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
       if (args.confirmed !== true || typeof args.previewId !== 'string' || Object.keys(args).some(k => !['previewId', 'confirmed'].includes(k))) throw new Error('Confirmed preview required');
       const p = previews.get(args.previewId);
       const current = owner(exec);
-      if (!p || p.expires <= now() || p.agent !== current.agent || p.cwd !== current.cwd || JSON.stringify(p.route) !== JSON.stringify(current.route)) throw new Error('Preview missing expired or owner/model/directory changed');
+      try { previewValidity(p, current, now()); }
+      catch (error) { if (error.code === 'PREVIEW_EXPIRED') previews.delete(args.previewId); throw error; }
       previews.delete(args.previewId);
       busy = true;
       const signal = signalFor(exec);

@@ -53,6 +53,55 @@ test('empty files and EOF edits use one-based insertion boundaries', () => {
   assert.deepEqual(lineDiff('', ''), { status: 'unchanged', edits: [] });
 });
 
+test('bounded frontier recovers distant edits with shifted CRLF and EOF coordinates', () => {
+  const a = Array.from({ length: 10000 }, (_, i) => 'line ' + i + '\r\n');
+  const b = [...a];
+  b.splice(9999, 1, 'late replacement');
+  b.splice(10, 0, 'inserted\r\n');
+  const before = a.join(''), after = b.join(''), result = lineDiff(before, after);
+  assert.equal(result.precision, 'exact');
+  assert.equal(result.edits.length, 2);
+  assert.deepEqual(result.edits[0].old, { start: 11, count: 0 });
+  assert.deepEqual(result.edits[1].new, { start: 10001, count: 1 });
+  for (const edit of [...result.edits].reverse()) a.splice(edit.old.start - 1, edit.old.count, edit.added);
+  assert.equal(a.join(''), after);
+  assert.deepEqual(lineDiff(before, after), result);
+});
+
+test('frontier fallback agrees with independent LCS cost on repeated-line mutations', () => {
+  let seed = 43;
+  const random = n => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return Math.floor(seed / 4294967296 * n); };
+  for (let run = 0; run < 200; run++) {
+    const a = Array.from({ length: 60 }, () => ['a\n', 'b\r\n', '\n', 'Tail\n'][random(4)]), b = [...a];
+    b[0] = 'early\n'; b[b.length - 1] = 'late';
+    for (let i = 0; i < 4; i++) b.splice(random(b.length), random(3), ...Array.from({ length: random(3) }, () => 'new\n'));
+    const oracle = Array.from({ length: a.length + 1 }, () => new Uint32Array(b.length + 1));
+    for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) oracle[i][j] = a[i - 1] === b[j - 1] ? oracle[i - 1][j - 1] + 1 : Math.max(oracle[i - 1][j], oracle[i][j - 1]);
+    const result = lineDiff(a.join(''), b.join(''), { maxCells: 3000 });
+    assert.equal(result.precision, 'exact');
+    assert.equal(result.edits.reduce((n, e) => n + e.old.count + e.new.count, 0), a.length + b.length - 2 * oracle[a.length][b.length]);
+    const forward = [...a], reverse = [...b];
+    for (const e of [...result.edits].reverse()) {
+      assert.equal(a.slice(e.old.start - 1, e.old.start - 1 + e.old.count).join(''), e.removed);
+      assert.equal(b.slice(e.new.start - 1, e.new.start - 1 + e.new.count).join(''), e.added);
+      forward.splice(e.old.start - 1, e.old.count, e.added);
+      reverse.splice(e.new.start - 1, e.new.count, e.removed);
+    }
+    assert.equal(forward.join(''), b.join(''));
+    assert.equal(reverse.join(''), a.join(''));
+  }
+});
+
+test('sparse snakes still obey equality-probe and byte budgets without partial edits', () => {
+  const middle = 'same\n'.repeat(2000), before = 'a\n' + middle + 'b\n', after = 'x\n' + middle + 'y\n';
+  for (const options of [{ maxCells: 100 }, { maxBytes: 100 }]) {
+    const result = lineDiff(before, after, options);
+    assert.equal(result.status, 'limited');
+    assert.deepEqual(result.edits, []);
+    assert.equal(result.precision, undefined);
+  }
+});
+
 test('cell exhaustion never masquerades as exact diff', () => {
   const result = lineDiff('a\nb\n', 'x\ny\n', { maxCells: 4 });
   assert.equal(result.status, 'limited'); assert.deepEqual(result.edits, []);

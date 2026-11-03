@@ -10,7 +10,7 @@
 	npm test
 	node scripts/host-smoke.mjs <DSH-checkout>
 
-宿主检查加载真实 DSH 工具运行时，但使用受控模型响应，不是 GUI 安装或真实模型质量测试。Windows SVN 需要支持 UTF-8 路径；CI 使用临时工具，不修改用户安装。
+宿主检查加载真实 DSH 工具运行时，但使用受控模型响应，不是 GUI 安装或真实模型质量测试。若安装路径位于 Electron `app.asar` 内，普通 Node 不识别归档虚拟路径；PowerShell 可用 `$env:ELECTRON_RUN_AS_NODE="1"; & "<安装目录>/DeepSeek Harness.exe" scripts/host-smoke.mjs "<安装目录>/resources/app.asar/dsh"` 运行归档感知的同一检查，不解包或修改宿主。Windows SVN 需要支持 UTF-8 路径；CI 使用临时工具，不修改用户安装。
 
 ## 会话与模式
 
@@ -42,11 +42,11 @@ JSON合同新增280字节传输提示防止原始换行／反斜线转义错误�
 
 连续正文投递的索引仅保存本次批准且实际发送的坐标；当前 stage reader 重新取原文并扣字节，不共享旧 receipt。可选初始正文事务延迟到调用预算准入后，预算否决／取消／输入不适配必须回滚，未送入模型不发布 audit。交互内联风险缺失／非法不抹合法 findings，不补发规划。
 
-迁移元数据是宿主生成的 side-qualified 导航，不是模型授权。跨文件 regression 只用已批准 contract ID、来源／角色／精确编辑和独立已校验 receipt，默认旧同主文件协议仍严格。C++ 仅在字面 include、唯一类声明／类外定义和明确 receiver 下产生保守线索，重载／继承／虚分派／宏不能猜测唯一绑定。
+迁移元数据是宿主生成的 side-qualified 导航，不是模型授权。`old-delegation` 保留旧公开入口、旧实现及新同源入口，非 uncertain 判定要求本代 receipt 完整覆盖三个函数。删除导出入口、单例调用与不同名新入口的 `deleted-export-route` 只交付词法候选导航，强制 uncertain；不证明类型、宏语义、实参等价或共享状态身份，复杂／歧义语法明确记录不可用。跨文件 regression 只用已批准 contract ID、来源／角色／精确编辑和独立已校验 receipt，默认旧同主文件协议仍严格。C++ 仅在字面 include、唯一类声明／类外定义和明确 receiver 下产生保守线索，重载／继承／虚分派／宏不能猜测唯一绑定。
 
 精确完整组的根可选 interactions 通道独立于合法 primary 结果验收。仅本代读取覆盖全部成员编辑、source／snapshot／hash 及跨文件引用验收成功后替代匹配专门生成；非法或缺失不触发隐藏主审重跑，候选仍用独立复核。原生 schema、文本合同和可选开销进入真实 wire 预算，预览 minimumCalls 是有条件下限并披露 fallbackMinimumCalls。
 
-额度让出不抢 live unit；其他阶段 release 后有限 FIFO 继续，共享原调用／输出总账和绝对截止。schema2 只保存身份校验过的 primary generation，不持久化成可复用的新证据 receipt；恢复只省生成，交互／综合及验证重新从安全边界执行。没有进展保留 pending／partial，取消不自动变为完成。
+额度让出不抢 live unit；文件／窗口 primary 在同次执行以内存闭包保留待执行请求、已送结果、检索轮数和单次纠正许可，其他阶段 release 后有限 FIFO 继续，共享原调用／输出总账和绝对截止。正常 group-primary 仍一次合并生成；仅尚未接受组生成且真实局部分配失败、root 可承接请求时，明确回退成员 primary。预留成员 fallback floor 会降低当时组可用额度，成功组立即释放 floor；不重放已接受组，不给新总账。schema2 只保存身份校验过的 primary generation，不持久化成可复用的新证据 receipt；恢复只省生成，交互／综合及验证重新从安全边界执行。没有进展保留 pending／partial，取消不自动变为完成。
 
 受控集成验证入口为 `test/ocr-refactor-integration.test.mjs`、`test/ocr-complete-policy.test.mjs` 及 group/migration/stage 专项测试；其中开关对照 7→5、组通道 5→3 是固定离线响应的模型调用数，不是提供方速度或召回保证。正式发布仍执行下文完整门禁，不把文档更新或本地通过当作已发布。
 

@@ -36,7 +36,10 @@ function terminalSummary(value) {
     }
     const reasons = Array.isArray(d?.readerLimitReasons) ? d.readerLimitReasons : [];
     const bounded = LIMIT_CODES.flatMap(code => { const row = reasons.find(item => item?.code === code); return row ? [code + ' ' + count(row.calls)] : []; });
-    if (bounded.length) lines.push('读取限制原因：' + bounded.join('；'));
+    if (bounded.length) {
+      lines.push('读取限制原因：' + bounded.join('；'));
+      if (d?.readerBudget?.remainingCalls > 0 && d?.readerBudget?.remainingOutputBytes > 0) lines.push('全局读取预算仍有余额；阶段分配或检索轮次限制仍可能使范围未完成，不能据余额认定可以继续或已经通过。');
+    }
     if (d?.readerLimits) lines.push('每阶段最大检索轮次：' + count(d.readerLimits.maxRounds));
     if (d?.artifacts) lines.push('私有工件计数：留存 ' + count(d.artifacts.retained) + '，未留存 ' + count(d.artifacts.omitted) + '（不包含原始正文）');
     if (value.resultPage) lines.push('当前页：文件 ' + (value.resultPage.files?.length ?? 0) + '/' + count(value.resultPage.totalFiles) + '，发现 ' + (value.resultPage.findings?.length ?? 0) + '/' + count(value.resultPage.totalFindings) + '；code_review_status 的 offset/limit 仅切换结果页。');
@@ -44,6 +47,8 @@ function terminalSummary(value) {
   } else if (report?.previewId) {
     lines.push('预览已完成，尚未执行审查；请展示批准范围并取得用户确认后再执行。');
     lines.push('预览文件总量：' + count(report.filePage?.total ?? report.files?.length) + '；计划最少调用：' + count(report.plan?.minimumCalls));
+    lines.push('最少调用仅为初始计划下限，不是总调用数或耗时上限；后续取证、复核及综合会增加工作量。');
+    if (typeof report.expiresAt === 'string' && Number.isFinite(Date.parse(report.expiresAt))) lines.push('预览有效至：' + new Date(report.expiresAt).toISOString() + '；过期后须重新预览并确认。');
   } else {
     lines.push('未提供完整报告摘要；终态不会自动恢复或重新发送源码。请检查已保存检查点和未完成范围。');
   }

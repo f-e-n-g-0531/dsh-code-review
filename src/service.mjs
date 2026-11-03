@@ -1,3 +1,4 @@
+import { previewValidity } from './preview-validity.mjs';
 import { configureWireBudget } from './model-wire-budget.mjs';
 import {REVIEW_RUNTIME} from './runtime-identity.mjs';
 import { buildResumeState, validateResumeState, resumePreview } from './review-resume.mjs';
@@ -101,12 +102,15 @@ function createSessionReviewService(llm, { capture = captureSnapshot, now = Date
         prune();
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
-        previews.set(previewId, { ...current, target, options, rounds, snapshotId: snapshot.id, resumeState, sourceJobId, expires: now() + ttlMs });
+        const expires = now() + ttlMs;
+        previews.set(previewId, { ...current, target, options, rounds, snapshotId: snapshot.id, resumeState, sourceJobId, expires });
         return {
   ...(options.businessRequirement !== undefined
     ? { businessRequirement: { text: options.businessRequirement, hash: hash(options.businessRequirement), bytes: Buffer.byteLength(options.businessRequirement) } }
     : {}),
   previewId,
+  expiresAt: new Date(expires).toISOString(),
+  validForMs: ttlMs,
   ...(resumeState ? { resume: resumePreview(resumeState, sourceJobId) } : {}),
   plan,
   snapshotId: snapshot.id,
@@ -151,9 +155,10 @@ function createSessionReviewService(llm, { capture = captureSnapshot, now = Date
       if (busy) throw new Error('Review service busy');
       if (!allowModelSending) throw new Error('Model sending is disabled by plugin configuration');
       if (!args || Object.keys(args).some(k => !['previewId', 'confirmed'].includes(k)) || args.confirmed !== true || typeof args.previewId !== 'string') throw new Error('Confirmed preview is required');
-      prune();
       const current = owner(exec), preview = previews.get(args.previewId);
-      if (!preview || preview.agent !== current.agent || preview.cwd !== current.cwd || JSON.stringify(preview.route) !== JSON.stringify(current.route)) throw new Error('Preview missing, expired or owner/model/directory changed');
+      try { previewValidity(preview, current, now()); }
+      catch (error) { if (error.code === 'PREVIEW_EXPIRED') previews.delete(args.previewId); throw error; }
+      prune();
       busy = true;
       previews.delete(args.previewId);
       try {

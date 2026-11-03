@@ -93,10 +93,17 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
     next.instructions += protocolCorrection && !finalization ? CORRECTION_SUFFIX : '';
     return next;
   };
-  for (let round = 0; ; round++) {
+  // Same-invocation continuation only: never serialize source bodies or receipts.
+  let resumeRound = 0, pendingResponse;
+  const run = async () => {
+  try {
+  for (let round = resumeRound; ; round++) {
+    resumeRound = round;
     currentRound = round;
     request.signal?.throwIfAborted();
-    if (round > 0 || !allowExhaustedInitial) await checkExhausted(round);
+    if (!pendingResponse && (round > 0 || !allowExhaustedInitial)) await checkExhausted(round);
+    let parsed = pendingResponse;
+    if (!parsed) {
     let { input, instructions } = nextRequest(retrieved);
     if (correctProtocol && retrieved.length && !fits({ ...request, input, instructions })) input = compactFollowup(input);
     if (!fits({ ...request, input, instructions })) throw new Error('Retrieval input budget exceeded');
@@ -125,8 +132,10 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
     request.signal?.throwIfAborted();
     const serialized = typeof response === 'string' ? response : JSON.stringify(response);
     if (typeof serialized !== 'string' || Buffer.byteLength(serialized) > 128 * 1024) throw new Error('Retrieval response too large');
-    const parsed = JSON.parse(serialized);
+    parsed = JSON.parse(serialized);
     if (!parsed || !Object.hasOwn(parsed, 'requests')) return parsed;
+    pendingResponse = parsed;
+    }
     // Schema and authorization remain hard failures, including on the final turn.
     // Preflight all dynamic ranges and aggregate budgets before any capability.
     let batch;
@@ -145,8 +154,9 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
       batch = scope.transaction ? scope.transaction(execute) : execute();
     } catch (error) {
       request.signal?.throwIfAborted();
-      if (!finalization && budgetFailure(error)) { if (yieldOnBudget) throw Object.assign(error, { pendingRequests: parseRetrievalResponse(parsed) }); await finalize(error); continue; }
+      if (!finalization && budgetFailure(error)) { if (yieldOnBudget && ['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(error.code)) throw Object.assign(error, { pendingRequests: parseRetrievalResponse(parsed) }); pendingResponse = undefined; await finalize(error); continue; }
       if (finalization || !correctProtocol || protocolCorrection || !(/Invalid retrieval batch|Invalid read request|Invalid search request|Invalid find request|Invalid line range|Line range outside source/.test(error.message))) throw error;
+      pendingResponse = undefined;
       protocolCorrection = { code: error.code ?? 'MODEL_INVALID_RETRIEVAL' };
       await request.onProtocolEvent?.({ action: 'retrieval-protocol-correction', code: protocolCorrection.code });
       continue;
@@ -171,7 +181,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
       searchSeedAttempts += attempts;
       batch.push(...seeds);
     }
-    await checkExhausted(round + 1);
+    pendingResponse = undefined;
     for (const item of batch) {
       let candidate = [...retrieved, item];
       let next = nextRequest(candidate);
@@ -195,5 +205,16 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
         retrieved.push(item);
       }
     }
+    resumeRound = round + 1;
+    await checkExhausted(round + 1);
   }
+  } catch (error) {
+    request.signal?.throwIfAborted();
+    if (yieldOnBudget && ['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(error?.code)) {
+      error.resumeRetrieval = async signal => { request = { ...request, signal }; return run(); };
+    }
+    throw error;
+  }
+  };
+  return run();
 }
