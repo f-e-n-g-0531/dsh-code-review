@@ -35,6 +35,8 @@ import { configureWireBudget, modelWireBudget } from './model-wire-budget.mjs';
 import { createEvidenceContext } from './evidence-context.mjs';
 import { prepareInteractionRisk, consumeInteractionRisks } from './interaction-risk.mjs';
 import { reportSummaryMarkdown } from './report-summary.mjs';
+import { findingsMarkdown } from './report-findings.mjs';
+import { readabilityMarkdown, limitationDetailsMarkdown } from './report-readability.mjs';
 import { validateGroupInteraction } from './group-interaction.mjs';
 import { stageKey } from './review-stage-state.mjs';
 import { createStageGenerationCache } from './stage-generation-cache.mjs';
@@ -852,7 +854,7 @@ function renderFinding(output, finding, index, duplicates) {
   }
 
 export function markdownReport(report) {
-  const output = ['# Code Review 报告', '', '状态：' + report.status, '快照：' + report.snapshotId, ...reportSummaryMarkdown(report), '', '## 审查发现'];
+  const output = ['# Code Review 报告', ...reportSummaryMarkdown(report), ...findingsMarkdown(report), ...readabilityMarkdown(report), '', '## 技术附录', '', '<details>', '<summary>展开完整证据、逐项覆盖与执行诊断（不影响上面的结论）</summary>', '', '状态：' + safe(report.status), '快照：' + safe(report.snapshotId), '', '## 候选原始证据与判定'];
   if (!report.findings.length) output.push(report.status === 'completed' ? '在已审查范围内未发现具体问题；不代表代码已被证明正确。' : '当前没有有效问题记录，但审查存在未完成项或限制，不能视为通过。');
   const duplicates = new Map();
   for (const group of groupDuplicateFindings(report.findings)) for (const index of group.findingIndices.slice(1)) duplicates.set(index, group.findingIndices[0]);
@@ -861,7 +863,7 @@ export function markdownReport(report) {
   if (report.callerDiscovery) output.push('- 引用方发现：扫描 '+report.callerDiscovery.scanned.length+' 个文件，捕获 '+report.callerDiscovery.capturedPaths.length+' 个上下文；仅批准目录字面引用导航，不证明函数调用或完整覆盖。');
   if(report.businessRequirement)output.push('- 业务需求：SHA256 '+safe(report.businessRequirement.hash)+' · '+report.businessRequirement.bytes+' bytes；不可信约束，不是证据或权限，全文不在报告重复。');
   for (const file of report.files) for (const correction of file.anchorCorrections ?? []) output.push('- 定位纠正：' + safe(correction.originalCandidate.fileId) + ' · ' + safe(correction.status) + ' · ' + safe(correction.reason) + '；原完整候选保留JSON，仅定位不证明因果');
-  if (report.history) output.push('- Git历史审查：' + safe(report.history.mode) + ' · ' + safe(report.history.base ?? 'empty') + ' → ' + safe(report.history.target) + '；精确端点树差异，重命名按增删，不含工作树');
+  if (report.history) output.push('- ' + (String(report.history.mode).startsWith('svn') ? 'SVN' : 'Git') + '历史审查：' + safe(report.history.mode) + ' · ' + safe(report.history.base ?? 'empty') + ' → ' + safe(report.history.target) + '；精确端点树差异，重命名按增删，不含工作树');
   if (report.changeScope) output.push('- Git审查范围：' + safe(changeScopeLabel(report.changeScope)) + '；其他范围未审查，未跟踪文件仍默认排除。');
   if (report.businessGrouping) output.push('- 业务分组：' + safe(report.businessGrouping.status) + (report.businessGrouping.reason ? ' — ' + safe(report.businessGrouping.reason) : '') + '；仅调度假设，不证明依赖或覆盖');
   for (const file of report.files) for (const plan of file.riskPlans ?? []) output.push('- 风险计划：' + safe(file.path) + ' · ' + safe(plan.status) + (plan.method === 'inline' ? '（合并主审，非独立规划）' : '') + ' · ' + plan.risks.length + '项待证假设；不表示缺陷成立或覆盖完成');
@@ -880,6 +882,6 @@ export function markdownReport(report) {
   if (report.rules?.length) output.push('', '## 项目规则', '规则仅为已批准约束数据，不扩大权限或证明缺陷。', ...report.rules.map(rule => '- ' + safe(rule.path) + ' · SHA256 ' + safe(rule.hash)));
   if (report.followup?.suggestedPaths.length) output.push('', '## 后续选择建议', '仅为原快照未完成项；不会自动续审。再次执行需新预览、新审批，并显式选择规则和上下文。阻断项需先处理原因；关联上下文不等于主文件已审查。', ...report.followup.items.filter(item => item.followup).map(item => '- ' + safe(item.path) + '：' + item.status + (item.incompleteVerification ? '（候选复核未完成）' : '')));
   output.push(...diagnosticsMarkdown(report.diagnostics));
-  if (report.limitations.length) output.push('', '## 限制', ...report.limitations.map(l => '- ' + safe(l.text)));
+  output.push(...limitationDetailsMarkdown(report), '', '</details>');
   return output.join('\n') + '\n';
 }

@@ -113,14 +113,14 @@ test('actual refuted and limited reviews put cautious conclusions and findings b
   const markdown = markdownReport(completed.report);
   const summary = markdown.indexOf('## 结论摘要'), findings = markdown.indexOf('## 审查发现'), coverage = markdown.indexOf('## 覆盖情况');
   assert.ok(summary >= 0 && summary < findings && findings < coverage);
-  assert.match(markdown.slice(summary, findings), /已确认新增（独立复核支持、旧新对照引用已校验）：0/);
-  assert.match(markdown.slice(summary, findings), /已反驳候选：1/);
+  assert.doesNotMatch(markdown.slice(summary, findings), /复核支持本次新增 [1-9]/);
+  assert.match(markdown.slice(summary, findings), /复核反驳 1/);
   assert.ok(markdown.indexOf('Synthetic contract mismatch') < coverage);
   const limited = await run({ enableEvidenceContext: true, inlineInteractionRisks: true, maxCalls: 3 });
   const limitedMarkdown = markdownReport(limited.report);
   const headline = limitedMarkdown.slice(limitedMarkdown.indexOf('## 结论摘要'), limitedMarkdown.indexOf('## 审查发现'));
-  assert.match(headline, /整体状态：部分完成/); assert.match(headline, /跨文件综合未完成：1/);
-  assert.match(headline, /不能解释|不支持|不能据/);
+  assert.match(headline, /尚未查完（部分完成）/); assert.match(headline, /跨文件综合：完成 0.1 项；未完成 1 项/);
+  assert.match(headline, /不得据此放行/);
   assert.equal(limited.report.interactions[0].status, 'pending');
 });
 

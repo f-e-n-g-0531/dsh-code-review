@@ -1,0 +1,1852 @@
+{
+  "fixtureNotice": "Synthetic source-free regression preserving only aggregate counts and failure patterns observed in an archive. No original paths, source, rule text, limitation prose, identities or diagnostics are included; not a review result.",
+  "status": "partial",
+  "snapshotId": "synthetic-presentation-fixture",
+  "history": {
+    "mode": "svn-revision",
+    "base": "7363",
+    "target": "7364"
+  },
+  "coverage": {
+    "total": 74,
+    "completed": 50,
+    "pending": 23,
+    "blocked": 1,
+    "excluded": 0,
+    "failed": 0,
+    "cancelled": 0
+  },
+  "files": [
+    {
+      "fileId": "f0",
+      "path": "example/resource-manager/item0.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f1",
+      "path": "example/loader/item1",
+      "status": "blocked",
+      "failureCode": "UNSUPPORTED_PROPERTY"
+    },
+    {
+      "fileId": "f2",
+      "path": "example/preloader/item2.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f3",
+      "path": "example/config/item3.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f4",
+      "path": "example/resource-manager/item4.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f5",
+      "path": "example/loader/item5.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f6",
+      "path": "example/preloader/item6.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f7",
+      "path": "example/config/item7.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f8",
+      "path": "example/resource-manager/item8.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f9",
+      "path": "example/loader/item9.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f10",
+      "path": "example/preloader/item10.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f11",
+      "path": "example/config/item11.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f12",
+      "path": "example/resource-manager/item12.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f13",
+      "path": "example/loader/item13.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f14",
+      "path": "example/preloader/item14.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f15",
+      "path": "example/config/item15.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f16",
+      "path": "example/resource-manager/item16.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f17",
+      "path": "example/loader/item17.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f18",
+      "path": "example/preloader/item18.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f19",
+      "path": "example/config/item19.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f20",
+      "path": "example/resource-manager/item20.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f21",
+      "path": "example/loader/item21.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f22",
+      "path": "example/preloader/item22.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f23",
+      "path": "example/config/item23.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f24",
+      "path": "example/resource-manager/item24.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f25",
+      "path": "example/loader/item25.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f26",
+      "path": "example/preloader/item26.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f27",
+      "path": "example/config/item27.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f28",
+      "path": "example/resource-manager/item28.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f29",
+      "path": "example/loader/item29.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f30",
+      "path": "example/preloader/item30.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f31",
+      "path": "example/config/item31.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f32",
+      "path": "example/resource-manager/item32.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f33",
+      "path": "example/loader/item33.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f34",
+      "path": "example/preloader/item34.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f35",
+      "path": "example/config/item35.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f36",
+      "path": "example/resource-manager/item36.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f37",
+      "path": "example/loader/item37.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f38",
+      "path": "example/preloader/item38.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f39",
+      "path": "example/config/item39.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f40",
+      "path": "example/resource-manager/item40.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f41",
+      "path": "example/loader/item41.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f42",
+      "path": "example/preloader/item42.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f43",
+      "path": "example/config/item43.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f44",
+      "path": "example/resource-manager/item44.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f45",
+      "path": "example/loader/item45.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f46",
+      "path": "example/preloader/item46.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f47",
+      "path": "example/config/item47.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f48",
+      "path": "example/resource-manager/item48.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f49",
+      "path": "example/loader/item49.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f50",
+      "path": "example/preloader/item50.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f51",
+      "path": "example/config/item51.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f52",
+      "path": "example/resource-manager/item52.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f53",
+      "path": "example/loader/item53.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f54",
+      "path": "example/preloader/item54.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f55",
+      "path": "example/config/item55.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f56",
+      "path": "example/resource-manager/item56.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f57",
+      "path": "example/loader/item57.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f58",
+      "path": "example/preloader/item58.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f59",
+      "path": "example/config/item59.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f60",
+      "path": "example/resource-manager/item60.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f61",
+      "path": "example/loader/item61.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f62",
+      "path": "example/preloader/item62.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f63",
+      "path": "example/config/item63.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f64",
+      "path": "example/resource-manager/item64.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f65",
+      "path": "example/loader/item65.cpp",
+      "status": "pending",
+      "failureCode": "RETRIEVAL_ROUND_BUDGET_EXCEEDED"
+    },
+    {
+      "fileId": "f66",
+      "path": "example/preloader/item66.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f67",
+      "path": "example/config/item67.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f68",
+      "path": "example/resource-manager/item68.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f69",
+      "path": "example/loader/item69.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f70",
+      "path": "example/preloader/item70.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f71",
+      "path": "example/config/item71.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f72",
+      "path": "example/resource-manager/item72.cpp",
+      "status": "completed"
+    },
+    {
+      "fileId": "f73",
+      "path": "example/loader/item73.cpp",
+      "status": "completed"
+    }
+  ],
+  "findings": [],
+  "interactions": [
+    {
+      "groupId": "g0",
+      "fileIds": [
+        "f0"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g1",
+      "fileIds": [
+        "f1"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g2",
+      "fileIds": [
+        "f2"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g3",
+      "fileIds": [
+        "f3"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g4",
+      "fileIds": [
+        "f4"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g5",
+      "fileIds": [
+        "f5"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g6",
+      "fileIds": [
+        "f6"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g7",
+      "fileIds": [
+        "f7"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g8",
+      "fileIds": [
+        "f8"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g9",
+      "fileIds": [
+        "f9"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g10",
+      "fileIds": [
+        "f10"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g11",
+      "fileIds": [
+        "f11"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g12",
+      "fileIds": [
+        "f12"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g13",
+      "fileIds": [
+        "f13"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g14",
+      "fileIds": [
+        "f14"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g15",
+      "fileIds": [
+        "f15"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g16",
+      "fileIds": [
+        "f16"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g17",
+      "fileIds": [
+        "f17"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g18",
+      "fileIds": [
+        "f18"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g19",
+      "fileIds": [
+        "f19"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g20",
+      "fileIds": [
+        "f20"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g21",
+      "fileIds": [
+        "f21"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g22",
+      "fileIds": [
+        "f22"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g23",
+      "fileIds": [
+        "f23"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g24",
+      "fileIds": [
+        "f24"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g25",
+      "fileIds": [
+        "f25"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g26",
+      "fileIds": [
+        "f26"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g27",
+      "fileIds": [
+        "f27"
+      ],
+      "status": "blocked",
+      "reason": "exact-edit-analysis-unavailable"
+    },
+    {
+      "groupId": "g28",
+      "fileIds": [
+        "f28"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g29",
+      "fileIds": [
+        "f29"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g30",
+      "fileIds": [
+        "f30"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g31",
+      "fileIds": [
+        "f31"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g32",
+      "fileIds": [
+        "f32"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    },
+    {
+      "groupId": "g33",
+      "fileIds": [
+        "f33"
+      ],
+      "status": "blocked",
+      "reason": "input-budget"
+    }
+  ],
+  "limitations": [
+    {
+      "fileId": "f0",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f1",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f2",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f3",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f4",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f5",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f6",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f7",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f8",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f9",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f10",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f11",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f12",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f13",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f14",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f15",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f16",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f17",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f18",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f19",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f20",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f21",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f22",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f23",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f24",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f25",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f26",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f27",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f28",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f29",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f30",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f31",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f32",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f33",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f34",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f35",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f36",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f37",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f38",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f39",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f40",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f41",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f42",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f43",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f44",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f45",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f46",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f47",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f48",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f49",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f50",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f51",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f52",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f53",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f54",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f55",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f56",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f57",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f58",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f59",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f60",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f61",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f62",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f63",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f64",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f65",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f66",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f67",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f68",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f69",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f70",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f71",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f72",
+      "text": "聚焦输入提示：完整上下文须按需取证。"
+    },
+    {
+      "fileId": "f73",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f0",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f1",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f2",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f3",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f4",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f5",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f6",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f7",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f8",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f9",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f10",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f11",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f12",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f13",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f14",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f15",
+      "text": "合并风险计划未完成。"
+    },
+    {
+      "fileId": "f16",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f17",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f18",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f19",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f20",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f21",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f22",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f23",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f24",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f25",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f26",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f27",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f28",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f29",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f30",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f31",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f32",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f33",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f34",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f35",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f36",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f37",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f38",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f39",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f40",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f41",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f42",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f43",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f44",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f45",
+      "text": "阶段检索轮数上限。"
+    },
+    {
+      "fileId": "f46",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f47",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f48",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f49",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f50",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f51",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f52",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f53",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f54",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f55",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f56",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f57",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f58",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f59",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f60",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f61",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f62",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f63",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f64",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f65",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f66",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f67",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f68",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f69",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f70",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f71",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f72",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f73",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f0",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f1",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f2",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f3",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f4",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f5",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f6",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f7",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f8",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f9",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f10",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f11",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f12",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f13",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f14",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f15",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f16",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f17",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f18",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f19",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f20",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f21",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f22",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f23",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f24",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f25",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f26",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f27",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f28",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f29",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f30",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f31",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f32",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f33",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f34",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f35",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f36",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f37",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f38",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f39",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f40",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f41",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f42",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f43",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f44",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f45",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f46",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f47",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f48",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f49",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f50",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f51",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f52",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f53",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f54",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f55",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f56",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f57",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f58",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f59",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f60",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f61",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f62",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f63",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f64",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f65",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f66",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f67",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f68",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f69",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f70",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f71",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f72",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f73",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f0",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f1",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f2",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f3",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f4",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f5",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f6",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f7",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f8",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f9",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f10",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f11",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f12",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f13",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f14",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f15",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f16",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f17",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f18",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f19",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f20",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f21",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f22",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f23",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f24",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f25",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f26",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f27",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f28",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f29",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f30",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f31",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f32",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f33",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f34",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f35",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f36",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f37",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f38",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f39",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f40",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f41",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f42",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f43",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f44",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f45",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f46",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f47",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f48",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f49",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f50",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f51",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f52",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f53",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f54",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f55",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f56",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f57",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f58",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f59",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f60",
+      "text": "示例限制类别 2"
+    },
+    {
+      "fileId": "f61",
+      "text": "示例限制类别 3"
+    },
+    {
+      "fileId": "f62",
+      "text": "示例限制类别 4"
+    },
+    {
+      "fileId": "f63",
+      "text": "示例限制类别 5"
+    },
+    {
+      "fileId": "f64",
+      "text": "示例限制类别 6"
+    },
+    {
+      "fileId": "f65",
+      "text": "示例限制类别 0"
+    },
+    {
+      "fileId": "f66",
+      "text": "示例限制类别 1"
+    },
+    {
+      "fileId": "f67",
+      "text": "示例限制类别 2"
+    }
+  ]
+}
