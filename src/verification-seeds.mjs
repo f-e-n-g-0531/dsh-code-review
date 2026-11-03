@@ -1,4 +1,5 @@
 import { createEvidenceReceipts } from './evidence-receipts.mjs';
+import { migrationVerificationSeeds } from './migration-verification-seeds.mjs';
 
 // Host-only optional prefetch. Only approved catalog identities and actual line
 // coordinates select reads; candidate prose/snippets/receipts never become evidence.
@@ -7,8 +8,9 @@ const MAX_SEED_BYTES = 16 * 1024;
 const optionalFailure = error => ['VERIFICATION_SEED_CAPACITY', 'READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(error?.code);
 const capacityError = () => Object.assign(new Error('Optional verification seed capacity exceeded'), { code: 'VERIFICATION_SEED_CAPACITY' });
 
-export function verificationSeeds(candidates, scope, { signal, fits, onReceipt = () => {} }) {
+export function verificationSeeds(candidates, scope, { signal, fits, onReceipt = () => {}, migrationContext, onMigrationSeeds }) {
   signal?.throwIfAborted();
+  if (migrationContext !== undefined) return migrationVerificationSeeds(migrationContext, scope, { signal, fits, onReceipt, onMigrationSeeds });
   // Without atomic rollback an optional seed could consume the budget and then
   // fail its model-input fit check. Leave those readers on ordinary retrieval.
   if (typeof scope.transaction !== 'function') return [];

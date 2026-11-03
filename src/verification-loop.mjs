@@ -31,6 +31,8 @@ export async function verificationLoop(model, request, candidates, scope, option
   // permits no retrieval rounds. Do not spend its budget on optional prefetch.
   const initialRetrieved = options.maxRounds === 0 ? [] : verificationSeeds(candidates, scope, {
     signal: request.signal,
+    migrationContext,
+    onMigrationSeeds: options.onMigrationSeeds,
     onReceipt: (id, resolve) => seedReceipts.set(id, resolve),
     fits: seeds => {
       const next = retrievalRequest(verificationRequest, scope, seeds);

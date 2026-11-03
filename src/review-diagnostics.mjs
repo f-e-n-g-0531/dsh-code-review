@@ -41,11 +41,21 @@ export function reviewDiagnostics(report, { reviewWallMs = null, executionWallMs
   const riskPlanningFallbackReasons = FALLBACK_REASONS.flatMap(reason => { const calls = (report.files ?? []).filter(f => f.riskPlanningFallbackReason === reason).length; return calls ? [{ reason, calls }] : []; });
   const recoveryEvents = sources.flatMap(source => source.modelRecoveries ?? []);
   const transportRecoveries = RECOVERY_KINDS.flatMap(kind => { const calls = recoveryEvents.filter(event => event?.action === 'json-transport-recovery' && event.kind === kind).length; return calls ? [{ kind, calls }] : []; });
+  const migrationEvents = sources.flatMap(source => Array.isArray(source.migrationSeedEvents) ? source.migrationSeedEvents : []);
+  const migrationSeeds = ['entry-migration', 'old-delegation', 'deleted-export-route'].flatMap(kind =>
+    ['accepted', 'fallback'].flatMap(status => {
+      const count = migrationEvents.filter(event => event?.kind === kind && event.status === status).length;
+      return count ? [{ kind, status, count }] : [];
+    }));
+  const migrationSeedReasons = ['COMPLETE_ROLE_SET', 'NO_MATCHING_CONTRACT', 'INCOMPLETE_ROLE_RANGE', 'EVIDENCE_LIMIT', 'TRANSACTION_UNAVAILABLE', 'SEED_LIMIT', 'INCOMPLETE_READ', 'FINAL_RESERVE', 'INPUT_CAPACITY', 'READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED', 'OTHER'].flatMap(reason => {
+    const count = migrationEvents.filter(event => ['accepted', 'fallback'].includes(event?.status) && ['entry-migration', 'old-delegation', 'deleted-export-route'].includes(event.kind) && event.reason === reason).length;
+    return count ? [{ reason, count }] : [];
+  });
   const resume = { reusedFiles: number(report.resume?.reusedFiles) };
   const artifactRecords = Array.isArray(report.artifacts) ? report.artifacts : null;
   const artifacts = { retained: artifactRecords ? artifactRecords.filter(record => record?.omitted === false && record.recorded === true).length : null, omitted: artifactRecords ? artifactRecords.filter(record => record?.omitted === true).length : null };
   return { schemaVersion: 2, resume, artifacts, transportRecoveries, pluginVersion: REVIEW_RUNTIME.version, reviewWallMs: number(reviewWallMs), executionWallMs: number(executionWallMs),
-    modelCalls: number(report.modelCalls), observedModelCalls, phases, modelCallPurposes, readerBudget, correctionReasons, readerLimitReasons, readerLimits, riskPlanningFallbackReasons,
+    modelCalls: number(report.modelCalls), observedModelCalls, phases, modelCallPurposes, readerBudget, correctionReasons, readerLimitReasons, readerLimits, riskPlanningFallbackReasons, migrationSeeds, migrationSeedReasons,
     planning: { completed: plans.filter(p => p.status === 'completed' && p.method !== 'inline').length, inline: plans.filter(p => p.method === 'inline' && p.status === 'completed').length, inlineAbsent: plans.filter(p => p.method === 'inline' && p.status === 'absent').length, inlineInvalid: plans.filter(p => p.method === 'inline' && p.status === 'invalid').length, fallback: plans.filter(p => p.status === 'fallback').length, skipped: plans.filter(p => p.status === 'skipped').length },
     callPurposeNotice: 'primary-initial is the first call of a retrieval-enabled stage, not only primary review; phase identifies the stage. Correction reason counts include actual correction invocation records only, not both failures and completion notices.',
     timingNotice: 'Observed call wall sums overlap under concurrency and include lifecycle observation; not pure provider latency. Missing values are unavailable, not zero.' };
@@ -73,6 +83,16 @@ export function diagnosticsMarkdown(d) {
   if (number(d.readerLimits?.maxRounds) !== null) output.push('- 每阶段最大检索轮次：' + number(d.readerLimits.maxRounds) + '；调用数／输出字节耗尽与轮次耗尽分别记录，不能混同。');
   if (d.riskPlanningFallbackReasons?.length) output.push('- 风险策略回退原因：' + d.riskPlanningFallbackReasons.filter(r => FALLBACK_REASONS.includes(r.reason)).map(r => r.reason + ' ' + (number(r.calls) ?? '不可用')).join('；') + '。');
   if (d.transportRecoveries?.length) output.push('- 本地结果传输：' + d.transportRecoveries.filter(row => RECOVERY_KINDS.includes(row.kind)).map(row => row.kind + ' ' + (number(row.calls) ?? '不可用')).join('；') + '；仅计成功解析的传输事件，不表示额外模型调用或缺陷确认。');
+  if (d.migrationSeeds?.length) {
+    const labels = { 'entry-migration': '入口迁移', 'old-delegation': '旧入口委托', 'deleted-export-route': '删除导出导航' };
+    const rows = d.migrationSeeds.filter(row => Object.hasOwn(labels, row.kind) && ['accepted', 'fallback'].includes(row.status) && Number.isSafeInteger(row.count) && row.count >= 0);
+    if (d.migrationSeedReasons?.length) {
+      const reasons = { COMPLETE_ROLE_SET: '完整角色接纳', NO_MATCHING_CONTRACT: '无匹配契约', INCOMPLETE_ROLE_RANGE: '角色范围不完整', EVIDENCE_LIMIT: '证据条数上限', TRANSACTION_UNAVAILABLE: '无事务能力', SEED_LIMIT: '种子数量上限', INCOMPLETE_READ: '读取不完整', FINAL_RESERVE: '最终复验预留不足', INPUT_CAPACITY: '输入容量不足', READER_CALL_BUDGET_EXCEEDED: '读取调用不足', READER_OUTPUT_BUDGET_EXCEEDED: '读取字节不足', OTHER: '其他回退' };
+      const details = d.migrationSeedReasons.filter(row => Object.hasOwn(reasons, row.reason) && Number.isSafeInteger(row.count) && row.count >= 0);
+      if (details.length) output.push('- 迁移种子原因：' + details.map(row => reasons[row.reason] + ' ' + row.count).join('；') + '。');
+    }
+    if (rows.length) output.push('- 迁移证据成套预取：' + rows.map(row => labels[row.kind] + ' ' + (row.status === 'accepted' ? '预取接纳' : '回退普通检索') + ' ' + row.count).join('；') + '；计预取尝试，不表示模型已调用、复核通过或新增缺陷成立，删除导出导航仍仅允许不确定归因。');
+  }
   if (number(d.resume?.reusedFiles) !== null) output.push('- 续审复用已完成文件：' + number(d.resume.reusedFiles) + '；复用成果不计为本次模型调用或新读取证据。');
   if (number(d.artifacts?.retained) !== null || number(d.artifacts?.omitted) !== null) output.push('- 私有模型工件：已留存 ' + (number(d.artifacts.retained) ?? '不可用') + '，未留存 ' + (number(d.artifacts.omitted) ?? '不可用') + '；诊断仅含计数，不包含正文或访问标识。');
   output.push('- primary-initial 表示启用检索的某阶段初始调用，不仅是主审；具体阶段以阶段统计为准。');

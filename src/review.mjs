@@ -608,6 +608,13 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             const verdicts = await verificationLoop(trackedModel, { ...request, onProtocolEvent, reviewPhase: 'verification' }, generated.findings, stageScope('verification:' + file.id), {
               correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, onBudgetLimited, yieldOnBudget: options.enableStageContinuation === true,
               enableMigrationRegression: options.enableMigrationRegression === true, migrationContracts: report.migrationContracts?.contracts ?? [], migrationSnapshot: input,
+              onMigrationSeeds: event => {
+                // Source-free host events only; never persist model text or reader bodies.
+                if (!['accepted', 'fallback'].includes(event?.status)) return;
+                const kind = ['old-delegation', 'deleted-export-route'].includes(event.kind) ? event.kind : 'entry-migration';
+                const reason = ['COMPLETE_ROLE_SET', 'NO_MATCHING_CONTRACT', 'INCOMPLETE_ROLE_RANGE', 'EVIDENCE_LIMIT', 'TRANSACTION_UNAVAILABLE', 'SEED_LIMIT', 'INCOMPLETE_READ', 'FINAL_RESERVE', 'INPUT_CAPACITY', 'READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(event.reason) ? event.reason : 'OTHER';
+                (state.migrationSeedEvents ??= []).push({ status: event.status, kind, reason });
+              },
               onRetrieved: records => { (state.retrievalAudit ??= []).push(...records); },
               onTruncated: () => { result.limitations.push({ fileId: file.id, text: '复核检索结果达到数量上限' }); },
             });

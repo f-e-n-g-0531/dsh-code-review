@@ -128,6 +128,36 @@ export function migrationRegressionMetadata(context) {
   return context.contracts.map(contract => ({ ...structuredClone(contract), old: [structuredClone(contract.old)], new: [structuredClone(contract.new)], status: 'navigation-only', causality: 'unverified' }));
 }
 
+// Host-only read plans. The capability, candidate attribution and coordinates all
+// come from this compiler invocation, never from a later candidate/contract copy.
+export function migrationVerificationPlans(context) {
+  if (!contexts.has(context)) fail();
+  return context.candidates.map((candidate, index) => {
+    const candidateId = 'c' + (index + 1);
+    const matches = context.contracts.filter(contract => contract.candidateFileIds.includes(candidate.fileId) &&
+      candidate.attribution?.status === 'references-validated' && Array.isArray(candidate.attribution.editIds) &&
+      [contract.old, contract.new].some(role => role.fileId === candidate.fileId && role.edits.some(edit =>
+        candidate.attribution.editIds.includes(edit.editId) && candidate.anchor?.kind === 'line' &&
+        candidate.anchor.side === (role.side === 'old' ? 'old' : 'new') &&
+        positive(candidate.anchor.start) && positive(candidate.anchor.end) && candidate.anchor.end >= candidate.anchor.start &&
+        overlap({ start: candidate.anchor.start, count: candidate.anchor.end - candidate.anchor.start + 1 }, edit.range))));
+    const contract = matches[0];
+    if (!contract) return { candidateId, candidate, reason: 'NO_MATCHING_CONTRACT' };
+    const roles = [contract.old, contract.new, ...(contract.baseline ?? [])];
+    const identity = { candidateId, candidate, contractId: contract.id, kind: contract.kind ?? 'migration', rolesCount: roles.length };
+    if (roles.some(role => !positive(role.startLine) || !positive(role.endLine) || role.endLine < role.startLine)) return { ...identity, reason: 'INCOMPLETE_ROLE_RANGE' };
+    const requests = new Map();
+    for (const role of roles) {
+      for (let start = role.startLine; start <= role.endLine; start += 200) {
+        const request = { kind: 'read', id: role.sourceId, start, count: Math.min(200, role.endLine - start + 1) };
+        requests.set(JSON.stringify(request), request);
+        if (requests.size > 8) return { ...identity, reason: 'EVIDENCE_LIMIT' };
+      }
+    }
+    return { ...identity, requests: [...requests.values()] };
+  });
+}
+
 export function validateMigrationRegression(value, evidence, fileId, context, candidateId) {
   if (!contexts.has(context) || typeof value.migrationContractId !== 'string') fail();
   const contract = context.contracts.find(contract => contract.id === value.migrationContractId && contract.candidateFileIds.includes(fileId));
