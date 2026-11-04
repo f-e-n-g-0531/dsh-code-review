@@ -12,7 +12,7 @@ test('context-heavy window input uses approved catalog while full context remain
  if(!p.retrieved.length)return {requests:[{kind:'read',id:p.contextCatalog[0].id,start:5999,count:2}]};
  assert.equal(p.retrieved[0].result.text,'int unchanged;\nint unchanged;\n');return {findings:[],limitations:[]};
  },{enableRetrieval:true,maxInputBytes:12000});
- assert.equal(calls,2);assert.equal(r.status,'partial');assert.equal(r.files[0].contextMode,'approved-retrieval');assert.equal(r.files[0].initialInputBytes,plan.items[0].initialInputBytes);assert.equal(r.files[0].windowCoverage.completed.length,1);assert.equal(s.context[0].text.length,90000);
+ assert.equal(calls,2);assert.equal(r.status,'completed');assert.deepEqual(r.limitations,[]);assert.equal(r.scopeNotices.length,1);assert.match(r.scopeNotices[0].text,/不声明所有上下文已核查/);assert.equal(r.files[0].contextMode,'approved-retrieval');assert.equal(r.files[0].initialInputBytes,plan.items[0].initialInputBytes);assert.equal(r.files[0].windowCoverage.completed.length,1);assert.equal(s.context[0].text.length,90000);
 });
 test('deferred historical contexts keep distinct side identities and timeout does not complete windows',async()=>{
  const s=snapshot();s.history={base:'a'.repeat(40),target:'b'.repeat(40)};s.context=[{path:'old.cpp',oldOnly:true,oldText:'baseline();\n'.repeat(6000),oldRevision:s.history.base,oldBlobOid:'c'.repeat(40),oldHash:hash('baseline();\n'.repeat(6000))}];

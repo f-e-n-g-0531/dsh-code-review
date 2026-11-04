@@ -83,6 +83,7 @@ export function reportSummaryData(report = {}) {
     coverage: { total, loaded: files.length, detailsComplete, unit: project ? 'files' : 'change-entries', ...coverage },
     unfinished, crossFile, stages, unverifiedCandidates,
     limitations: rows(report.limitations).length,
+    scopeNotices: rows(report.scopeNotices).length,
     reused: findings.some(finding => finding?.reused || finding?.priorRun),
     currentSourceOnly: Boolean(project || findings.some(finding => finding?.attribution?.causality === 'current-source-only')),
   };
@@ -113,6 +114,7 @@ export function reportSummaryMarkdown(report = {}) {
   if (data.unverifiedCandidates) output.push('- 候选复核未完成：' + data.unverifiedCandidates + ' 项。');
   if (data.crossFile.total) output.push('- 跨文件综合：完成 ' + data.crossFile.completed + '/' + data.crossFile.total + ' 项；未完成 ' + data.crossFile.pending + ' 项。');
   if (data.limitations) output.push('- 已记录限制：' + data.limitations + ' 项，见限制明细。');
+  if (data.scopeNotices) output.push('- 范围说明：' + data.scopeNotices + ' 项，见附录；不计为未完成限制，完成不等于全部批准上下文已核查。');
   const qualifications = ['完成仅指处理进度，空发现不证明无缺陷'];
   if (counts.total) qualifications.push('按候选记录而非去重根因计数，复核支持及引用校验不是事实或因果证明');
   if (data.currentSourceOnly) qualifications.push('当前源码模式不评估历史新增归因');

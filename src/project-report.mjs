@@ -7,6 +7,7 @@ export function renderProjectReport(report) {
     findings: report.findings ?? [],
     interactions: (report.batches ?? []).flatMap(b => b.interactions ?? []),
     limitations: [...(report.limitations ?? []), ...(report.batches ?? []).flatMap(b => b.limitations ?? [])],
+    scopeNotices: report.scopeNotices ?? (report.batches ?? []).flatMap(b => b.scopeNotices ?? []),
   };
   return markdownReport(merged).replace('# Code Review 报告', '# 全项目代码审查报告');
 }

@@ -180,9 +180,12 @@ test('actual grouped primary selects deferred context through nested member rela
   assert.equal(off.report.primaryGroups.length, 1); assert.deepEqual(off.report.primaryGroups, on.report.primaryGroups);
   assert.equal(off.seen.filter(item => item.p.sourceMode === 'group-primary').length, 2);
   assert.equal(on.seen.filter(item => item.p.sourceMode === 'group-primary').length, 1);
-  assert.equal(off.report.modelCalls - on.report.modelCalls, 1); assert.equal(on.report.status, 'partial'); assert.equal(off.report.status, 'partial');
+  assert.equal(off.report.modelCalls - on.report.modelCalls, 1); assert.equal(on.report.status, 'completed'); assert.equal(off.report.status, 'completed');
   assert.ok(on.report.files.every(file => file.status === 'completed')); assert.ok(on.report.interactions.every(item => item.status === 'completed'));
-  assert.ok(on.report.limitations.every(item => item.text.includes('其他批准全文须按需读取')));
+  assert.deepEqual(on.report.limitations, []); assert.deepEqual(off.report.limitations, []);
+  assert.equal(on.report.scopeNotices.length, on.report.files.length);
+  assert.ok(on.report.scopeNotices.every(item => item.text.includes('其他批准全文须按需读取')));
+  assert.deepEqual(on.report.scopeNotices, off.report.scopeNotices);
   assert.deepEqual(on.report.coverage, off.report.coverage); assert.deepEqual(on.report.findings, off.report.findings);
   assert.ok(on.report.orchestration.retrievalAudit.some(item => item.sourceId === on.seen.find(item => item.p.sourceMode === 'group-primary').p.catalog.find(source => source.path === 'dep.js').id));
 });

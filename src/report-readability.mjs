@@ -95,7 +95,7 @@ function collect(report) {
     return { record, reasons: fileReasons(record, findings, associated), paths: record?.path != null ? [String(record.path)] : paths(record) };
   }).filter(item => item.reasons.length);
   const interactions = rows(report?.interactions).filter(record => record?.status !== 'completed').map(record => ({ record, reasons: [reason(record)], paths: paths(record) }));
-  return { unfinished, interactions, units, limitations: rows(report?.limitations), paths };
+  return { unfinished, interactions, units, limitations: rows(report?.limitations), scopeNotices: rows(report?.scopeNotices), paths };
 }
 
 function grouped(items) {
@@ -182,6 +182,15 @@ export function limitationDetailsMarkdown(report = {}) {
     const keys = ['fileId', 'path', 'groupId', 'fileIds', 'status', 'failureCode', 'blockCode', 'code', 'reason', 'pendingReason', 'stage', 'phase', 'stageFailures', 'retrievalLimited', 'retrievalLimits', 'groupRetrievalLimits', 'continuationPending', 'synthesisStatus', 'verificationStatus', 'windowCoverage', 'reviewPasses'];
     output.push('以下仅为状态与原因元数据；源码、候选及其他完整字段见完整源报告 JSON。');
     originalDetails(output, packed(items.map(item => Object.fromEntries(keys.filter(key => Object.hasOwn(item.record ?? {}, key)).map(key => [key, item.record[key]])))));
+  }
+  if (data.scopeNotices.length) {
+    output.push('', '### 范围说明（' + data.scopeNotices.length + ' 条记录）', '以下为上下文提供方式说明，不计为未完成限制；处理完成不等于全部批准上下文已核查。');
+    for (const record of data.scopeNotices) {
+      const paths = data.paths(record);
+      output.push('- 范围：' + (paths.length ? paths.map(escape).join('、') : '未标明文件身份'));
+    }
+    // Preserve complete original values, order, duplicates and file ownership.
+    originalDetails(output, data.scopeNotices);
   }
   if (data.units.length) {
     output.push('', '### 未完成阶段续审元数据', '按 continuation.units 原始索引保留对应阶段及依赖身份；record 为原始状态元数据，resolvedReason 仅为展示解释，不覆盖原始 pendingReason。');

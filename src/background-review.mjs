@@ -28,6 +28,7 @@ function terminalSummary(value) {
     lines.push('报告状态：' + report.status + '；任务结束不等于所有审查通过。');
     lines.push('文件覆盖：' + COVERAGE_FIELDS.map(key => key + ' ' + count(report.coverage?.[key])).join('；'));
     lines.push('总文件：' + count(report.totalFiles) + '；总发现：' + count(report.totalFindings) + '；限制项：' + count(report.totalLimitations));
+    if (Number.isSafeInteger(report.totalScopeNotices) && report.totalScopeNotices > 0) lines.push('范围说明：' + report.totalScopeNotices + ' 项（非未完成限制）；完成不等于全部批准上下文已核查，原文与归属见报告附录。');
     lines.push('模型调用：' + count(report.modelCalls ?? report.diagnostics?.modelCalls));
     const d = report.diagnostics;
     if (d?.readerBudget) {

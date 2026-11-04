@@ -204,7 +204,7 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
             : 'partial',
           repositoryRoot: s.root, vcs: s.vcs, model: p.route, modelCalls: calls, maxModelCalls: projectMaxCalls,
           totalTrackedNodes: s.totalTrackedNodes, selectionComplete: s.selectionComplete, inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes,
-          coverage, files, findings, artifacts: results.flatMap(result => result.artifacts ?? []), batches: results, resume: { reusedFiles: files.filter(file => file.reused).length },
+          coverage, files, findings, scopeNotices: results.flatMap(result => result.scopeNotices ?? []), artifacts: results.flatMap(result => result.artifacts ?? []), batches: results, resume: { reusedFiles: files.filter(file => file.reused).length },
           privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 4096, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
           execution: { nativeOutputTools, enableGroupPrimary, batchConcurrency: projectConcurrency, maxRetrievalRounds },
           notice: s.notice + REPORT_NOTICE_SUFFIX,

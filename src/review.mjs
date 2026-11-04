@@ -286,7 +286,6 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     const prepared = preparePrimaryInput(input, file, { instructions, scope, grouping: report.grouping, maxInputBytes, riskPlanningMode: options.riskPlanningMode, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning, skipSmallRiskPlans: options.skipSmallRiskPlans });
     const { changes, payload } = prepared;
     Object.assign(state, prepared.metadata);
-    if (state.contextMode === 'approved-retrieval') result.limitations.push({ fileId: file.id, text: '初始输入仅提供聚焦上下文或身份目录，其他批准全文须按需读取；不声明所有上下文已核查。' });
     if (prepared.synthesis) state.synthesisStatus = prepared.synthesis.status === 'ready' ? 'pending' : 'blocked';
     if (prepared.synthesis?.status === 'blocked') result.limitations.push({ fileId: file.id, text: (prepared.synthesis.reason === 'batch-limit' ? '跨窗口综合批次数超过上限（20），未发送；全部主窗口仍独立审查' : '跨窗口综合输入超限，未发送') + '；单窗口完成不表示交互影响已检查' });
     if (state.sourceMode === 'change-windows') state.windowCoverage = { completed: [], pending: [...state.windowIds] };
@@ -822,6 +821,9 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   if (checkpointFailed) throw checkpointFailure;
   for (const result of fileResults) if (result?.state.continuationPending === false) { const state = result.state; state.resumeEligible = state.status === 'completed' && !state.stageFailures?.length && !state.reviewPasses?.some(pass => pass.status !== 'completed') && !state.windowCoverage?.pending?.length && !state.retrievalLimited && result.findings.every(finding => finding.verification?.status === 'completed') && report.interactions.filter(item => item.fileIds?.includes(state.fileId)).every(item => item.status === 'completed'); }
   report.files = fileResults.map(result => result.state);
+  // Derive only from host-prepared state, including reused checkpoint state. Never
+  // reclassify model or historical limitations by text or model-supplied tags.
+  report.scopeNotices = report.files.filter(file => file.contextMode === 'approved-retrieval').map(file => ({ fileId: file.fileId, text: '初始输入仅提供聚焦上下文或身份目录，其他批准全文须按需读取；不声明所有上下文已核查。' }));
   report.findings = fileResults.flatMap(result => result.findings);
   report.limitations.push(...fileResults.flatMap(result => result.limitations));
   report.execution = { fileConcurrency, maxRetrievalRounds };
