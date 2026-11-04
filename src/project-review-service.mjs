@@ -72,7 +72,7 @@ async function captureProject(cwd, args, signal) {
   return { ...result, id: hash(JSON.stringify(result)) };
 }
 
-export function createProjectReviewService(llm, { allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = DEFAULT_PROJECT_CONCURRENCY, maxRetrievalRounds = 3, nativeOutputTools = false, enableGroupPrimary = false } = {}) {
+export function createProjectReviewService(llm, { executionStrategy = 'staged', allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = DEFAULT_PROJECT_CONCURRENCY, maxRetrievalRounds = 3, nativeOutputTools = false, enableGroupPrimary = false } = {}) {
   for (const n of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(n) || n < 1) throw new Error('Invalid project preview limit');
   if (!Number.isSafeInteger(projectMaxCalls) || projectMaxCalls < 1) throw new Error('Invalid project model call limit');
 
@@ -91,6 +91,7 @@ export function createProjectReviewService(llm, { allowModelSending = false, aut
     owns: id => previews.has(id),
 
     async preview(args, exec) {
+      if (executionStrategy === 'whole-scope') throw new Error('Whole-scope currently supports fresh single-round changes only; project requires explicit staged configuration');
       if (busy) throw new Error('Review service busy');
       if (!args || typeof args !== 'object') throw new Error('Project preview parameters required');
       if (Object.keys(args).some(k => !['reviewMode', 'repositoryPath', 'selectedPaths', 'resumeFromJobId'].includes(k)) || args.reviewMode !== 'project') throw new Error('Project mode supports only reviewMode/repositoryPath/selectedPaths; change/history context parameters are not project parameters');

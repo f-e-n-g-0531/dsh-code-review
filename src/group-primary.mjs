@@ -2,6 +2,7 @@ import { preparePrimaryInput } from './primary-input.mjs';
 import { initialInputBudget } from './input-budget.mjs';
 import { validateRiskPlan } from './risk-plan.mjs';
 import { GROUP_INTERACTION_INSTRUCTIONS } from './group-interaction.mjs';
+import { correctAnchor } from './anchor-correction.mjs';
 
 export const GROUP_PRIMARY_INSTRUCTIONS = '批准的group-primary输入包含多个完整主文件。逐个审核所有reviews成员的新旧正文，并结合组内其他文件分析；不能仅审核一个文件。返回 {"reviews":[{"fileId":"原成员身份","findings":[],"limitations":[]}],"limitations":[]}，每个成员恰好一项，包括没有发现的成员。各finding仍需原审查指令全部字段、精确原行anchor及该fileId本次变化归因；不能用其他成员的身份或坐标替代。缺证据写limitations，不声明跨文件综合已完成；专门交互阶段仍独立校验。可按批准检索协议先返回requests。';
 
@@ -34,7 +35,7 @@ export function prepareGroupPrimary(snapshot, group, { instructions, scope, maxI
   return { payload, instructions: combined, fileIds: [...group.fileIds], inlineRisk: enableRiskPlanning, changes: new Map(members.map((f, i) => [f.id, prepared[i].changes])), ...(enableGroupInteractions ? { groupId: group.id, groupInteraction, ...(!groupInteraction ? { groupInteractionFallback: 'input-budget-or-inexact' } : {}) } : {}) };
 }
 
-export function validateGroupPrimary(response, prepared, snapshot, validate, catalog = []) {
+export function validateGroupPrimary(response, prepared, snapshot, validate, catalog = [], { enableAnchorCorrection = false, signal } = {}) {
   if (Buffer.byteLength(typeof response === 'string' ? response : JSON.stringify(response) ?? '') > 128 * 1024) throw new Error('Grouped primary response too large');
   const value = typeof response === 'string' ? JSON.parse(response) : response;
   if (!value || !Array.isArray(value.reviews) || value.reviews.length !== prepared.fileIds.length || !Array.isArray(value.limitations) || value.limitations.length > 50 || value.limitations.some(s => typeof s !== 'string' || !s.trim() || s.length > 8000)) throw new Error('Invalid grouped primary response');
@@ -43,7 +44,21 @@ export function validateGroupPrimary(response, prepared, snapshot, validate, cat
     if (!prepared.fileIds.includes(row?.fileId) || output.has(row.fileId)) throw new Error('Unknown or duplicate grouped primary member');
     const file = snapshot.files.find(f => f.id === row.fileId);
     if (row.findings?.some(finding => finding.interaction !== undefined)) throw new Error('Grouped primary cannot bypass dedicated interaction evidence validation');
-    const generated = validate(row, file, prepared.changes.get(row.fileId));
+    const changes = prepared.changes.get(row.fileId);
+    const anchorCorrections = [];
+    let memberResponse = row;
+    if (enableAnchorCorrection === true && Array.isArray(row.findings) && row.findings.length <= 50) {
+      // Host correction only relocates exact text within this member and source side.
+      // Preserve model output and still enforce every ordinary validation rule below.
+      memberResponse = structuredClone(row);
+      memberResponse.findings = memberResponse.findings.map(raw => {
+        const correction = correctAnchor(raw, file, changes, { signal });
+        if (!['unchanged', 'not-applicable'].includes(correction.status)) anchorCorrections.push(correction);
+        return correction.status === 'corrected' ? correction.candidate : raw;
+      });
+    }
+    const generated = validate(memberResponse, file, changes);
+    if (anchorCorrections.length) generated.anchorCorrections = anchorCorrections;
     generated.limitations = [...generated.limitations, ...value.limitations];
     if (prepared.inlineRisk) {
       try { generated.groupRisk = row.risks === undefined ? { status: 'absent', risks: [] } : { status: 'completed', risks: validateRiskPlan({ risks: row.risks }, prepared.fileIds.map(id => ({ fileId: id, edits: prepared.changes.get(id).edits })), catalog) }; }

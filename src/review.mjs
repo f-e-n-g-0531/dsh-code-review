@@ -1,4 +1,5 @@
 import { REVIEW_INSTRUCTIONS, PROJECT_REVIEW_INSTRUCTIONS } from './prompts.mjs';
+import { reviewWholeScope } from './whole-scope-review.mjs';
 import { reviewRounds } from './review-rounds.mjs';
 import { correctAnchor } from './anchor-correction.mjs';
 import { correctedResponse } from './response-correction.mjs';
@@ -45,6 +46,9 @@ import { createStageContinuation } from './stage-continuation.mjs';
 import { buildMigrationContracts } from './migration-contracts.mjs';
 
 export { REVIEW_INSTRUCTIONS };
+export function createReviewReader(snapshot, options = {}) {
+  return configureWireBudget(createRetrievalScope(snapshot, { ...reviewReaderBudget(snapshot, options.readerBudgetPolicy ?? 'fixed'), signal: options.signal, ...(options.optimizeReviewCalls ? { reuseResults: true } : {}) }), { nativeOutputTools: options.nativeOutputTools === true });
+}
 export { PROJECT_REVIEW_INSTRUCTIONS };
 const nonempty = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 8000;
 const lines = text => text.replaceAll('\r\n', '\n').split('\n');
@@ -54,7 +58,7 @@ export function validateFindings(response, file) {
   return validateResponse(response, file);
 }
 
-function validateResponse(response, file, knownChanges) {
+export function validateResponse(response, file, knownChanges) {
   if (Buffer.byteLength(typeof response === 'string' ? response : JSON.stringify(response) ?? '') > 128 * 1024) throw new Error('Review response too large');
   if (typeof response === 'string') response = JSON.parse(response);
   if (!response || !Array.isArray(response.findings) || response.findings.length > 50 || !Array.isArray(response.limitations) || response.limitations.length > 50 || response.limitations.some(s => !nonempty(s))) throw protocolError('MODEL_INVALID_REVIEW_RESPONSE', 'Invalid review response');
@@ -103,6 +107,8 @@ async function invoke(model, request, timeoutMs, parentSignal) {
 }
 
 export async function reviewSnapshot(snapshot, model, options = {}) {
+  if (options.executionStrategy === 'whole-scope') return reviewWholeScope(snapshot, model, { ...options, instructions: REVIEW_INSTRUCTIONS, validateFindingResponse: validateResponse });
+  if (options.executionStrategy !== undefined && options.executionStrategy !== 'staged') throw new Error('Invalid review execution strategy');
   const startedAt = performance.now();
   const rounds = reviewRounds(options.reviewRounds);
   const controller = new AbortController();
@@ -245,7 +251,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         (report.primaryGroupFallbacks ??= []).push({ groupId: group.id, fileIds: [...prepared.fileIds], reason: 'resumable-file-primary', code: error.code });
         return null;
       }
-      const results = validateGroupPrimary(response, prepared, input, validateResponse, scope.catalog());
+      const results = validateGroupPrimary(response, prepared, input, validateResponse, scope.catalog(), { enableAnchorCorrection: options.enableAnchorCorrection === true, signal: request.signal });
       const interaction = validateGroupInteraction(response, prepared, input, reads, scope.catalog());
       groupInteractions.set(group.id, interaction);
       if (interaction.status !== 'disabled') (report.groupInteractionChannels ??= []).push({ groupId: group.id, status: interaction.status, reason: interaction.reason });
@@ -360,6 +366,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       }
       if (groupedGeneration) {
         state.primaryGroupId = grouped[0]; state.primaryMethod = 'group-primary';
+        if (groupedGeneration.anchorCorrections?.length) (state.anchorCorrections ??= []).push(...structuredClone(groupedGeneration.anchorCorrections));
         if (groupedGeneration.groupLimits?.length) {
           state.retrievalLimited = true;
           state.groupRetrievalLimits = structuredClone(groupedGeneration.groupLimits);

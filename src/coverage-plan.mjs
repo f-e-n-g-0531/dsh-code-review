@@ -1,4 +1,5 @@
 import {reviewRounds} from './review-rounds.mjs';
+import { prepareWholeScope } from './whole-scope-plan.mjs';
 import {riskPlanningDecision, RISK_PLAN_INSTRUCTIONS} from './risk-plan.mjs';
 import { canonicalRiskInput } from './risk-scope.mjs';
 import { chooseRiskStrategy, riskPlanningMode } from './risk-strategy.mjs';
@@ -15,6 +16,11 @@ import { inferFileRelations } from './file-relations.mjs';
 // Metadata only. No retained payload, file reads, model calls, or approval grants.
 export function buildCoveragePlan(input, options) {
   const rounds=reviewRounds(options?.reviewRounds);
+  if (options?.executionStrategy === 'whole-scope') {
+    if (rounds !== 1 || input?.projectScope || options.resumeState) throw new Error('Whole-scope requires fresh single-round changes review');
+    const prepared = prepareWholeScope(input, options);
+    return { snapshotId: input.id, executionStrategy: 'whole-scope', reviewRounds: 1, maxInputBytes: options.maxInputBytes, minimumCalls: prepared.batches.length, initialRequestsOnly: true, interactions: [], primaryGroups: prepared.batches.map(batch => ({ groupId: batch.id, fileIds: batch.fileIds, minimumCalls: 1 })), oversized: prepared.oversized, items: input.files.map(file => ({ fileId: file.id, path: file.path, eligibility: file.eligibility, primaryMethod: 'whole-scope', minimumCalls: 0 })), notice: '完整双侧按实际线缆字节合批；补读与候选集中复核可能增加调用，超大文件及跨批覆盖不足不会标成完成。' };
+  }
   riskPlanningMode(options?.riskPlanningMode);
   for (const key of ['enableEvidenceContext', 'inlineInteractionRisks', 'enableMigrationContracts', 'enableMigrationRegression', 'enableGroupInteractions', 'enableStageContinuation']) if (options?.[key] !== undefined && typeof options[key] !== 'boolean') throw new Error('Invalid review optimization option');
   if (!input || typeof input.id !== 'string' || !input.id || !Array.isArray(input.files) || input.files.length > 200) throw new Error('Invalid planning snapshot');
