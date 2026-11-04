@@ -4,7 +4,7 @@ import {apply} from '../index.mjs';
 
 test('tool guidance treats matching explicit review request as authorization, not a second user message', async () => {
   const defs = [], disposes = [];
-  apply({tools:{register:d=>defs.push(d)},llm:{},on:(_e,f)=>disposes.push(f)});
+  apply({tools:{register:d=>defs.push(d)},llm:{},on:(event,f)=>{if(event==='dispose')disposes.push(f);else assert.equal(event,'llm/stream');}});
   try {
     const tool = name => defs.find(d=>d.name===name);
     assert.match(tool('code_review_preview').description, /inspect the preview internally/);

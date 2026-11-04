@@ -2,6 +2,9 @@ import { registerBackgroundReview } from './src/background-review.mjs';
 import { createReviewService } from './src/service.mjs';
 import { DEFAULT_PROJECT_CONCURRENCY } from './src/project-execution.mjs';
 import { reviewToolOutput } from './src/tool-view.mjs';
+import { createHostReviewChildren } from './src/host-review-children.mjs';
+import { attachReviewChildMiddleware } from './src/review-child-broker.mjs';
+import { registerSnapshotTool } from './src/review-child-plugin.mjs';
 
 export const name = 'dsh-code-review';
 export const inject = ['tools', 'llm'];
@@ -14,7 +17,11 @@ const EXECUTE_PARAMETERS = { type: 'object', additionalProperties: false, proper
 export function apply(ctx, config = {}) {
   // This entry runs only when the host invokes the registered tool.
   // Host tool policy owns permission; do not request a second approval here.
-  const service = createReviewService(ctx.llm, { executionStrategy: config.executionStrategy ?? 'staged', maxInputBytes: config.maxInputBytes ?? 96 * 1024, allowModelSending: true, nativeOutputTools: true, enableGroupPrimary: true, enableEvidenceContext: config.enableEvidenceContext ?? true, inlineInteractionRisks: config.inlineInteractionRisks ?? true, enableMigrationContracts: config.enableMigrationContracts ?? true, enableMigrationRegression: config.enableMigrationRegression ?? true, enableGroupInteractions: config.enableGroupInteractions ?? true, enableStageContinuation: config.enableStageContinuation ?? true, enableRiskPlanning: true, enableBusinessGrouping: true, enableAnchorCorrection: true, projectConcurrency: config.projectConcurrency ?? DEFAULT_PROJECT_CONCURRENCY, riskPlanningMode: config.riskPlanningMode ?? 'auto', readerBudgetPolicy: config.readerBudgetPolicy ?? 'scaled', optimizeReviewCalls: true, enablePrimarySeeds: true, focusPrimaryContext: config.focusPrimaryContext ?? true, enableSearchSeeds: config.enableSearchSeeds ?? true, changesConcurrency: config.changesConcurrency ?? 2, maxRetrievalRounds: config.maxRetrievalRounds ?? 3, authorize: async () => true });
+  const hostChildren = createHostReviewChildren(ctx);
+  registerSnapshotTool(ctx);
+  attachReviewChildMiddleware(ctx);
+  ctx.on('dispose', () => hostChildren.dispose());
+  const service = createReviewService(ctx.llm, { hostChildren, wholeScopeConcurrency: config.wholeScopeConcurrency ?? 2, executionStrategy: config.executionStrategy ?? 'staged', maxInputBytes: config.maxInputBytes ?? 96 * 1024, allowModelSending: true, nativeOutputTools: true, enableGroupPrimary: true, enableEvidenceContext: config.enableEvidenceContext ?? true, inlineInteractionRisks: config.inlineInteractionRisks ?? true, enableMigrationContracts: config.enableMigrationContracts ?? true, enableMigrationRegression: config.enableMigrationRegression ?? true, enableGroupInteractions: config.enableGroupInteractions ?? true, enableStageContinuation: config.enableStageContinuation ?? true, enableRiskPlanning: true, enableBusinessGrouping: true, enableAnchorCorrection: true, projectConcurrency: config.projectConcurrency ?? DEFAULT_PROJECT_CONCURRENCY, riskPlanningMode: config.riskPlanningMode ?? 'auto', readerBudgetPolicy: config.readerBudgetPolicy ?? 'scaled', optimizeReviewCalls: true, enablePrimarySeeds: true, focusPrimaryContext: config.focusPrimaryContext ?? true, enableSearchSeeds: config.enableSearchSeeds ?? true, changesConcurrency: config.changesConcurrency ?? 2, maxRetrievalRounds: config.maxRetrievalRounds ?? 3, authorize: async () => true });
   ctx.tools.register({
     name: 'code_review_preview', description: PREVIEW_DESCRIPTION, parameters: PREVIEW_PARAMETERS, output: reviewToolOutput,
     async execute(args, exec) { const preview = await service.preview(args, exec); return { json: JSON.stringify(preview), markdown: '' }; },

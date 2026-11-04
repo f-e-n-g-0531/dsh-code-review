@@ -45,7 +45,7 @@ test('actual plugin production defaults enable all policies and explicit config 
   await writeFile(join(cwd, 'a.js'), 'guard();\n'); git('add', 'a.js'); git('commit', '-m', 'fixture'); await writeFile(join(cwd, 'a.js'), 'unsafe();\n');
   for (const enabled of [true, false]) {
     const definitions = []; let dispose, sends = 0;
-    apply({ tools: { register: value => definitions.push(value) }, llm: { stream() { sends++; throw new Error('preview must not send'); } }, on(event, fn) { assert.equal(event, 'dispose'); dispose = fn; } }, enabled ? {} : policies(false));
+    apply({ tools: { register: value => definitions.push(value) }, llm: { stream() { sends++; throw new Error('preview must not send'); } }, on(event, fn) { assert.ok(['dispose','llm/stream'].includes(event)); if (event === 'dispose') dispose = fn; } }, enabled ? {} : policies(false));
     try {
       const output = await definitions.find(tool => tool.name === 'code_review_preview').execute({}, exec(cwd));
       const preview = JSON.parse(output.json); for (const flag of flags) assert.equal(preview.execution[flag], enabled);

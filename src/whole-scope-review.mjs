@@ -1,4 +1,6 @@
 import { REVIEW_INSTRUCTIONS } from './prompts.mjs';
+import { runWholeScopeWorkers, createCheckpointQueue } from './whole-scope-workers.mjs';
+import { changesConcurrency } from './review-execution-policy.mjs';
 import { createReviewReader } from './review.mjs';
 import { prepareWholeScope } from './whole-scope-plan.mjs';
 import { retrievalLoop } from './retrieval-loop.mjs';
@@ -21,6 +23,8 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) throw new Error('Invalid whole-scope timeout');
   if (options.enableAnchorCorrection !== undefined && typeof options.enableAnchorCorrection !== 'boolean') throw new Error('Invalid anchor correction option');
   const maxRounds = retrievalRounds(options.maxRetrievalRounds);
+  const concurrency = changesConcurrency(options.wholeScopeConcurrency ?? 2);
+  if (options.createBatchModel !== undefined && typeof options.createBatchModel !== 'function') throw new Error('Invalid child agent factory');
   const input = structuredClone(snapshot);
   if (!input || !['git', 'svn'].includes(input.vcs) || !Array.isArray(input.files) || input.files.length > 200 || input.projectScope || input.files.some(file => file.reviewMode === 'project')) throw new Error('Whole-scope review requires a changes snapshot');
   const identities = new Set(), paths = new Set();
@@ -41,21 +45,23 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
     interactions: [], rules: (input.rules ?? []).map(({ path, hash }) => ({ path, hash })),
   };
   const stateById = new Map();
-  let reader, checkpointFailed = false;
-  const checkpoint = async () => {
-    if (!options.onResumeCheckpoint) return;
-    try { await options.onResumeCheckpoint(structuredClone(report)); } catch (error) { checkpointFailed = true; throw error; }
+  let reader, checkpointFailed = false, fatalError;
+  const checkpoints = createCheckpointQueue(options.onResumeCheckpoint, error => { checkpointFailed = true; fatalError ??= error; controller.abort(error); });
+  const reportOrder = new Map(input.files.map((file, index) => [file.id, index]));
+  const checkpoint = () => {
+    report.findings.sort((a, b) => reportOrder.get(a.fileId) - reportOrder.get(b.fileId));
+    return checkpoints.enqueue(report);
   };
   const gate = () => {
     signal.throwIfAborted();
     if (report.modelCalls >= maxCalls) throw failure('WHOLE_SCOPE_MODEL_CALL_LIMIT', 'Model call budget exceeded');
     if (options.remainingCalls?.() <= 0) throw failure('PROJECT_MODEL_CALL_LIMIT', 'Shared project model call limit exceeded');
   };
-  const trackedModel = async request => {
+  const trackModel = delegate => async request => {
     gate();
     if (!modelWireBudget(request, maxInputBytes).fits) throw failure('WHOLE_SCOPE_INPUT_BUDGET', 'Actual model wire input budget exceeded');
     report.modelCalls++;
-    const result = await model({ ...request, maxInputBytes,
+    const result = await delegate({ ...request, maxInputBytes,
       onModelArtifact: options.onModelArtifact ? async artifact => {
         try {
           const reference = await options.onModelArtifact({ ...artifact, snapshotId: input.id, phase: request.reviewPhase });
@@ -83,6 +89,7 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
     signal.throwIfAborted();
     return result;
   };
+  const trackedModel = trackModel(model);
   const requestFor = batch => ({ input: batch.payload, instructions: batch.instructions, signal,
     reviewPhase: 'group-primary', nativeOutputTools: options.nativeOutputTools === true,
     onProtocolEvent: options.onProtocolEvent });
@@ -112,12 +119,27 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
     if (plan.batches.length > 1) report.limitations.push({ text: '整体范围按字节分为多个批次；跨 batch 边界关系未核查，不声明整体范围完整覆盖。' });
     report.scopeNotices = [{ text: '整体主审结合当前 batch 完整文件；批准关联源须按需检索，不声明专门 interaction 阶段或全部上下文覆盖。' }];
     const generatedBatches = [];
-    for (const batch of plan.batches) {
-      const stage = { id: batch.id, fileIds: [...batch.fileIds], status: 'pending' };
-      report.orchestration.batches.push(stage);
+    const parallelChildren = plan.batches.length > 1 && typeof options.createBatchModel === 'function';
+    report.orchestration.batchExecution = parallelChildren ? (options.childExecution ?? 'child-factory') : 'direct';
+    report.orchestration.batchConcurrency = parallelChildren ? Math.min(concurrency, plan.batches.length) : 1;
+    const accepted = new Array(plan.batches.length);
+    report.orchestration.batches = plan.batches.map(batch => ({ id: batch.id, fileIds: [...batch.fileIds], status: 'pending' }));
+    const runBatch = async (batch, index) => {
+      const stage = report.orchestration.batches[index];
+      let child;
       try {
         gate();
-        const response = await retrievalLoop(trackedModel, requestFor(batch), reader, loopOptions(stage));
+        if (parallelChildren) {
+          child = await options.createBatchModel({ batchId: batch.id, fileIds: [...batch.fileIds], signal });
+          if (!child || (typeof child.invoke !== 'function' && typeof child.runPrimary !== 'function') || typeof child.dispose !== 'function') throw new Error('Invalid host child model');
+          signal.throwIfAborted();
+        }
+        const batchModel = child ? trackModel(request => child.invoke(request)) : trackedModel;
+        const response = child?.runPrimary ? await child.runPrimary({ request: requestFor(batch), scope: reader, maxRounds, maxInputBytes,
+          reserveModelCall: () => { gate(); report.modelCalls++; },
+          onRetrieved: loopOptions(stage).onRetrieved, onBudgetLimited: loopOptions(stage).onBudgetLimited, onTruncated: loopOptions(stage).onTruncated,
+          onProgress: options.onProgress }) : await retrievalLoop(batchModel, requestFor(batch), reader, loopOptions(stage));
+        if (child?.transport === 'host-subagent') { stage.childId = child.childId; stage.execution = 'host-subagent'; }
         const members = validateGroupPrimary(response, batch, input, options.validateFindingResponse, reader.catalog(), { enableAnchorCorrection: options.enableAnchorCorrection === true, signal });
         signal.throwIfAborted();
         // Validate the entire member set before publishing any member result.
@@ -130,18 +152,23 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
           report.limitations.push(...generated.limitations.map(text => ({ fileId: id, text })));
         }
         stage.status = stage.retrievalLimited ? 'pending' : 'completed';
-        generatedBatches.push(batch);
+        accepted[index] = batch;
         await checkpoint();
       } catch (error) {
         signal.throwIfAborted();
-        if (checkpointFailed || error.code === 'MODEL_ARTIFACT_FAILED') throw error;
+        if (checkpointFailed || error.code === 'MODEL_ARTIFACT_FAILED') { fatalError ??= error; controller.abort(error); throw error; }
         stage.status = isBudget(error) ? 'pending' : 'failed';
         stage.failureCode = error.code ?? 'WHOLE_SCOPE_PRIMARY_FAILED'; stage.reason = error.message;
         for (const id of batch.fileIds) Object.assign(stateById.get(id), { status: stage.status, primaryStatus: stage.status, failureCode: stage.failureCode, reason: error.message });
         report.limitations.push({ text: '整体主审未完成：' + error.message });
-        if (isBudget(error)) break;
+      } finally {
+        if (child) { try { await child.dispose(); } catch (error) { fatalError ??= error; controller.abort(error); throw error; } }
       }
-    }
+    };
+    await runWholeScopeWorkers(plan.batches, runBatch, { concurrency: report.orchestration.batchConcurrency, signal, onFatal: error => { if (!signal.aborted) { fatalError ??= error; controller.abort(error); } } });
+    generatedBatches.push(...accepted.filter(Boolean));
+    const order = new Map(input.files.map((file, index) => [file.id, index]));
+    report.findings.sort((a, b) => order.get(a.fileId) - order.get(b.fileId));
     // One global verification queue, not a per-file chain. Receipt ownership and
     // primary-file regression checks remain entirely in verificationLoop.
     for (const finding of report.findings) finding.verification = { status: 'pending', causality: 'unverified' };
@@ -181,9 +208,12 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
     await options.onProgress?.({ stage: 'batch-complete', snapshotId: input.id, files: report.files, findings: report.findings, limitations: report.limitations });
     return report;
   } catch (error) {
+    if (fatalError) throw fatalError;
     if (!signal.aborted || checkpointFailed || error.code === 'MODEL_ARTIFACT_FAILED') throw error;
     if (!report.files.length) report.files = input.files.map(file => ({ fileId: file.id, path: file.path, status: file.eligibility === 'reviewable' ? 'cancelled' : file.eligibility }));
     for (const state of report.files) if (state.status === 'pending') state.status = 'cancelled';
+    const cancelledOrder = new Map(input.files.map((file, index) => [file.id, index]));
+    report.findings.sort((a, b) => cancelledOrder.get(a.fileId) - cancelledOrder.get(b.fileId));
     for (const finding of report.findings) if (finding.verification?.status !== 'completed') finding.verification = { status: 'incomplete', causality: 'unverified' };
     report.status = 'cancelled';
     report.limitations.push({ text: '整体审查已取消或超时；已验收成果保留，其他范围未完成。' });
@@ -193,6 +223,6 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
     await checkpoint();
     return report;
   } finally {
-    clearTimeout(timer);
+    try { await checkpoints.drain(); } catch (error) { throw fatalError ?? error; } finally { clearTimeout(timer); }
   }
 }
