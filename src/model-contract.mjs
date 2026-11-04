@@ -2,7 +2,7 @@ import { RISK_PLAN_SCHEMA } from './prompts.mjs';
 
 // Describe only transport shape; never invent evidence or fill missing fields.
 export const JSON_TRANSPORT_GUIDE = ' JSON strings: use ASCII double quotes; JSON-escape backslashes, quotes and CR/LF, preserving decoded paths/source/snippets exactly. No raw multiline strings, trailing commas or Markdown. Shorten optional prose only; retain required fields/evidence. Never invent or repair source.';
-const VERDICT_CONTRACT = '本阶段必须返回 {"verdicts":[{"candidateId":"c1","verdict":"uncertain","reason":"证据不足原因","evidence":[]}]}，candidateId必须来自本次candidates；supported/refuted证据规则仍按原指令。不是findings响应。';
+const VERDICT_CONTRACT = '返回{verdicts:[{candidateId,verdict,reason,evidence,regression:{classification,reason,oldEvidence,newEvidence}}]}。身份来自candidates；不默认 uncertain 或空证据；按原指令选择判定、引用本次receiptId及两侧索引，不编造。不是findings响应。';
 const GROUPS_CONTRACT = '本阶段返回groups数组，每项含fileIds和reason，文件身份必须来自输入，不是findings响应。';
 const RISK_CONTRACT = RISK_PLAN_SCHEMA;
 const INTERACTION_CONTRACT = '本阶段返回 {"findings":[],"limitations":[]}；发现必须包含原指令全部字段和跨文件interaction.editRefs。无足够跨文件证据时说明limitations，不编造。';

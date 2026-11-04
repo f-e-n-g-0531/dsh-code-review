@@ -42,7 +42,7 @@ export function createDshModel(llm, route, {
 
   const jsonIssues = new Set(['property-name', 'colon', 'separator', 'invalid-escape', 'control-character', 'unterminated-string', 'unexpected-end', 'trailing-content', 'syntax']);
   const jsonIssue = diagnostic => jsonIssues.has(diagnostic?.syntaxCategory) ? diagnostic.syntaxCategory : undefined;
-  const purposes = new Set(['primary-initial', 'retrieval-followup', 'budget-finalization', 'json-correction', 'business-grouping', 'risk-planning', 'window-synthesis', 'file-interaction', 'verification']);
+  const purposes = new Set(['primary-initial', 'retrieval-followup', 'budget-finalization', 'json-correction', 'business-grouping', 'risk-planning', 'window-synthesis', 'file-interaction', 'verification', 'verification-correction']);
   function checkInputBudget(request, contract, tools = []) {
     if (request.maxInputBytes === undefined) return;
     if (!Number.isSafeInteger(request.maxInputBytes) || request.maxInputBytes < 1) throw new Error('Invalid model input budget');

@@ -98,7 +98,10 @@ test('host-bound migration regression schema permits only an optional listed ID,
   assert.deepEqual(regression.properties.migrationContractId.enum, ['migration-1']); assert.equal(regression.properties.migrationContractId.maxLength, 200);
   assert.equal(regression.additionalProperties, false); assert.equal(regression.properties.contract, undefined);
   assert.match(modelContract(input), /migrationContractId/); assert.doesNotMatch(modelContract('{"candidates":[]}'), /migrationContractId/);
-  assert.deepEqual(modelResultTools('{"candidates":[]}')[0].parameters.oneOf[0].properties.verdicts.items.properties.regression, { type: 'object' });
+  const ordinary = modelResultTools('{"candidates":[]}')[0].parameters.oneOf[0].properties.verdicts.items.properties.regression;
+  assert.equal(ordinary.type, 'object'); assert.equal(ordinary.additionalProperties, false);
+  assert.deepEqual(Object.keys(ordinary.properties), ['classification', 'reason', 'oldEvidence', 'newEvidence']);
+  assert.equal(ordinary.properties.migrationContractId, undefined);
 });
 
 test('empty result and subset findings cannot replace a full group with an unread third member', () => {
