@@ -1,9 +1,9 @@
 import { validateRegressionAssessment } from './regression-assessment.mjs';
 import { validateEvidenceReference } from './evidence-reference.mjs';
 // Offline only. Candidate ids come from the host, not the model.
-export function validateCandidateVerification(value, candidateIds, read, resolveEvidence = value => value, comparison = {}) {
+export function validateCandidateVerificationEnvelope(value, candidateIds) {
   if (!Array.isArray(candidateIds) || candidateIds.length > 50 || candidateIds.some(id => typeof id !== 'string' || !id || id.length > 200) || new Set(candidateIds).size !== candidateIds.length) throw new Error('Invalid candidate identities');
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 1 || !Array.isArray(value.verdicts) || value.verdicts.length !== candidateIds.length) throw new Error('Incomplete verification response');
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== 1 || !Array.isArray(value.verdicts) || value.verdicts.length !== candidateIds.length) throw Object.assign(new Error('Incomplete verification response'), { code: 'MODEL_INCOMPLETE_VERIFICATION' });
   const seen = new Set();
   // Validate the entire envelope before any budgeted evidence read.
   for (const item of value.verdicts) {
@@ -13,6 +13,10 @@ export function validateCandidateVerification(value, candidateIds, read, resolve
     if (!['supported', 'refuted', 'uncertain'].includes(item.verdict) || typeof item.reason !== 'string' || !item.reason.trim() || item.reason.length > 8000) throw new Error('Invalid verdict explanation');
     if (!Array.isArray(item.evidence) || item.evidence.length > 8 || (item.verdict !== 'uncertain' && !item.evidence.length)) throw new Error('Missing or excessive evidence');
   }
+}
+
+export function validateCandidateVerification(value, candidateIds, read, resolveEvidence = value => value, comparison = {}) {
+  validateCandidateVerificationEnvelope(value, candidateIds);
   const results = new Map(value.verdicts.map(item => {
     const evidence = item.evidence.map(ref => validateEvidenceReference(resolveEvidence(ref), read));
     const regression = validateRegressionAssessment(item.regression, evidence, comparison.catalog ?? [], comparison.fileIds?.[item.candidateId], { ...comparison, candidateId: item.candidateId });

@@ -312,6 +312,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       const onProtocolEvent = async info => {
         if (info.action === 'json-transport-recovery') (state.modelRecoveries ??= []).push(info);
         if (info.action === 'retrieval-protocol-correction') pendingStageCorrection = { action: info.action, code: 'RETRIEVAL_PROTOCOL_ERROR' };
+        if (info.action === 'verification-response-correction' && info.code === 'MODEL_INCOMPLETE_VERIFICATION') (state.modelCorrections ??= []).push({ action: info.action, code: info.code });
         await options.onProgress?.({ stage: 'protocol-correction', fileId: file.id, path: file.path, ...info });
       };
       const trackedModel = request => {

@@ -17,6 +17,19 @@ export function comparisonValidated(finding) {
   return old.every(i => typeof evidence[i].sourceId === 'string' && evidence[i].sourceId) && fresh.every(i => typeof evidence[i].sourceId === 'string' && evidence[i].sourceId && old.every(j => evidence[j].sourceId !== evidence[i].sourceId));
 }
 
+// Rendering-only states. A completed uncertain verdict may legitimately have no
+// evidence (the verifier contract allows this); it is not an unfinished run.
+export function verificationPresentation(finding, report = {}) {
+  const v = finding?.verification;
+  if (v?.status !== 'completed' || !['supported', 'uncertain', 'refuted'].includes(v.verdict)) return 'incomplete';
+  const evidenceValid = rows(v.evidence).length > 0 && v.evidence.every(ref => ref?.status === 'references-validated');
+  if (v.verdict === 'refuted' && evidenceValid) return 'refuted';
+  if (v.verdict !== 'supported' || !evidenceValid) return 'uncertain';
+  if (report.mode === 'project' || report.reviewMode === 'project' || report.projectScope || finding.attribution?.causality === 'current-source-only') return 'current';
+  if (comparisonValidated(finding) && ['introduced', 'preexisting'].includes(v.regression.classification)) return v.regression.classification;
+  return 'uncertain';
+}
+
 /**
  * Pure presentation data for Markdown/Lead renderers. Counts are candidate records,
  * not proven defects. coverage counts main-review entries (directories included in
@@ -86,6 +99,11 @@ export function reportSummaryMarkdown(report = {}) {
     const labels = { introduced: '复核支持本次新增', unresolved: '待核实', preexisting: '复核支持原有', refuted: '复核反驳', current: '当前源码复核支持' };
     output.push('- 候选复核：' + Object.entries(labels).filter(([key]) => counts[key] > 0).map(([key, label]) => label + ' ' + counts[key]).join('；') + '。');
   }
+  const states = rows(report.findings).map(finding => verificationPresentation(finding, report));
+  const uncertain = states.filter(state => state === 'uncertain').length;
+  const incomplete = states.filter(state => state === 'incomplete').length;
+  output.push('- 复核状态分列：复核支持 ' + (counts.introduced + counts.preexisting + counts.current) + '；已复核不确定 ' + uncertain + '；复核未完成（未复核或未完成有效复核） ' + incomplete + (counts.refuted ? '；已反驳 ' + counts.refuted : '') + '。');
+  if (counts.unresolved) output.push('- “待核实”为合计：已复核不确定与复核未完成分开列示，前者不表示复核未执行；均不能直接视为缺陷或必改项。');
   const unit = coverage.unit === 'files' ? '个文件' : '个变更条目（含目录）';
   const labels = { completed: '主审完成', excluded: '排除', blocked: '阻断', failed: '失败', cancelled: '取消', pending: '待审', running: '执行中', interrupted: '中断', unaccounted: '状态未记账' };
   output.push('- 覆盖：' + coverage.total + ' ' + unit + '；' + Object.entries(labels).filter(([key]) => coverage[key] > 0).map(([key, label]) => label + ' ' + coverage[key]).join('，') + (coverage.total ? '。' : '未执行。'));

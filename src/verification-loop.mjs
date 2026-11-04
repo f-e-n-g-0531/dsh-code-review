@@ -6,7 +6,7 @@ import { modelWireBudget } from './model-wire-budget.mjs';
 import { createEvidenceReceipts } from './evidence-receipts.mjs';
 import { retrievalLoop, retrievalRequest } from './retrieval-loop.mjs';
 import { verificationSeeds } from './verification-seeds.mjs';
-import { validateCandidateVerification } from './candidate-verification.mjs';
+import { validateCandidateVerification, validateCandidateVerificationEnvelope } from './candidate-verification.mjs';
 
 export { VERIFICATION_INSTRUCTIONS };
 
@@ -44,7 +44,34 @@ export async function verificationLoop(model, request, candidates, scope, option
   const resolveEvidence = value => (seedReceipts.get(value?.receiptId) ?? receipts.resolve)(value);
   // No caller/model-supplied seed inputs: every initial result above was freshly
   // read under this invocation's receipt table and the shared approved budget.
-  const response = await retrievalLoop(model, verificationRequest, retrievalScope, { ...options, initialRetrieved });
+  let lastRequest;
+  const response = await retrievalLoop(value => { lastRequest = value; return model(value); }, verificationRequest, retrievalScope, { ...options, initialRetrieved });
+  let accepted = response;
+  try { validateCandidateVerificationEnvelope(response, ids); } catch (error) {
+    request.signal?.throwIfAborted();
+    // Correct only a structurally incomplete batch, before any final evidence
+    // reads. Never retry bad identities, invented receipts or regression failures.
+    if (options.correctProtocol !== true || error.code !== 'MODEL_INCOMPLETE_VERIFICATION' || JSON.parse(lastRequest.input).retrievalFinalization) throw error;
+    // Admit only an otherwise valid subset of evidence-free uncertain entries.
+    // Do not let a missing member hide an invalid identity, receipt or regression.
+    if (!response || Object.keys(response).length !== 1 || !Array.isArray(response.verdicts) || response.verdicts.length >= ids.length) throw error;
+    const subset = response.verdicts.map(item => item?.candidateId);
+    validateCandidateVerificationEnvelope(response, subset);
+    if (subset.some(id => !ids.includes(id)) || response.verdicts.some(item => item.verdict !== 'uncertain' || item.evidence.length || Object.hasOwn(item, 'regression'))) throw error;
+    const correction = { ...lastRequest, callPurpose: 'verification-correction', instructions: lastRequest.instructions + '\n本次仅纠正不完整的候选复核批次。必须为本次 candidates 每个 candidateId 恰好返回一个 verdict；不可漏项、重复或添加身份。仅返回完整 verdicts，不得 requests，不得再次检索。沿用已提供的原文回执；缺证据的候选明确 uncertain 并说明缺失条件，不得编造支持或删除候选。全部结果仍须通过原校验。' };
+    const max = options.maxInputBytes ?? 96 * 1024;
+    if (!(request.nativeOutputTools === true ? modelWireBudget(correction, max).fits : Buffer.byteLength(correction.input) + Buffer.byteLength(correction.instructions) <= max)) throw error;
+    options.beforeCall?.();
+    request.signal?.throwIfAborted();
+    await request.onProtocolEvent?.({ action: 'verification-response-correction', code: error.code });
+    request.signal?.throwIfAborted();
+    const next = await model(correction);
+    request.signal?.throwIfAborted();
+    const serialized = typeof next === 'string' ? next : JSON.stringify(next);
+    if (typeof serialized !== 'string' || Buffer.byteLength(serialized) > 128 * 1024) throw new Error('Verification response too large');
+    accepted = JSON.parse(serialized);
+    validateCandidateVerificationEnvelope(accepted, ids);
+  }
   request.signal?.throwIfAborted();
-  return validateCandidateVerification(response, ids, scope.read, resolveEvidence, { enableMigrationRegression: options.enableMigrationRegression === true && !project, migrationContext, catalog: scope.catalog(), fileIds: Object.fromEntries(ids.map((id, i) => [id, candidates[i].fileId])) });
+  return validateCandidateVerification(accepted, ids, scope.read, resolveEvidence, { enableMigrationRegression: options.enableMigrationRegression === true && !project, migrationContext, catalog: scope.catalog(), fileIds: Object.fromEntries(ids.map((id, i) => [id, candidates[i].fileId])) });
 }

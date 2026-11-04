@@ -1,9 +1,9 @@
 import { REVIEW_RUNTIME } from './runtime-identity.mjs';
 const PHASES = ['business-grouping', 'risk-planning', 'primary', 'group-primary', 'file-interaction', 'window-synthesis', 'verification'];
-const PURPOSES = ['primary-initial', 'retrieval-followup', 'budget-finalization', 'json-correction', 'business-grouping', 'risk-planning', 'group-primary', 'window-synthesis', 'file-interaction', 'verification'];
+const PURPOSES = ['primary-initial', 'retrieval-followup', 'budget-finalization', 'json-correction', 'business-grouping', 'risk-planning', 'group-primary', 'window-synthesis', 'file-interaction', 'verification', 'verification-correction'];
 const READER_FIELDS = ['calls', 'outputBytes', 'maxCalls', 'maxOutputBytes', 'remainingCalls', 'remainingOutputBytes', 'maxResultBytes', 'cacheHits', 'deliveries', 'cacheEntries', 'cacheBytes'];
 const JSON_ISSUES = ['property-name', 'colon', 'separator', 'invalid-escape', 'control-character', 'unterminated-string', 'unexpected-end', 'trailing-content', 'syntax'];
-const CORRECTION_CODES = ['MODEL_INVALID_JSON', 'MODEL_INVALID_REVIEW_RESPONSE', 'MODEL_INVALID_FINDING_IDENTITY', 'MODEL_INVALID_FINDING_SEVERITY', 'MODEL_MISSING_FINDING_FIELD', 'MODEL_INVALID_ANCHOR', 'MODEL_ANCHOR_MISMATCH', 'RETRIEVAL_PROTOCOL_ERROR'];
+const CORRECTION_CODES = ['MODEL_INVALID_JSON', 'MODEL_INVALID_REVIEW_RESPONSE', 'MODEL_INVALID_FINDING_IDENTITY', 'MODEL_INVALID_FINDING_SEVERITY', 'MODEL_MISSING_FINDING_FIELD', 'MODEL_INVALID_ANCHOR', 'MODEL_ANCHOR_MISMATCH', 'RETRIEVAL_PROTOCOL_ERROR', 'MODEL_INCOMPLETE_VERIFICATION'];
 const LIMIT_CODES = ['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED', 'RETRIEVAL_ROUND_BUDGET_EXCEEDED'];
 const RECOVERY_KINDS = ['native-tool', 'text-compatible', 'trailing-prose'];
 const FALLBACK_REASONS = ['mode-notauto', 'smallchange', 'disabled', 'project', 'laterround', 'multi-batch', 'incomplete-edit-scope', 'input-budget'];
@@ -29,7 +29,7 @@ export function reviewDiagnostics(report, { reviewWallMs = null, executionWallMs
   const readerBudget = Object.fromEntries(READER_FIELDS.map(field => [field, number(report.readerBudget?.[field])]));
   const correctionCounts = new Map();
   for (const event of sources.flatMap(f => f.modelCorrections ?? [])) {
-    if (!['explicit-json-correction', 'retrieval-protocol-correction', 'review-format-correction'].includes(event?.action) || !CORRECTION_CODES.includes(event.code)) continue;
+    if (!['explicit-json-correction', 'retrieval-protocol-correction', 'review-format-correction', 'verification-response-correction'].includes(event?.action) || !CORRECTION_CODES.includes(event.code)) continue;
     const jsonIssue = JSON_ISSUES.includes(event.jsonIssue) ? event.jsonIssue : null;
     const key = JSON.stringify([event.code, jsonIssue]);
     correctionCounts.set(key, (correctionCounts.get(key) ?? 0) + 1);
@@ -70,7 +70,7 @@ export function diagnosticsMarkdown(d) {
     output.push('', '累计调用墙钟可能并发重叠，且包含生命周期观察／初始检查点等待，不是纯提供方耗时，也不能从总耗时中相减当作本地开销。');
   } else output.push('- 逐阶段模型观测不可用（未产生或旧报告未记录），不按零耗时解释。');
   if (d.modelCallPurposes?.length) {
-    const labels = { 'primary-initial': '阶段初始', 'retrieval-followup': '检索后续', 'budget-finalization': '预算受限最终答复', 'json-correction': 'JSON纠正', 'business-grouping': '业务分组', 'risk-planning': '风险计划', 'group-primary': '分组主审', 'window-synthesis': '窗口综合', 'file-interaction': '跨文件综合', verification: '复核' };
+    const labels = { 'primary-initial': '阶段初始', 'retrieval-followup': '检索后续', 'budget-finalization': '预算受限最终答复', 'json-correction': 'JSON纠正', 'business-grouping': '业务分组', 'risk-planning': '风险计划', 'group-primary': '分组主审', 'window-synthesis': '窗口综合', 'file-interaction': '跨文件综合', verification: '复核', 'verification-correction': '复核批次纠正' };
     output.push('- 调用目的：' + d.modelCallPurposes.filter(row => PURPOSES.includes(row.purpose)).map(row => labels[row.purpose] + ' ' + (number(row.calls) ?? '不可用')).join('；') + '。');
   }
   if (d.readerBudget && READER_FIELDS.some(field => number(d.readerBudget[field]) !== null)) {

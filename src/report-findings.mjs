@@ -1,5 +1,5 @@
 import { groupDuplicateFindings } from './finding-groups.mjs';
-import { comparisonValidated } from './report-summary.mjs';
+import { comparisonValidated, verificationPresentation } from './report-summary.mjs';
 
 const safe = value => Array.from(String(value ?? '')).map(c => {
   if (c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) return ' ';
@@ -30,23 +30,32 @@ export function findingsMarkdown(report) {
   const findings = Array.isArray(report.findings) ? report.findings : [];
   const duplicate = new Map();
   for (const group of groupDuplicateFindings(findings)) for (const i of group.findingIndices.slice(1)) duplicate.set(i, group.findingIndices[0]);
-  const sections = new Map([['本次新增（复核支持）',[]],['当前源码问题（复核支持）',[]],['待核实',[]],['原有问题（复核支持）',[]],['已反驳',[]]]);
-  findings.forEach((f,i)=>{ if (!duplicate.has(i)) sections.get(findingDisposition(f,report)).push({f,i}); });
+  const sections = new Map([['本次新增（复核支持）',[]],['当前源码问题（复核支持）',[]],['复核后不确定',[]],['复核未完成',[]],['原有问题（复核支持）',[]],['已反驳',[]]]);
+  findings.forEach((f,i)=>{
+    const state = verificationPresentation(f, report);
+    const label = state === 'uncertain' ? '复核后不确定' : state === 'incomplete' ? '复核未完成' : findingDisposition(f,report);
+    if (!duplicate.has(i)) sections.get(label).push({f,i});
+  });
   const output = ['', '## 审查发现'];
   if (!findings.length) return [...output, '本轮没有形成问题记录；这不等于已经排除未完成范围内的问题。'];
-  output.push('以下区分复核支持、待核实和已反驳的记录；证据引用通过校验不等于运行复现或因果证明。');
+  output.push('以下分开列示复核支持、复核后不确定、复核未完成和已反驳的记录；证据引用通过校验不等于运行复现或因果证明。');
   for (const [label, items] of sections) {
     if (!items.length) continue;
     output.push('', '### ' + label);
     for (const {f,i} of items) {
       const severity = ({critical:'严重',high:'高',medium:'中',low:'低'})[f.severity] ?? safe(f.severity ?? '未分级');
-      output.push('', '#### ' + (i+1) + '. ' + safe(f.title) + '（严重程度：' + severity + '）', '- 位置：' + location(f));
-      for (const [key,title] of [['trigger','什么情况下发生'],['impact','可能造成的影响'],['evidence','已看到的依据']]) if (f[key]) output.push('- ' + title + '：' + safe(f[key]));
-      if (label === '待核实') output.push('- 尚未确定：' + safe(f.verification?.reason ?? '候选尚未完成有效的独立复核或修改前后对照，不能作为已确认缺陷。'));
+      const hypothesis = label === '复核后不确定' || label === '复核未完成' || label === '已反驳';
+      output.push('', '#### ' + (i+1) + '. ' + (hypothesis ? '主审假说：' : '') + safe(f.title) + '（' + (hypothesis ? '主审拟议严重程度' : '严重程度') + '：' + severity + '）', '- 位置：' + location(f));
+      if (hypothesis) output.push('- 阅读方式：以下为主审记录的线索和假说，不是确定事实或必改建议；原始字段及完整证据保留在技术附录。');
+      const fields = hypothesis ? [['evidence','已知差异／线索（主审记录，非缺陷证明）'],['trigger','待证触发条件'],['impact','影响假说']] : [['trigger','什么情况下发生'],['impact','可能造成的影响'],['evidence','已看到的依据']];
+      for (const [key,title] of fields) if (f[key]) output.push('- ' + title + '：' + safe(f[key]));
+      if (label === '复核后不确定') output.push('- 复核结论：本候选已完成复核记录，但缺陷或新增归因仍未确定。' + safe(f.verification?.reason ?? '现有证据不足以支持或排除该假说。'));
+      if (label === '复核未完成') output.push('- 复核进度：尚未完成有效复核，不能当作已复核不确定或已确认缺陷。' + safe(f.verification?.reason ?? '尚无有效复核结论。'));
       if (label === '已反驳') output.push('- 反证结论：' + safe(f.verification?.reason ?? '复核反驳该候选；不计为待修缺陷。'));
-      if (f.attribution?.beforeBehavior) output.push('- 修改前：' + safe(f.attribution.beforeBehavior));
-      if (f.attribution?.afterBehavior) output.push('- 修改后：' + safe(f.attribution.afterBehavior));
-      if (f.suggestion) output.push('- 建议：' + safe(f.suggestion));
+      if (f.attribution?.beforeBehavior) output.push('- 修改前' + (hypothesis ? '（主审描述，待核实）' : '') + '：' + safe(f.attribution.beforeBehavior));
+      if (f.attribution?.afterBehavior) output.push('- 修改后' + (hypothesis ? '（主审描述，待核实）' : '') + '：' + safe(f.attribution.afterBehavior));
+      if (hypothesis) output.push('- 待验证方案：先核对触发条件、实际调用路径及修改前后行为，再决定是否需要修复。' + (f.suggestion ? '原主审建议（待验证，不是必改项）：' + safe(f.suggestion) : '原记录未提供建议。'));
+      else if (f.suggestion) output.push('- 建议：' + safe(f.suggestion));
       const related = [...duplicate].filter(([,first])=>first===i).map(([index])=>location(findings[index]));
       if (related.length) output.push('- 相同证据与解释的其他位置：' + related.join('；') + '。正文合并展示，原始候选仍保留。');
       if (f.reused || f.priorRun) output.push('- 来源：包含既往审核结果，不表示本轮重新取证。');
