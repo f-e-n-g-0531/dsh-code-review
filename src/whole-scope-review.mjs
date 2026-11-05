@@ -5,6 +5,7 @@ import { createReviewReader } from './review.mjs';
 import { prepareWholeScope } from './whole-scope-plan.mjs';
 import { retrievalLoop } from './retrieval-loop.mjs';
 import { verificationLoop } from './verification-loop.mjs';
+import { runCounterVerification } from './counter-verification.mjs';
 import { validateGroupPrimary } from './group-primary.mjs';
 import { modelWireBudget } from './model-wire-budget.mjs';
 import { retrievalRounds } from './review-execution-policy.mjs';
@@ -178,10 +179,12 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
       (report.orchestration.verifications ??= []).push(stage);
       try {
         gate(); // Do not prefetch receipt evidence for a vetoed model call.
-        const verdicts = await verificationLoop(trackedModel, { ...requestFor(generatedBatches[0]), reviewPhase: 'verification' }, candidates, reader, loopOptions(stage));
+        let verdicts = await verificationLoop(trackedModel, { ...requestFor(generatedBatches[0]), reviewPhase: 'verification' }, candidates, reader, loopOptions(stage));
         signal.throwIfAborted();
-        candidates.forEach((finding, i) => { finding.verification = { status: 'completed', ...verdicts[i] }; });
-        stage.status = stage.retrievalLimited ? 'pending' : 'completed';
+        verdicts = await runCounterVerification(trackedModel, { ...requestFor(generatedBatches[0]),reviewPhase:'verification' }, candidates, verdicts, reader, { ...loopOptions(stage),enabled:options.enableCounterVerification===true,isFatalError:error=>checkpointFailed||error?.code==='MODEL_ARTIFACT_FAILED' });
+        signal.throwIfAborted();
+        candidates.forEach((finding, i) => { finding.verification = { status: verdicts[i].counterVerification?.status === 'incomplete' ? 'incomplete' : 'completed', ...verdicts[i] }; });
+        stage.status = stage.retrievalLimited || verdicts.some(v => v.counterVerification?.status === 'incomplete') ? 'pending' : 'completed';
         if (verdicts.some(v => v.verdict === 'uncertain' || v.verdict === 'supported' && !['introduced', 'preexisting'].includes(v.regression?.classification))) report.limitations.push({ text: '部分候选缺少充分复核证据或前后对照，保留不确定，不强行确认支持或本次引入。' });
       } catch (error) {
         signal.throwIfAborted();

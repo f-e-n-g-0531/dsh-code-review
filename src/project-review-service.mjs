@@ -1,3 +1,4 @@
+import { reviewEffortPolicy, reviewEffortMode } from './review-effort.mjs';
 import { previewValidity } from './preview-validity.mjs';
 import { REVIEW_RUNTIME } from './runtime-identity.mjs';
 import { buildResumeState, validateResumeState } from './review-resume.mjs';
@@ -72,10 +73,12 @@ async function captureProject(cwd, args, signal) {
   return { ...result, id: hash(JSON.stringify(result)) };
 }
 
-export function createProjectReviewService(llm, { executionStrategy = 'staged', allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = DEFAULT_PROJECT_CONCURRENCY, maxRetrievalRounds = 3, nativeOutputTools = false, enableGroupPrimary = false } = {}) {
+export function createProjectReviewService(llm, { reviewEffort = 'auto', enableCounterVerification = false, executionStrategy = 'staged', allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = DEFAULT_PROJECT_CONCURRENCY, maxRetrievalRounds = 3, nativeOutputTools = false, enableGroupPrimary = false } = {}) {
   for (const n of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(n) || n < 1) throw new Error('Invalid project preview limit');
   if (!Number.isSafeInteger(projectMaxCalls) || projectMaxCalls < 1) throw new Error('Invalid project model call limit');
 
+  reviewEffortMode(reviewEffort);
+  if(typeof enableCounterVerification!=='boolean')throw new Error('Invalid counterverification policy');
   validateProjectConcurrency(projectConcurrency);
   retrievalRounds(maxRetrievalRounds);
   if (typeof nativeOutputTools !== 'boolean' || typeof enableGroupPrimary !== 'boolean') throw new Error('Invalid project execution options');
@@ -94,16 +97,17 @@ export function createProjectReviewService(llm, { executionStrategy = 'staged', 
       if (executionStrategy === 'whole-scope') throw new Error('Whole-scope currently supports fresh single-round changes only; project requires explicit staged configuration');
       if (busy) throw new Error('Review service busy');
       if (!args || typeof args !== 'object') throw new Error('Project preview parameters required');
-      if (Object.keys(args).some(k => !['reviewMode', 'repositoryPath', 'selectedPaths', 'resumeFromJobId'].includes(k)) || args.reviewMode !== 'project') throw new Error('Project mode supports only reviewMode/repositoryPath/selectedPaths; change/history context parameters are not project parameters');
+      if (Object.keys(args).some(k => !['reviewMode', 'repositoryPath', 'selectedPaths', 'resumeFromJobId', 'reviewEffort'].includes(k)) || args.reviewMode !== 'project') throw new Error('Project mode supports only reviewMode/repositoryPath/selectedPaths; change/history context parameters are not project parameters');
       const current = owner(exec);
       busy = true;
       try {
         const captureArgs = structuredClone(args);
+        const effortMode=reviewEffortMode(captureArgs.reviewEffort ?? reviewEffort); delete captureArgs.reviewEffort;
         const sourceJobId = captureArgs.resumeFromJobId; delete captureArgs.resumeFromJobId;
         if (sourceJobId !== undefined && (typeof sourceJobId !== 'string' || !/^[a-f0-9-]{36}$/.test(sourceJobId) || typeof exec.resolveReviewResume !== 'function')) throw new Error('Invalid or unavailable resume job');
         const saved = sourceJobId === undefined ? undefined : await exec.resolveReviewResume(sourceJobId);
         const s = await captureProject(current.cwd, captureArgs, signalFor(exec));
-        const identity = resumeIdentity(captureArgs, current.route);
+        const identity = resumeIdentity({...captureArgs,reviewEffort:effortMode,enableCounterVerification}, current.route);
         let resumeStates;
         if (saved !== undefined) {
           if (saved?.schemaVersion !== 1 || saved.mode !== 'project' || !Array.isArray(saved.batches)) throw new Error('Invalid project resume checkpoint');
@@ -119,7 +123,7 @@ export function createProjectReviewService(llm, { executionStrategy = 'staged', 
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
         const expires = now() + ttlMs;
-        previews.set(previewId, { ...current, args: captureArgs, snapshotId: s.id, resumeStates, sourceJobId, expires });
+        previews.set(previewId, { ...current, args: captureArgs, snapshotId: s.id, effortMode, resumeStates, sourceJobId, expires });
         return {
           ...(resumeStates ? { resume: { sourceJobId, reusableFiles: [...resumeStates.values()].reduce((sum, state) => sum + state.completed.length, 0) } } : {}),
           previewId, expiresAt: new Date(expires).toISOString(), validForMs: ttlMs, snapshotId: s.id, reviewMode: 'project', repositoryRoot: s.root, vcs: s.vcs,
@@ -128,6 +132,7 @@ export function createProjectReviewService(llm, { executionStrategy = 'staged', 
           inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes, batches: s.batches.length,
           privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 4096, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
           execution: { nativeOutputTools, enableGroupPrimary, batchConcurrency: projectConcurrency, maxRetrievalRounds },
+          reviewEffort: {mode:effortMode,status:"planned-per-batch",counterVerification:enableCounterVerification},
           files: s.batches.flatMap(b => b.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason }))),
           notice: s.notice + PREVIEW_NOTICE_SUFFIX + ' Each stage allows at most ' + maxRetrievalRounds + ' retrieval rounds; exhaustion requires a final-only response and explicit unfinished coverage.',
         };
@@ -157,7 +162,7 @@ export function createProjectReviewService(llm, { executionStrategy = 'staged', 
           files: s.batches.flatMap(b => b.files.map(f => ({ fileId: f.id, path: f.path, status: f.eligibility === 'reviewable' ? 'pending' : f.eligibility }))),
         });
 
-        const identity = resumeIdentity(p.args, p.route);
+        const identity = resumeIdentity({...p.args,reviewEffort:p.effortMode,enableCounterVerification}, p.route);
         const states = new Map();
         for (const [id, saved] of p.resumeStates ?? []) {
           const batch = s.batches.find(batch => batch.id === id);
@@ -182,7 +187,7 @@ export function createProjectReviewService(llm, { executionStrategy = 'staged', 
         };
 
         const results = await reviewProjectBatches(s.batches, model, {
-          concurrency: projectConcurrency, maxRetrievalRounds, enableGroupPrimary, nativeOutputTools, signal, remainingCalls: () => projectMaxCalls - calls,
+          concurrency: projectConcurrency, reviewEffortMode:p.effortMode, enableCounterVerification, maxRetrievalRounds, enableGroupPrimary, nativeOutputTools, signal, remainingCalls: () => projectMaxCalls - calls,
           onProgress: exec.reviewCheckpoint, resumeStates: states, onResumeCheckpoint: persist, onModelArtifact: exec.onModelArtifact,
         });
 
@@ -208,6 +213,7 @@ export function createProjectReviewService(llm, { executionStrategy = 'staged', 
           coverage, files, findings, scopeNotices: results.flatMap(result => result.scopeNotices ?? []), artifacts: results.flatMap(result => result.artifacts ?? []), batches: results, resume: { reusedFiles: files.filter(file => file.reused).length },
           privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 4096, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
           execution: { nativeOutputTools, enableGroupPrimary, batchConcurrency: projectConcurrency, maxRetrievalRounds },
+          reviewEffort: {mode:p.effortMode,status:"planned-per-batch",counterVerification:enableCounterVerification},
           notice: s.notice + REPORT_NOTICE_SUFFIX,
         };
 

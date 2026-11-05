@@ -1,3 +1,4 @@
+import { approvedRetrievalSnapshot } from './approved-retrieval.mjs';
 import { REVIEW_INSTRUCTIONS, PROJECT_REVIEW_INSTRUCTIONS } from './prompts.mjs';
 import { reviewWholeScope } from './whole-scope-review.mjs';
 import { reviewRounds } from './review-rounds.mjs';
@@ -16,6 +17,7 @@ import { validateSynthesisReads } from './synthesis-evidence.mjs';
 import { hash } from './content.mjs';
 import { coverageFollowup } from './coverage-followup.mjs';
 import { verificationLoop } from './verification-loop.mjs';
+import { runCounterVerification } from './counter-verification.mjs';
 import { inferFileRelations } from './file-relations.mjs';
 import { buildReviewGroups } from './review-groups.mjs';
 import { changeMap } from './change-map.mjs';
@@ -47,7 +49,7 @@ import { buildMigrationContracts } from './migration-contracts.mjs';
 
 export { REVIEW_INSTRUCTIONS };
 export function createReviewReader(snapshot, options = {}) {
-  return configureWireBudget(createRetrievalScope(snapshot, { ...reviewReaderBudget(snapshot, options.readerBudgetPolicy ?? 'fixed'), signal: options.signal, ...(options.optimizeReviewCalls ? { reuseResults: true } : {}) }), { nativeOutputTools: options.nativeOutputTools === true });
+  return configureWireBudget(createRetrievalScope(approvedRetrievalSnapshot(snapshot, options.approvedRetrievalSnapshot), { ...reviewReaderBudget(snapshot, options.readerBudgetPolicy ?? 'fixed'), signal: options.signal, ...(options.optimizeReviewCalls ? { reuseResults: true } : {}) }), { nativeOutputTools: options.nativeOutputTools === true });
 }
 export { PROJECT_REVIEW_INSTRUCTIONS };
 const nonempty = value => typeof value === 'string' && value.trim().length > 0 && value.length <= 8000;
@@ -107,7 +109,7 @@ async function invoke(model, request, timeoutMs, parentSignal) {
 }
 
 export async function reviewSnapshot(snapshot, model, options = {}) {
-  if (options.executionStrategy === 'whole-scope') return reviewWholeScope(snapshot, model, { ...options, instructions: REVIEW_INSTRUCTIONS, validateFindingResponse: validateResponse });
+  if (options.executionStrategy === 'whole-scope') return reviewWholeScope(snapshot, model, { ...options, instructions: options.instructions ?? REVIEW_INSTRUCTIONS, validateFindingResponse: validateResponse });
   if (options.executionStrategy !== undefined && options.executionStrategy !== 'staged') throw new Error('Invalid review execution strategy');
   const startedAt = performance.now();
   const rounds = reviewRounds(options.reviewRounds);
@@ -131,7 +133,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   if(!Number.isSafeInteger(timeoutMs)||timeoutMs<0)throw new Error('Invalid review limit');
   // Clone once: callers cannot change the input while a model call is pending.
   const input = structuredClone(snapshot);
-  const instructions=input.projectScope?PROJECT_REVIEW_INSTRUCTIONS:REVIEW_INSTRUCTIONS;
+  const instructions=options.instructions ?? (input.projectScope?PROJECT_REVIEW_INSTRUCTIONS:REVIEW_INSTRUCTIONS);
   if (!input || !nonempty(input.id) || !['git', 'svn'].includes(input.vcs) || !Array.isArray(input.files) || input.files.length > 200) throw new Error('Invalid review snapshot');
   const identities = new Set(), paths = new Set();
   for (const file of input.files) {
@@ -144,7 +146,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   for (const key of ['enableEvidenceContext', 'inlineInteractionRisks', 'enableMigrationContracts', 'enableMigrationRegression', 'enableGroupInteractions', 'enableStageContinuation']) if (options[key] !== undefined && typeof options[key] !== 'boolean') throw new Error('Invalid review optimization option');
   const evidenceContext = options.enableEvidenceContext === true ? createEvidenceContext(input.id) : null;
   const readerLimits = reviewReaderBudget(input, options.readerBudgetPolicy ?? 'fixed');
-  const scope = options.enableRetrieval === true ? createRetrievalScope({ ...input, context: input.context ?? [] }, { ...readerLimits, signal, ...(options.optimizeReviewCalls === true ? { reuseResults: true } : {}) }) : null;
+  const scope = options.enableRetrieval === true ? createRetrievalScope({ ...approvedRetrievalSnapshot(input, options.approvedRetrievalSnapshot), context: input.context ?? [] }, { ...readerLimits, signal, ...(options.optimizeReviewCalls === true ? { reuseResults: true } : {}) }) : null;
   const report = { schemaVersion: 1, snapshotId: input.id, vcs: input.vcs, status: 'completed', files: [], findings: [], limitations: [], modelCalls: 0 };
   validateBusinessRequirement(input.businessRequirement);
   if(input.businessRequirement!==undefined)report.businessRequirement={hash:hash(input.businessRequirement),bytes:Buffer.byteLength(input.businessRequirement),status:'untrusted-constraint'};
@@ -612,7 +614,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           for (const finding of generated.findings) finding.verification = { status: 'pending', causality: 'unverified' };
           try {
             activeStage = 'verification';
-            const verdicts = await verificationLoop(trackedModel, { ...request, onProtocolEvent, reviewPhase: 'verification' }, generated.findings, stageScope('verification:' + file.id), {
+            let verdicts = await verificationLoop(trackedModel, { ...request, onProtocolEvent, reviewPhase: 'verification' }, generated.findings, stageScope('verification:' + file.id), {
               correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, onBudgetLimited, yieldOnBudget: options.enableStageContinuation === true,
               enableMigrationRegression: options.enableMigrationRegression === true, migrationContracts: report.migrationContracts?.contracts ?? [], migrationSnapshot: input,
               onMigrationSeeds: event => {
@@ -626,7 +628,9 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
               onTruncated: () => { result.limitations.push({ fileId: file.id, text: '复核检索结果达到数量上限' }); },
             });
             request.signal.throwIfAborted();
-            generated.findings.forEach((finding, i) => { finding.verification = { status: 'completed', ...verdicts[i] }; });
+            verdicts = await runCounterVerification(trackedModel, { ...request, onProtocolEvent, reviewPhase:'verification' }, generated.findings, verdicts, stageScope('verification:' + file.id), { enabled:options.enableCounterVerification === true, maxRounds:maxRetrievalRounds,maxInputBytes,beforeCall,onBudgetLimited, isFatalError:error=>checkpointFailed||error?.code==='MODEL_ARTIFACT_FAILED' });
+            request.signal.throwIfAborted();
+            generated.findings.forEach((finding, i) => { finding.verification = { status: verdicts[i].counterVerification?.status === 'incomplete' ? 'incomplete' : 'completed', ...verdicts[i] }; });
             if (verdicts.some(v => v.verdict === 'supported' && v.regression?.classification === 'uncertain')) result.limitations.push({ fileId: file.id, text: '部分模型支持候选缺少充分前后对照，不能确认由本次变更引入' });
             if (verdicts.some(v => v.verdict === 'uncertain')) result.limitations.push({ fileId: file.id, text: '部分候选复核仍不确定，不能视为已确认或已排除' });
           } catch (error) {

@@ -1,0 +1,369 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Offline expert-adjudicated real incident manifest",
+  "description": "Metadata only. Case confirmation requires supplied reviewer judgement; it is not cryptographic authentication. No source text, credentials or model invocation. Runtime additionally enforces unique IDs, evidence/report binding and all planned run accounting.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "kind": {
+      "const": "real-incidents"
+    },
+    "cases": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 200,
+      "items": {
+        "$ref": "#/$defs/incident"
+      }
+    }
+  },
+  "required": [
+    "version",
+    "kind",
+    "cases"
+  ],
+  "$defs": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "snapshotId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "baseRevision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "targetRevision": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "provider": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "runtimeVersion": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "snapshotId",
+        "baseRevision",
+        "targetRevision",
+        "provider",
+        "model",
+        "runtimeVersion"
+      ]
+    },
+    "signature": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "reviewer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "judgementRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "reviewer",
+        "judgementRef"
+      ]
+    },
+    "expectation": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "kind": {
+          "enum": [
+            "positive",
+            "negative",
+            "harmful"
+          ]
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "maxItems": 10000,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "evidenceRefs"
+      ]
+    },
+    "incident": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "runIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "maxItems": 10000,
+          "uniqueItems": true
+        },
+        "adjudication": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "const": "confirmed"
+                },
+                "reviewer": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "pattern": "\\S"
+                },
+                "judgementRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096,
+                  "pattern": "\\S"
+                }
+              },
+              "required": [
+                "status",
+                "reviewer",
+                "judgementRef"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "status": {
+                  "const": "unadjudicated"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            }
+          ]
+        },
+        "expectations": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/expectation"
+          }
+        },
+        "causeCluster": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "lifecycleOutcome": {
+          "enum": [
+            "fix",
+            "wrong",
+            "intentional",
+            "not-worth"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "identity",
+        "runIds",
+        "adjudication",
+        "expectations"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "adjudication": {
+                "properties": {
+                  "status": {
+                    "const": "confirmed"
+                  }
+                }
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "expectations": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "judgement": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "findingIndex": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reportSha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "outcome": {
+          "enum": [
+            "truePositive",
+            "falsePositive",
+            "harmful",
+            "unresolved"
+          ]
+        },
+        "expectationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "reviewer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "judgementRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "evidenceRefs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096,
+            "pattern": "\\S"
+          },
+          "minItems": 1,
+          "maxItems": 10000,
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "findingIndex",
+        "reportSha256",
+        "outcome",
+        "reviewer",
+        "judgementRef",
+        "evidenceRefs"
+      ]
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "caseId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096,
+          "pattern": "\\S"
+        },
+        "identity": {
+          "$ref": "#/$defs/identity"
+        },
+        "jobStatus": {
+          "enum": [
+            "completed",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ]
+        },
+        "report": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "description": "Actual full report; validateIncidentReport enforces snapshot identity, full array totals, file/finding relations and known host states. Not a resultPage."
+        },
+        "judgements": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/judgement"
+          }
+        },
+        "elapsedMs": {
+          "type": "number",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "caseId",
+        "runId",
+        "identity",
+        "jobStatus"
+      ]
+    }
+  }
+}

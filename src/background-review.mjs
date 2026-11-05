@@ -83,6 +83,7 @@ async function startBackgroundJob(args, exec, jobs, service) {
     const detached = {
       ...exec, agent: original, signal,
       resolveReviewResume: id => jobs.resume(id, exec),
+      resolvePriorReview: id => jobs.priorReview(id, exec),
       reviewResumeCheckpoint: saveResumeState,
       onModelArtifact: artifact,
       reviewCheckpoint: async value => {

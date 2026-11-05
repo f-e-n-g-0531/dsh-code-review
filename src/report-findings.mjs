@@ -42,6 +42,8 @@ export function findingsMarkdown(report) {
   for (const [label, items] of sections) {
     if (!items.length) continue;
     output.push('', '### ' + label);
+    const levels = {critical:0,high:1,medium:2,low:3};
+    items.sort((a,b)=>(levels[a.f.severity]??4)-(levels[b.f.severity]??4)||a.i-b.i);
     for (const {f,i} of items) {
       const severity = ({critical:'严重',high:'高',medium:'中',low:'低'})[f.severity] ?? safe(f.severity ?? '未分级');
       const hypothesis = label === '复核后不确定' || label === '复核未完成' || label === '已反驳';
@@ -58,6 +60,9 @@ export function findingsMarkdown(report) {
       else if (f.suggestion) output.push('- 建议：' + safe(f.suggestion));
       const related = [...duplicate].filter(([,first])=>first===i).map(([index])=>location(findings[index]));
       if (related.length) output.push('- 相同证据与解释的其他位置：' + related.join('；') + '。正文合并展示，原始候选仍保留。');
+      const ledgerItem = report.reviewHistory?.ledger?.findings?.find(row => row.findingIndices?.includes(i));
+      if (ledgerItem?.observation === 'repeated') output.push('- 历史台账：本轮再次观察到相同定位与缺陷主张；不重复创建新问题，当前证据仍须独立核对。');
+      if (ledgerItem?.humanDecisions?.length) output.push('- 人工处置记录：' + ledgerItem.humanDecisions.map(row => safe(row.decision) + '：' + safe(row.reason)).join('；') + '；这是历史决定，不是修复或缺陷证明。');
       if (f.reused || f.priorRun) output.push('- 来源：包含既往审核结果，不表示本轮重新取证。');
       output.push('- 完整证据与判定过程：见技术附录中的候选 ' + (i+1) + '。');
     }
