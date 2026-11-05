@@ -7,7 +7,7 @@ const START_DESCRIPTION = 'Start a durable background preview or confirmed revie
 const START_PARAMETERS = { type: 'object', additionalProperties: false, properties: { phase: { type: 'string', enum: ['preview', 'execute'] }, previewArgs: { type: 'object', description: 'Same parameters as code_review_preview; do not include execute fields.' }, previewId: { type: 'string' }, confirmed: { type: 'boolean', description: 'Attest current explicit review authorization after inspecting the preview. A matching explicit review request is sufficient; do not ask again. Preview-only or explicit wait-for-confirmation is not execution authorization.' } }, required: ['phase'] };
 
 const STATUS_DESCRIPTION = 'Read a background review task owned by this session, directory and model. Returns saved progress or final preview/report. completed task means the tool returned; inspect nested report coverage/status. Interrupted tasks retain checkpoints but require new preview and approval to resend.';
-const STATUS_PARAMETERS = { type: 'object', additionalProperties: false, properties: { jobId: { type: 'string' }, offset: { type: 'integer', minimum: 0 }, checkpointIndex: { type: 'integer', minimum: 0, description: 'Read one checkpoint nested files/findings page; offset/limit apply within it.' }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, required: ['jobId'] };
+const STATUS_PARAMETERS = { type: 'object', additionalProperties: false, properties: { jobId: { type: 'string' }, offset: { type: 'integer', minimum: 0 }, detail: {type:'string',enum:['summary','technical'],description:'Default summary. Explicit technical returns the complete saved evidence report without rerunning the model; not private model artifacts.'}, checkpointIndex: { type: 'integer', minimum: 0, description: 'Read one checkpoint nested files/findings page; offset/limit apply within it.' }, limit: { type: 'integer', minimum: 1, maximum: 100 } }, required: ['jobId'] };
 
 const CANCEL_DESCRIPTION = 'Cancel a background review task owned by this session. Does not discard saved checkpoints. No source is sent by cancellation.';
 const CANCEL_PARAMETERS = { type: 'object', additionalProperties: false, properties: { jobId: { type: 'string' } }, required: ['jobId'] };
@@ -109,7 +109,12 @@ export function registerBackgroundReview(ctx, service, { directory } = {}) {
   });
   ctx.tools.register({
     name: 'code_review_status', description: STATUS_DESCRIPTION, parameters: STATUS_PARAMETERS, output: reviewToolOutput,
-    async execute(args, exec) { return respond(await jobs.status(args.jobId, exec, { offset: args.offset ?? 0, limit: args.limit ?? 20, checkpointIndex: args.checkpointIndex })); },
+    async execute(args, exec) {
+      if(args.detail!==undefined&&!['summary','technical'].includes(args.detail))throw new Error('Invalid report detail');
+      const value=await jobs.status(args.jobId,exec,{offset:args.offset??0,limit:args.limit??20,checkpointIndex:args.checkpointIndex});
+      if(args.detail==='technical'){const saved=await jobs.status(args.jobId,exec);if(saved.result?.technicalMarkdown)value.finalMarkdown=saved.result.technicalMarkdown;}
+      return respond(value);
+    },
   });
   ctx.tools.register({
     name: 'code_review_cancel', description: CANCEL_DESCRIPTION, parameters: CANCEL_PARAMETERS, output: reviewToolOutput,

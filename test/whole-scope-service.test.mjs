@@ -47,7 +47,9 @@ for (const [label, source, expectedBatches] of [
   ['74 tiny files', snapshot(74), 1],
   ['byte-split complete files', snapshot(2, 'new();\n' + 'x'.repeat(45000)), 2],
 ]) test('whole-scope service preview batch IDs match execution: ' + label, async t => {
-  const f = fixture({ source, enableRiskPlanning: true, skipSmallRiskPlans: false, enableBusinessGrouping: true, enableGroupPrimary: true, enableGroupInteractions: true, enableMigrationContracts: true, enableMigrationRegression: true, enableStageContinuation: true });
+  const childDeliveries=[];
+  const hostChildren=expectedBatches>1?{capability:()=>true,prepare:async()=>{},create:async()=>({invoke:async request=>{const p=JSON.parse(request.input);childDeliveries.push(...p.reviews);return{reviews:p.reviews.map(row=>({fileId:row.fileId,findings:[],limitations:[]})),limitations:[]};},dispose:async()=>{}})}:undefined;
+  const f = fixture({ source, ...(hostChildren?{hostChildren}:{}), enableRiskPlanning: true, skipSmallRiskPlans: false, enableBusinessGrouping: true, enableGroupPrimary: true, enableGroupInteractions: true, enableMigrationContracts: true, enableMigrationRegression: true, enableStageContinuation: true });
   t.after(() => f.service.dispose());
   const exec = execution(), checkpoints = [];
   exec.reviewCheckpoint = async event => { checkpoints.push(event); };
@@ -68,11 +70,11 @@ for (const [label, source, expectedBatches] of [
   assert.doesNotMatch(preview.notice, /执行按plan阈值|独立文件审查链|动态综合数执行前未知|后续轮不带首轮风险计划|已验收主审生成可精确续用|组主审可附带交互结果/);
   assert.doesNotMatch(preview.plan.notice, /动态综合|独立规划|专门交互证据阶段仍独立执行/);
   const { report } = await f.service.execute({ previewId: preview.previewId, confirmed: true }, exec);
-  assert.equal(f.calls.length, expectedBatches);
+  assert.equal(f.calls.length, hostChildren ? 0 : expectedBatches);
   assert.equal(report.modelCalls, expectedBatches);
   assert.equal(f.captures, 3);
   assert.equal(f.approvals, 1);
-  assert.deepEqual(f.events, ['capture', 'capture', 'authorize', ...Array(expectedBatches).fill('model'), 'capture']);
+  assert.deepEqual(f.events, ['capture', 'capture', 'authorize', ...Array(hostChildren ? 0 : expectedBatches).fill('model'), 'capture']);
   assert.equal(report.outdated, false);
   assert.equal(report.coverage.completed, source.files.length);
   assert.equal(report.orchestration.strategy, 'whole-scope');
@@ -81,7 +83,7 @@ for (const [label, source, expectedBatches] of [
   assert.deepEqual(report.interactions, []);
   assert.ok(checkpoints.some(event => event.stage === 'source-freshness'));
   assert.ok(checkpoints.filter(event => event.phase).every(event => event.phase === 'group-primary'));
-  const delivered = f.calls.flatMap(input => input.reviews);
+  const delivered = hostChildren ? childDeliveries : f.calls.flatMap(input => input.reviews);
   assert.deepEqual(delivered.map(row => row.fileId).sort(), source.files.map(file => file.id).sort());
   for (const row of delivered) {
     const original = source.files.find(file => file.id === row.fileId);
@@ -128,7 +130,7 @@ for (const mode of ['changed', 'unavailable']) test('whole-scope retains origina
   assert.equal(report.snapshotId, source.id);
   assert.equal(report.status, 'completed');
   assert.equal(report.outdated, true);
-  assert.match(markdown, /报告仅对应原快照/);
+  assert.match(markdown, /报告已过期，仅对应原快照/);
 });
 
 for (const [label, options, args] of [

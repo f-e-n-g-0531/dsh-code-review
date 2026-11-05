@@ -26,7 +26,7 @@ test('rule selection is previewed and authorized before sending', async () => {
   assert.doesNotMatch(p.notice, /获得确认后执行/);
   const result = await service.execute({ previewId: p.previewId, confirmed: true }, e);
   assert.equal(calls, 1); assert.equal(result.report.files[0].initialInputBytes, p.plan.items[0].initialInputBytes); assert.deepEqual(result.report.rules, p.rules);
-  assert.match(result.markdown, /fixture-hash/);
+  assert.match(result.technicalMarkdown, /fixture-hash/);
   assert.ok(!result.markdown.includes('RULE_TEXT'));
 });
 const llm = { async *stream() { yield { type: 'text-delta', text: '{"findings":[],"limitations":[]}' }; yield { type: 'finish', reason: { kind: 'stop' } }; } };
@@ -44,10 +44,10 @@ test('approved service verifies candidates without executable tools or widened s
   } }, { capture: async () => snapshot(), allowModelSending: true, authorize: async () => { approved = true; return true; } });
   const e = exec(), p = await service.preview({}, e);
   assert.equal(calls, 0); assert.match(p.notice, /证据与反证复核/);
-  const { report, markdown } = await service.execute({ previewId: p.previewId, confirmed: true }, e);
+  const { report, markdown, technicalMarkdown } = await service.execute({ previewId: p.previewId, confirmed: true }, e);
   assert.equal(calls, 2); assert.equal(report.modelCalls, 2);
   assert.equal(report.findings[0].verification.verdict, 'uncertain');
-  assert.match(markdown, /复核状态：不确定/);
+  assert.match(technicalMarkdown, /复核状态：不确定/);
 });
 test('approved service supplies both related sides once per primary without excluded content', async () => {
   const source = snapshot();
@@ -94,10 +94,10 @@ test('approved host stream performs retrieval round trip and propagates truncati
   const service = createReviewService(model, { capture: async () => ({ ...snapshot(), context: [{ path: 'helper', text: 'match\nmatch\n' }] }), allowModelSending: true, authorize: async () => { approved = true; return true; } });
   const e = exec(), preview = await service.preview({}, e);
   assert.equal(calls, 0); assert.match(preview.notice, /多轮只读检索/);
-  const { report, markdown } = await service.execute({ previewId: preview.previewId, confirmed: true }, e);
+  const { report, markdown, technicalMarkdown } = await service.execute({ previewId: preview.previewId, confirmed: true }, e);
   assert.equal(report.status, 'partial'); assert.equal(report.modelCalls, 2);
   assert.equal(report.retrievalUsage.calls, 1);
-  assert.match(markdown, /部分匹配未提供/);
+  assert.match(technicalMarkdown, /部分匹配未提供/);
 });
 
 test('preview does not call model; confirmed execution returns report', async () => {
@@ -226,13 +226,13 @@ test('cancelled review retains its report and skips freshness checkpoint and cap
   } }, { capture: async () => { captures++; return snapshot(); }, allowModelSending: true, authorize: async () => true });
   const e = { ...exec(), signal: controller.signal, reviewCheckpoint: event => checkpoints.push(event) };
   const preview = await service.preview({}, e);
-  const { report, markdown } = await service.execute({ previewId: preview.previewId, confirmed: true }, e);
+  const { report, markdown, technicalMarkdown } = await service.execute({ previewId: preview.previewId, confirmed: true }, e);
   assert.equal(report.status, 'cancelled');
   assert.equal(report.files[0].status, 'cancelled');
   assert.equal(report.outdated, true);
   assert.equal(captures, 2);
   assert.equal(calls, 1);
   assert.equal(checkpoints.some(event => event.stage === 'source-freshness'), false);
-  assert.match(markdown, /报告仅对应原快照/);
+  assert.match(markdown, /报告已过期，仅对应原快照/);
   service.dispose();
 });

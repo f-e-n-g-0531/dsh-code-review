@@ -1,4 +1,7 @@
 import { previewValidity } from './preview-validity.mjs';
+import { renderUserReport } from './user-report.mjs';
+import { prepareWholeScope } from './whole-scope-plan.mjs';
+import { resolveReviewDispatch } from './review-dispatch.mjs';
 import { reviewEffortPolicy } from './review-effort.mjs';
 import { prepareReviewHistory, finishReviewHistory } from './review-history.mjs';
 import { configureWireBudget } from './model-wire-budget.mjs';
@@ -61,7 +64,7 @@ function buildPreviewNotice(snapshot, options, enableRiskPlanning, changesConcur
 function createSessionReviewService(llm, { capture = captureSnapshot, reviewEffort = 'auto', enableCounterVerification = false, hostChildren, wholeScopeConcurrency = 2, executionStrategy = 'staged', maxInputBytes = 96 * 1024, now = Date.now, ttlMs = 300000, maxPreviews = 8, allowModelSending = false, enableRiskPlanning = false, skipSmallRiskPlans = true, reviewRounds = 1, enableBusinessGrouping = false, enableAnchorCorrection = false, changesConcurrency = 2, maxRetrievalRounds = 3, riskPlanningMode = 'separate', readerBudgetPolicy = 'fixed', optimizeReviewCalls = false, enablePrimarySeeds = false, focusPrimaryContext = false, enableSearchSeeds = false, nativeOutputTools = false, enableGroupPrimary = false, enableEvidenceContext = false, inlineInteractionRisks = false, enableMigrationContracts = false, enableMigrationRegression = false, enableGroupInteractions = false, enableStageContinuation = false, authorize = async () => false } = {}) {
   for (const value of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid preview limit');
   if (!Number.isSafeInteger(maxInputBytes) || maxInputBytes < 1 || maxInputBytes > 4 * 1024 * 1024) throw new Error('Invalid configured input capacity');
-  if (!['staged', 'whole-scope'].includes(executionStrategy)) throw new Error('Invalid review execution strategy');
+  if (!['auto','staged', 'whole-scope'].includes(executionStrategy)) throw new Error('Invalid review execution strategy');
   if (!['auto','quick','standard','deep'].includes(reviewEffort) || typeof enableCounterVerification !== 'boolean') throw new Error('Invalid review effort policy');
   wholeScopeConcurrency = reviewConcurrency(wholeScopeConcurrency);
   changesConcurrency = reviewConcurrency(changesConcurrency);
@@ -71,7 +74,7 @@ function createSessionReviewService(llm, { capture = captureSnapshot, reviewEffo
   for (const value of [optimizeReviewCalls, enablePrimarySeeds, focusPrimaryContext, enableSearchSeeds, nativeOutputTools, enableGroupPrimary, enableEvidenceContext, inlineInteractionRisks, enableMigrationContracts, enableMigrationRegression, enableGroupInteractions, enableStageContinuation]) if (typeof value !== 'boolean') throw new Error('Invalid review optimization option');
   const lifetime = new AbortController();
   const bind = exec => ({ ...exec, signal: exec.signal ? AbortSignal.any([exec.signal, lifetime.signal]) : lifetime.signal });
-  const resumeOptions = (options, route, rounds, effortMode, instructions) => ({ captureOptions: options, route, runtime: REVIEW_RUNTIME, instructionsHash: hash(instructions), execution: { reviewEffort:effortMode, enableCounterVerification, executionStrategy, maxInputBytes, wholeScopeConcurrency, rounds, enableRiskPlanning, skipSmallRiskPlans, enableBusinessGrouping, enableAnchorCorrection, changesConcurrency, maxRetrievalRounds, riskPlanningMode, readerBudgetPolicy, optimizeReviewCalls, enablePrimarySeeds, focusPrimaryContext, enableSearchSeeds, nativeOutputTools, enableGroupPrimary, enableEvidenceContext, inlineInteractionRisks, enableMigrationContracts, enableMigrationRegression, enableGroupInteractions, enableStageContinuation } });
+  const resumeOptions = (options, route, rounds, effortMode, instructions, effectiveStrategy = executionStrategy) => ({ captureOptions: options, route, runtime: REVIEW_RUNTIME, instructionsHash: hash(instructions), execution: { reviewEffort:effortMode, enableCounterVerification, executionStrategy:effectiveStrategy, maxInputBytes, wholeScopeConcurrency, rounds, enableRiskPlanning, skipSmallRiskPlans, enableBusinessGrouping, enableAnchorCorrection, changesConcurrency, maxRetrievalRounds, riskPlanningMode, readerBudgetPolicy, optimizeReviewCalls, enablePrimarySeeds, focusPrimaryContext, enableSearchSeeds, nativeOutputTools, enableGroupPrimary, enableEvidenceContext, inlineInteractionRisks, enableMigrationContracts, enableMigrationRegression, enableGroupInteractions, enableStageContinuation } });
   const previews = new Map();
   let busy = false;
   function prune() { for (const [id, p] of previews) if (p.expires <= now()) previews.delete(id); }
@@ -80,14 +83,16 @@ function createSessionReviewService(llm, { capture = captureSnapshot, reviewEffo
       exec = bind(exec);
       exec.signal.throwIfAborted();
       if (busy) throw new Error('Review service busy');
-      if (!args || Object.keys(args).some(k => !['repositoryPath', 'selectedPaths', 'contextPaths', 'rulePaths', 'autoContext', 'commit', 'baseRevision', 'targetRevision','businessRequirement','callerScopePaths','oldContextPaths','reviewRounds','svnRevision','svnBaseRevision','svnTargetRevision','svnAllowNetwork','svnEffectiveMergeinfo','svnBasePath','svnTargetPath','svnReplacementBaseRevision','svnReplacementAllowNetwork','changeScope','resumeFromJobId','rereviewFromJobId','findingOutcomes','reviewEffort','rereviewScope'].includes(k))) throw new Error('Unknown preview argument');
+      if (!args || Object.keys(args).some(k => !['repositoryPath', 'selectedPaths', 'contextPaths', 'rulePaths', 'autoContext', 'commit', 'baseRevision', 'targetRevision','businessRequirement','callerScopePaths','oldContextPaths','reviewRounds','svnRevision','svnBaseRevision','svnTargetRevision','svnAllowNetwork','svnEffectiveMergeinfo','svnBasePath','svnTargetPath','svnReplacementBaseRevision','svnReplacementAllowNetwork','changeScope','resumeFromJobId','rereviewFromJobId','findingOutcomes','reviewEffort','rereviewScope','executionStrategy'].includes(k))) throw new Error('Unknown preview argument');
       if (args.resumeFromJobId !== undefined && (typeof args.resumeFromJobId !== 'string' || !/^[a-f0-9-]{36}$/.test(args.resumeFromJobId))) throw new Error('Invalid resume job id');
       if (args.autoContext !== undefined && typeof args.autoContext !== 'boolean') throw new Error('Invalid autoContext option');
       for (const key of ['selectedPaths', 'contextPaths', 'rulePaths', 'oldContextPaths']) if (args[key] !== undefined && (!Array.isArray(args[key]) || args[key].length > (key === 'rulePaths' ? 4 : key === 'oldContextPaths' ? 20 : 200) || args[key].some(p => typeof p !== 'string'))) throw new Error('Invalid path list');
       const rounds=validateReviewRounds(args.reviewRounds === undefined ? reviewRounds : args.reviewRounds);
-      if (executionStrategy === 'whole-scope' && (rounds !== 1 || args.resumeFromJobId !== undefined)) throw new Error('Whole-scope requires fresh single-round changes review');
+      if ((args.executionStrategy ?? executionStrategy) === 'whole-scope' && (rounds !== 1 || args.resumeFromJobId !== undefined)) throw new Error('Whole-scope requires fresh single-round changes review');
       validateBusinessRequirement(args.businessRequirement);
       if (args.callerScopePaths !== undefined) validateCallerScopes(args.callerScopePaths);
+      const requestedStrategy = args.executionStrategy ?? executionStrategy;
+      if(!['auto','staged','whole-scope'].includes(requestedStrategy))throw new Error('Invalid requested execution strategy');
       const effortMode = args.reviewEffort ?? reviewEffort;
       if (!['auto','quick','standard','deep'].includes(effortMode)) throw new Error('Invalid review effort mode');
       if (args.rereviewFromJobId !== undefined && (typeof args.rereviewFromJobId !== 'string' || !/^[a-f0-9-]{36}$/.test(args.rereviewFromJobId) || args.resumeFromJobId !== undefined || rounds !== 1)) throw new Error('Invalid or conflicting re-review source');
@@ -98,7 +103,7 @@ function createSessionReviewService(llm, { capture = captureSnapshot, reviewEffo
       try {
         const options = structuredClone(args);
         const rereviewJobId = options.rereviewFromJobId, findingOutcomes = options.findingOutcomes, explicitDiffOnly = options.rereviewScope === 'diff-only';
-        delete options.rereviewFromJobId; delete options.findingOutcomes; delete options.reviewEffort; delete options.rereviewScope;
+        delete options.rereviewFromJobId; delete options.findingOutcomes; delete options.reviewEffort; delete options.rereviewScope; delete options.executionStrategy;
         let previousHistory;
         if (rereviewJobId !== undefined) {
           if (typeof exec.resolvePriorReview !== 'function') throw new Error('Owned prior review requires a new background preview');
@@ -116,18 +121,24 @@ function createSessionReviewService(llm, { capture = captureSnapshot, reviewEffo
         exec.signal?.throwIfAborted();
         if (owner(exec).cwd !== current.cwd) throw new Error('Agent directory changed; preview again');
         const effort = reviewEffortPolicy(snapshot,{mode:effortMode});
-        const history = prepareReviewHistory(snapshot,current.route,{...options,reviewEffort:effortMode,executionStrategy,enableCounterVerification},{previous:previousHistory,outcomes:findingOutcomes,explicitDiffOnly});
+        const history = prepareReviewHistory(snapshot,current.route,{...options,reviewEffort:effortMode,executionStrategy:requestedStrategy,enableCounterVerification},{previous:previousHistory,outcomes:findingOutcomes,explicitDiffOnly});
         const instructions = REVIEW_INSTRUCTIONS + '\nReview focus (not proof, no additional authority): ' + JSON.stringify(effort.checks);
-        const resumeState = savedResume === undefined ? undefined : validateResumeState(savedResume,snapshot,resumeOptions(options,current.route,rounds,effortMode,instructions));
+        let resumeState;
         const readerBudget = reviewReaderBudget(snapshot, readerBudgetPolicy);
-        const plan = buildCoveragePlan(history.selection?.reviewSnapshot ?? snapshot, { executionStrategy, enableEvidenceContext, inlineInteractionRisks, enableMigrationContracts, enableMigrationRegression, enableGroupInteractions, enableStageContinuation, enableGroupPrimary, resumeState, focusPrimaryContext, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:rounds, enableBusinessGrouping, instructions, scope: configureWireBudget(createRetrievalScope(snapshot, { ...readerBudget, signal: exec.signal, ...(optimizeReviewCalls ? { reuseResults: true } : {}) }), { nativeOutputTools }), grouping: buildReviewGroups(snapshot.files, inferFileRelations(snapshot.files)), maxInputBytes, signal: exec.signal });
-        const useHostChildren = executionStrategy === 'whole-scope' && plan.primaryGroups.length > 1 && !!hostChildren;
+        const candidateSnapshot = history.selection?.reviewSnapshot ?? snapshot;
+        const planningScope = configureWireBudget(createRetrievalScope(snapshot, { ...readerBudget, signal:exec.signal, ...(optimizeReviewCalls?{reuseResults:true}:{}) }),{nativeOutputTools});
+        const wholePlan = requestedStrategy!=='staged' && rounds===1 && !sourceJobId ? prepareWholeScope(candidateSnapshot,{instructions,scope:planningScope,maxInputBytes}) : undefined;
+        const dispatch = resolveReviewDispatch({requested:requestedStrategy,mode:'changes',rounds,resume:!!sourceJobId,wholePlan,hostAvailable:hostChildren?.capability?.()===true,concurrency:wholeScopeConcurrency,sourceBytes:Buffer.byteLength(JSON.stringify(snapshot))});
+        const effectiveStrategy=dispatch.effectiveStrategy;
+        resumeState=savedResume===undefined?undefined:validateResumeState(savedResume,snapshot,resumeOptions(options,current.route,rounds,effortMode,instructions,effectiveStrategy));
+        const plan = buildCoveragePlan(candidateSnapshot, { executionStrategy:effectiveStrategy, enableEvidenceContext, inlineInteractionRisks, enableMigrationContracts, enableMigrationRegression, enableGroupInteractions, enableStageContinuation, enableGroupPrimary, resumeState, focusPrimaryContext, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:rounds, enableBusinessGrouping, instructions, scope: configureWireBudget(createRetrievalScope(snapshot, { ...readerBudget, signal: exec.signal, ...(optimizeReviewCalls ? { reuseResults: true } : {}) }), { nativeOutputTools }), grouping: buildReviewGroups(snapshot.files, inferFileRelations(snapshot.files)), maxInputBytes, signal: exec.signal });
+        const useHostChildren = dispatch.childMode === 'host-subagents';
         if (useHostChildren) await hostChildren.prepare();
         prune();
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
         const expires = now() + ttlMs;
-        previews.set(previewId, { ...current, target, options, rounds, snapshotId: snapshot.id, resumeState, sourceJobId, useHostChildren, effort, instructions, history, rereviewJobId, expires });
+        previews.set(previewId, { ...current, target, options, rounds, snapshotId: snapshot.id, resumeState, sourceJobId, useHostChildren, effort, instructions, history, rereviewJobId, dispatch, effectiveStrategy, expires });
         return {
   ...(options.businessRequirement !== undefined
     ? { businessRequirement: { text: options.businessRequirement, hash: hash(options.businessRequirement), bytes: Buffer.byteLength(options.businessRequirement) } }
@@ -137,11 +148,12 @@ function createSessionReviewService(llm, { capture = captureSnapshot, reviewEffo
   validForMs: ttlMs,
   ...(resumeState ? { resume: resumePreview(resumeState, sourceJobId) } : {}),
   plan,
+  dispatch,
   reviewEffort: effort,
   ...(rereviewJobId ? { rereview: { sourceJobId:rereviewJobId,cycle:history.previous.cycle+1,maxCycles:3,incremental:history.incremental,notice:'Historical metadata only; no prior approval, conclusions or receipts are reused. Navigation paths are not coverage.' } } : {}),
   snapshotId: snapshot.id,
   privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 4096, notice: 'Background jobs retain bounded untrusted model output outside the reviewed workspace; omissions/truncation explicit. Never included in ordinary status or reused as evidence; explicit consent required to read.' },
-  execution: { executionStrategy, counterVerification: enableCounterVerification && effort.counterVerification.eligible, ...(executionStrategy === 'whole-scope' ? { resumeSupported: false, maxInputBytes, batchExecution: useHostChildren ? 'host-subagents' : 'direct', batchConcurrency: useHostChildren ? Math.min(wholeScopeConcurrency, plan.primaryGroups.length) : 1 } : {}), nativeOutputTools, enableGroupPrimary, enableEvidenceContext, inlineInteractionRisks, enableMigrationContracts, enableMigrationRegression, enableGroupInteractions, enableStageContinuation, fileConcurrency: changesConcurrency, maxRetrievalRounds, ...(optimizeReviewCalls ? { riskPlanningMode, readerBudget: { policy: readerBudgetPolicy, ...readerBudget }, missingContextSeeds: enablePrimarySeeds, focusPrimaryContext, searchContextSeeds: enableSearchSeeds } : {}) },
+  execution: { executionStrategy:effectiveStrategy, counterVerification: enableCounterVerification && effort.counterVerification.eligible, ...(effectiveStrategy === 'whole-scope' ? { resumeSupported: false, maxInputBytes, batchExecution: useHostChildren ? 'host-subagents' : 'direct', batchConcurrency: useHostChildren ? Math.min(wholeScopeConcurrency, plan.primaryGroups.length) : 1 } : {}), nativeOutputTools, enableGroupPrimary, enableEvidenceContext, inlineInteractionRisks, enableMigrationContracts, enableMigrationRegression, enableGroupInteractions, enableStageContinuation, fileConcurrency: changesConcurrency, maxRetrievalRounds, ...(optimizeReviewCalls ? { riskPlanningMode, readerBudget: { policy: readerBudgetPolicy, ...readerBudget }, missingContextSeeds: enablePrimarySeeds, focusPrimaryContext, searchContextSeeds: enableSearchSeeds } : {}) },
   repositoryRoot: snapshot.root,
   vcs: snapshot.vcs,
   ...(snapshot.changeScope ? { changeScope: snapshot.changeScope } : options.changeScope !== undefined ? { changeScope: options.changeScope } : {}),
@@ -171,7 +183,7 @@ function createSessionReviewService(llm, { capture = captureSnapshot, reviewEffo
   ...(snapshot.callerDiscovery ? { callerDiscovery: snapshot.callerDiscovery } : {}),
   ...(snapshot.autoContext ? { autoContext: snapshot.autoContext } : {}),
   rules: (snapshot.rules ?? []).map(({ path, hash }) => ({ path, hash })),
-  notice: executionStrategy === 'whole-scope' ? '整体优先主审：批准完整双侧按实际输入字节合批；不执行逐文件风险规划、业务分组或旧专门综合。候选集中独立复核；补读可增加调用，共享读取账本不重置。超大文件明确阻断，多批跨边界未核查保持部分完成；不承诺一次请求或审查通过。不支持旧阶段恢复或多轮。' + (useHostChildren ? ` 超限多组使用真实spawn子智能体，最多${wholeScopeConcurrency}组并行，每组保留独立持续上下文，仅批准快照读取工具；逐模型生成尝试共用总账，逻辑LLM输入预算不代表最终HTTP字节。` : '') : buildPreviewNotice(snapshot, options, enableRiskPlanning, changesConcurrency, maxRetrievalRounds) + (enableMigrationContracts ? ' 迁移契约仅由批准快照的明确旧/新入口与调用绑定产生，无法解析的语言结构保持未解决，不以相似名称推断迁移。' : '') + (enableMigrationRegression ? ' 显式跨文件旧新比较仅在host契约限定来源和本次独立回执齐备时成立，因果仍未证明。' : '') + (enableGroupInteractions ? ' 组主审可附带交互结果，只有当前代全组编辑实读且host校验通过时替代匹配专门阶段；缺失/非法回退，候选仍独立复核。' : '') + (enableStageContinuation ? ' 未完成阶段可在其他阶段释放额度后有限继续，不重置总账或原超时；已验收主审生成可精确续用，但复核重新读取、新回执，不继承旧证据。' : '') + (enableEvidenceContext ? ' 可将本次实际交付过的批准原行按相关性经当前阶段reader有限重新投递；缓存仍计交付字节，不继承历史读取覆盖或复核回执。' : '') + (inlineInteractionRisks ? ' 预算适配的精确跨文件单元可在交互主审同次返回风险假设，省去独立规划；缺失或无效风险不补发、不代表已完成风险核查。' : '') + (optimizeReviewCalls ? ` 完整正文或覆盖全部精确编辑的单批窗口可将风险问题合并入主审（非独立规划）；仅对批准上下文的确定坐标预取小片段，不代表完整核查。${focusPrimaryContext ? " 主审优先保留主文件全文，仅附带有关联的有界完整上下文；其余批准来源保留目录按需读，不表示不存在或已核查。" : ""}${enableSearchSeeds ? " 可将模型搜索命中的批准原行小片段与搜索结果同轮提供，每阶段最多2次额外读取，共用原预算；不猜测另侧坐标，不增加检索轮次。" : ""}共享检索上限按本次范围计算：${readerBudget.maxCalls}次唯一操作结果生成／${readerBudget.maxOutputBytes}交付字节，所有阶段共用、不逐文件重置；同快照相同请求可复用原始结果，每次交付仍计字节并重新签发复核回执；主审、综合及复核按权重预留最低额度，未用额度释放，额度不足仍如实标记未完成。` : ''),
+  notice: effectiveStrategy === 'whole-scope' ? '整体优先主审：批准完整双侧按实际输入字节合批；不执行逐文件风险规划、业务分组或旧专门综合。候选集中独立复核；补读可增加调用，共享读取账本不重置。超大文件明确阻断，多批跨边界未核查保持部分完成；不承诺一次请求或审查通过。不支持旧阶段恢复或多轮。' + (useHostChildren ? ` 超限多组使用真实spawn子智能体，最多${wholeScopeConcurrency}组并行，每组保留独立持续上下文，仅批准快照读取工具；逐模型生成尝试共用总账，逻辑LLM输入预算不代表最终HTTP字节。` : '') : buildPreviewNotice(snapshot, options, enableRiskPlanning, changesConcurrency, maxRetrievalRounds) + (enableMigrationContracts ? ' 迁移契约仅由批准快照的明确旧/新入口与调用绑定产生，无法解析的语言结构保持未解决，不以相似名称推断迁移。' : '') + (enableMigrationRegression ? ' 显式跨文件旧新比较仅在host契约限定来源和本次独立回执齐备时成立，因果仍未证明。' : '') + (enableGroupInteractions ? ' 组主审可附带交互结果，只有当前代全组编辑实读且host校验通过时替代匹配专门阶段；缺失/非法回退，候选仍独立复核。' : '') + (enableStageContinuation ? ' 未完成阶段可在其他阶段释放额度后有限继续，不重置总账或原超时；已验收主审生成可精确续用，但复核重新读取、新回执，不继承旧证据。' : '') + (enableEvidenceContext ? ' 可将本次实际交付过的批准原行按相关性经当前阶段reader有限重新投递；缓存仍计交付字节，不继承历史读取覆盖或复核回执。' : '') + (inlineInteractionRisks ? ' 预算适配的精确跨文件单元可在交互主审同次返回风险假设，省去独立规划；缺失或无效风险不补发、不代表已完成风险核查。' : '') + (optimizeReviewCalls ? ` 完整正文或覆盖全部精确编辑的单批窗口可将风险问题合并入主审（非独立规划）；仅对批准上下文的确定坐标预取小片段，不代表完整核查。${focusPrimaryContext ? " 主审优先保留主文件全文，仅附带有关联的有界完整上下文；其余批准来源保留目录按需读，不表示不存在或已核查。" : ""}${enableSearchSeeds ? " 可将模型搜索命中的批准原行小片段与搜索结果同轮提供，每阶段最多2次额外读取，共用原预算；不猜测另侧坐标，不增加检索轮次。" : ""}共享检索上限按本次范围计算：${readerBudget.maxCalls}次唯一操作结果生成／${readerBudget.maxOutputBytes}交付字节，所有阶段共用、不逐文件重置；同快照相同请求可复用原始结果，每次交付仍计字节并重新签发复核回执；主审、综合及复核按权重预留最低额度，未用额度释放，额度不足仍如实标记未完成。` : ''),
 };
       } finally { busy = false; }
     },
@@ -194,14 +206,15 @@ function createSessionReviewService(llm, { capture = captureSnapshot, reviewEffo
         exec.signal?.throwIfAborted();
         if (snapshot.id !== preview.snapshotId || owner(exec).cwd !== current.cwd) throw new Error('Files changed since preview; preview again');
         if (preview.useHostChildren && !hostChildren?.capability()) throw new Error('Approved child execution capability changed; preview again');
-        const resumeIdentity = resumeOptions(preview.options, preview.route, preview.rounds, preview.effort.mode, preview.instructions);
+        const resumeIdentity = resumeOptions(preview.options, preview.route, preview.rounds, preview.effort.mode, preview.instructions, preview.effectiveStrategy);
         const resumeState = preview.resumeState ? validateResumeState(preview.resumeState, snapshot, resumeIdentity) : undefined;
         if (await authorize({ snapshot, route: preview.route, exec }) !== true) throw new Error('Model sending approval denied or unavailable');
         exec.signal?.throwIfAborted();
         if (owner(exec).cwd !== current.cwd || JSON.stringify(owner(exec).route) !== JSON.stringify(preview.route)) throw new Error('Agent changed during approval');
         await exec.reviewCheckpoint?.({stage:'approved-manifest',snapshotId:snapshot.id,files:snapshot.files.map(f=>({fileId:f.id,path:f.path,status:f.eligibility==='reviewable'?'pending':f.eligibility}))});
-        const report = await reviewSnapshot(preview.history.selection?.reviewSnapshot ?? snapshot, createDshModel(llm, preview.route,{correctJson:true,useNativeTools:nativeOutputTools}), { approvedRetrievalSnapshot: snapshot, instructions: preview.instructions, reviewEffort: preview.effort, enableCounterVerification: enableCounterVerification && preview.effort.counterVerification.eligible, executionStrategy, maxInputBytes, wholeScopeConcurrency, childExecution: preview.useHostChildren ? 'host-subagents' : undefined, createBatchModel: preview.useHostChildren ? args => hostChildren.create({ ...args, parent: exec.agent, route: preview.route, cwd: target }) : undefined, signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableGroupPrimary, enableEvidenceContext, inlineInteractionRisks, enableMigrationContracts, enableMigrationRegression, enableGroupInteractions, enableStageContinuation, nativeOutputTools, enableVerification: true, riskPlanningMode, readerBudgetPolicy, optimizeReviewCalls, enablePrimarySeeds, focusPrimaryContext, enableSearchSeeds, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:preview.rounds, enableBusinessGrouping, enableAnchorCorrection,changesConcurrency,maxRetrievalRounds,correctProtocol:true, onProgress:exec.reviewCheckpoint, resumeState, onModelArtifact: exec.onModelArtifact, onResumeCheckpoint: exec.reviewResumeCheckpoint ? async checkpoint => { await exec.reviewResumeCheckpoint(buildResumeState(snapshot, resumeIdentity, checkpoint)); } : undefined });
+        const report = await reviewSnapshot(preview.history.selection?.reviewSnapshot ?? snapshot, createDshModel(llm, preview.route,{correctJson:true,useNativeTools:nativeOutputTools}), { approvedRetrievalSnapshot: snapshot, instructions: preview.instructions, reviewEffort: preview.effort, enableCounterVerification: enableCounterVerification && preview.effort.counterVerification.eligible, executionStrategy:preview.effectiveStrategy, maxInputBytes, wholeScopeConcurrency, childExecution: preview.useHostChildren ? 'host-subagents' : undefined, createBatchModel: preview.useHostChildren ? args => hostChildren.create({ ...args, parent: exec.agent, route: preview.route, cwd: target }) : undefined, signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableGroupPrimary, enableEvidenceContext, inlineInteractionRisks, enableMigrationContracts, enableMigrationRegression, enableGroupInteractions, enableStageContinuation, nativeOutputTools, enableVerification: true, riskPlanningMode, readerBudgetPolicy, optimizeReviewCalls, enablePrimarySeeds, focusPrimaryContext, enableSearchSeeds, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:preview.rounds, enableBusinessGrouping, enableAnchorCorrection,changesConcurrency,maxRetrievalRounds,correctProtocol:true, onProgress:exec.reviewCheckpoint, resumeState, onModelArtifact: exec.onModelArtifact, onResumeCheckpoint: exec.reviewResumeCheckpoint ? async checkpoint => { await exec.reviewResumeCheckpoint(buildResumeState(snapshot, resumeIdentity, checkpoint)); } : undefined });
         if (preview.history.selection?.plan.requiredReportStatus === 'partial') { if (report.status==='completed') report.status='partial'; report.limitations.push({text:'增量复审只检查本轮选定主文件；未重审文件仅作批准检索上下文，不代表完整范围已查完。'}); }
+        report.dispatch = preview.dispatch;
         report.model = preview.route;
         report.reviewEffort = preview.effort;
         report.reviewHistory = finishReviewHistory(report,preview.history);
@@ -216,7 +229,7 @@ function createSessionReviewService(llm, { capture = captureSnapshot, reviewEffo
           exec.signal.throwIfAborted();
           report.outdated = !latest || latest.id !== snapshot.id || owner(exec).cwd !== current.cwd;
         }
-        return { report, markdown: markdownReport(report) + (report.outdated ? '\n注意：代码已变化或无法重新验证，报告仅对应原快照。\n' : '') };
+        return { report, markdown:renderUserReport(report), technicalMarkdown:markdownReport(report) };
       } finally { busy = false; }
     },
     dispose() { lifetime.abort(new Error('Review service disposed')); previews.clear(); },

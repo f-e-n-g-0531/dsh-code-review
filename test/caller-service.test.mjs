@@ -23,7 +23,7 @@ test('real service caller preview zero-send execution report and negative change
  assert.equal(calls,0);assert.deepEqual(preview.contextPaths,['app/a.ts']);assert.match(preview.notice,/非匹配正文不发送/);
  assert.ok(!JSON.stringify(preview).includes('NEGATIVE_BODY_DO_NOT_SEND'));
  const result=await service.execute({previewId:preview.previewId,confirmed:true},exec);
- assert.ok(calls>0);assert.equal(result.report.status,'partial');assert.equal(result.report.callerDiscovery.scanned.length,2);assert.match(result.markdown,/不证明函数调用/);assert.equal(result.report.outdated,false);
+ assert.ok(calls>0);assert.equal(result.report.status,'partial');assert.equal(result.report.callerDiscovery.scanned.length,2);assert.match(result.technicalMarkdown,/不证明函数调用/);assert.equal(result.report.outdated,false);
  const stale=await service.preview(args,exec);const before=calls;
  await writeFile(path.join(root,'app','b.ts'),'NEW_NEGATIVE_BODY');
  await assert.rejects(service.execute({previewId:stale.previewId,confirmed:true},exec),/Files changed/);assert.equal(calls,before);

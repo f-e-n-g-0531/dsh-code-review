@@ -1,3 +1,4 @@
+import { renderUserReport } from './user-report.mjs';
 import { reviewEffortPolicy, reviewEffortMode } from './review-effort.mjs';
 import { previewValidity } from './preview-validity.mjs';
 import { REVIEW_RUNTIME } from './runtime-identity.mjs';
@@ -226,7 +227,7 @@ export function createProjectReviewService(llm, { reviewEffort = 'auto', enableC
           signal.throwIfAborted();
         }
         report.diagnostics = reviewDiagnostics(report);
-        return { report, markdown: renderProjectReport(report) };
+        return { report, markdown:renderUserReport(report), technicalMarkdown:renderProjectReport(report) };
       } finally { busy = false; }
     },
 
