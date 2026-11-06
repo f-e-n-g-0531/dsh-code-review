@@ -2,6 +2,11 @@
 
 本文件介绍对使用者有意义的变化。安装与参数见 [README](README.md)，本次发布正文见 [发布说明](RELEASE-NOTES.md)。历史提交和安装包保留在 [GitHub Releases](https://github.com/f-e-n-g-0531/dsh-code-review/releases)；本文不把开发日志当作功能介绍。
 
+## 0.92.2 — 显式 profile 规范根兼容
+
+- 将作业目录校验锚定到已选择 profile 的规范根，兼容系统临时目录祖先别名；profile 内 data／jobs 的重定向逃逸仍拒绝。
+- 保留0.92.0／0.92.1失败标签和CI记录，未发布它们、不移动标签；本补丁只处理发布阻断，不扩阶段功能。
+
 ## 0.92.1 — Windows 验收路径兼容修复
 
 - 修复Windows对规范目录路径大小写不同的误拒绝；目录符号链接／junction重定向及不同真实路径仍拒绝。

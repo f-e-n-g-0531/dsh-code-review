@@ -21,7 +21,11 @@ export async function runReviewRegression(config,{runDriver=officialRunDriver,co
  const directory=path.join(driver.profileDir,'data','dsh-code-review','jobs'),reports=[],previews=[];
  let scanFailure;
  try{
-  const state=await lstat(directory);if(state.isSymbolicLink()||!state.isDirectory()||path.relative(path.resolve(await realpath(directory)),path.resolve(directory))!=='')throw fail('UNSAFE_JOB_DIRECTORY');
+  // The explicitly selected profile may sit below a legitimate OS temp alias.
+  // Resolve that trusted anchor, but reject redirection within its job subtree.
+  const canonicalProfile=await realpath(driver.profileDir);
+  const expectedDirectory=path.join(canonicalProfile,'data','dsh-code-review','jobs');
+  const state=await lstat(directory);if(state.isSymbolicLink()||!state.isDirectory()||path.relative(path.resolve(await realpath(directory)),path.resolve(expectedDirectory))!=='')throw fail('UNSAFE_JOB_DIRECTORY');
   const entries=await readdir(directory,{withFileTypes:true});if(entries.length>10000)throw fail('JOB_SCAN_LIMIT');
   for(const entry of entries){
    if(!entry.name.endsWith('.json'))continue;
