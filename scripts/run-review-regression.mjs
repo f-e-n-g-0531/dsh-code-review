@@ -21,7 +21,7 @@ export async function runReviewRegression(config,{runDriver=officialRunDriver,co
  const directory=path.join(driver.profileDir,'data','dsh-code-review','jobs'),reports=[],previews=[];
  let scanFailure;
  try{
-  const state=await lstat(directory);if(state.isSymbolicLink()||!state.isDirectory()||path.resolve(await realpath(directory))!==path.resolve(directory))throw fail('UNSAFE_JOB_DIRECTORY');
+  const state=await lstat(directory);if(state.isSymbolicLink()||!state.isDirectory()||path.relative(path.resolve(await realpath(directory)),path.resolve(directory))!=='')throw fail('UNSAFE_JOB_DIRECTORY');
   const entries=await readdir(directory,{withFileTypes:true});if(entries.length>10000)throw fail('JOB_SCAN_LIMIT');
   for(const entry of entries){
    if(!entry.name.endsWith('.json'))continue;
