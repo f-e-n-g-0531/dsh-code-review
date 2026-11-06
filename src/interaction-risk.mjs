@@ -40,7 +40,7 @@ export function prepareInteractionRisk(snapshot, group, prepared, options) {
       !isDeepStrictEqual(payload.files, canonical.files)) return fallback('incomplete-edit-scope');
   const combined = instructions + '\n' + INTERACTION_RISK_INSTRUCTIONS;
   // Exactly the same retrieval envelope and native/text wire policy as execution.
-  const budget = initialInputBudget({ instructions: combined, input: prepared.payload,
+  const budget = initialInputBudget({ instructions: combined, input: prepared.payload, maxRetrievalRounds: options.maxRetrievalRounds,
     ...(options.nativeOutputTools !== undefined ? { nativeOutputTools: options.nativeOutputTools } : {}) }, scope, maxInputBytes);
   return budget.fits ? { mode: 'inline', decision, instructions: combined, budget, planningCalls: 0 }
     : fallback('input-budget');

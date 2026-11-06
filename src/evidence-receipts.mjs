@@ -8,6 +8,7 @@ export function createEvidenceReceipts(read, { limit = 50 } = {}) {
   const entries = new Map();
   const keys = ['snapshotId', 'sourceId', 'hash', 'start', 'count', 'text'];
   return Object.freeze({
+    hasIssued(id) { return entries.has(id); },
     read(request) {
       if (entries.size >= limit) throw new Error('Evidence receipt limit exceeded');
       const receiptId = randomUUID();
@@ -22,7 +23,10 @@ export function createEvidenceReceipts(read, { limit = 50 } = {}) {
     },
     resolve(value) {
       if (!value || typeof value !== 'object' || Array.isArray(value) || !Object.hasOwn(value, 'receiptId')) return value;
-      if (Object.keys(value).length !== 1 || typeof value.receiptId !== 'string' || !entries.has(value.receiptId)) throw new Error('Invalid evidence receipt');
+      const receiptFailure = reason => Object.assign(new Error('Invalid evidence receipt'), { code:'INVALID_EVIDENCE_RECEIPT', receiptFailure:reason });
+      if (Object.keys(value).length !== 1) throw receiptFailure('mixed-fields');
+      if (typeof value.receiptId !== 'string') throw receiptFailure('invalid-id-type');
+      if (!entries.has(value.receiptId)) throw receiptFailure('unknown-in-current-verification');
       return { ...entries.get(value.receiptId) };
     },
   });

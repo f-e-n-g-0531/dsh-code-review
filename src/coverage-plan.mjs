@@ -19,7 +19,7 @@ export function buildCoveragePlan(input, options) {
   if (options?.executionStrategy === 'whole-scope') {
     if (rounds !== 1 || input?.projectScope || options.resumeState) throw new Error('Whole-scope requires fresh single-round changes review');
     const prepared = prepareWholeScope(input, options);
-    return { snapshotId: input.id, executionStrategy: 'whole-scope', reviewRounds: 1, maxInputBytes: options.maxInputBytes, minimumCalls: prepared.batches.length, initialRequestsOnly: true, interactions: [], primaryGroups: prepared.batches.map(batch => ({ groupId: batch.id, fileIds: batch.fileIds, minimumCalls: 1 })), oversized: prepared.oversized, items: input.files.map(file => ({ fileId: file.id, path: file.path, eligibility: file.eligibility, primaryMethod: 'whole-scope', minimumCalls: 0 })), notice: '完整双侧按实际线缆字节合批；补读与候选集中复核可能增加调用，超大文件及跨批覆盖不足不会标成完成。' };
+    return { snapshotId: input.id, executionStrategy: 'whole-scope', reviewRounds: 1, maxInputBytes: options.maxInputBytes, childTransport:options.childTransport===true, hostReserveBytes:options.childTransport===true?(options.hostReserveBytes??65536):0, minimumCalls: prepared.batches.length, initialRequestsOnly: true, capacityRecovery: {enabled:options.childTransport===true,maxDepth:8,mode:'fresh-child-member-bisection',additionalCalls:true,sharedBudgetsUnchanged:true}, interactions: [], primaryGroups: prepared.batches.map(batch => ({ groupId: batch.id, fileIds: batch.fileIds, minimumCalls: 1 })), oversized: prepared.oversized, items: input.files.map(file => ({ fileId: file.id, path: file.path, eligibility: file.eligibility, primaryMethod: 'whole-scope', minimumCalls: 0 })), notice: '完整双侧按实际线缆字节合批；补读、受限批次在原共享预算内按成员二分的新子会话补审及候选集中复核会增加实际调用和耗时；最多8层，不重置预算，单成员仍受限时保留未完成，超大文件及跨批覆盖不足不会标成完成。' };
   }
   riskPlanningMode(options?.riskPlanningMode);
   for (const key of ['enableEvidenceContext', 'inlineInteractionRisks', 'enableMigrationContracts', 'enableMigrationRegression', 'enableGroupInteractions', 'enableStageContinuation']) if (options?.[key] !== undefined && typeof options[key] !== 'boolean') throw new Error('Invalid review optimization option');
@@ -49,7 +49,7 @@ export function buildCoveragePlan(input, options) {
   const groups = [...(options.grouping?.groups ?? [])];
   for(const group of local?.groups ?? [])if(!groups.some(g=>[...g.fileIds].sort().join(',')===[...group.fileIds].sort().join(',')))groups.push(group);
   const interactions = options.scope && groups.length ? groups.filter(g => g.fileIds.length > 1).map(group => {
-    const prepared = prepareInteractionInput(input, group, payload => initialInputBudget({ instructions: options.instructions, input: payload }, options.scope, options.maxInputBytes));
+    const prepared = prepareInteractionInput(input, group, payload => initialInputBudget({ instructions: options.instructions, input: payload, maxRetrievalRounds: options.maxRetrievalRounds }, options.scope, options.maxInputBytes));
     const strategy = prepareInteractionRisk(input, group, prepared, options);
     const riskPlanning = { ...strategy.decision, mode: strategy.mode };
     return { groupId: group.id, fileIds: prepared.fileIds, riskPlanning, status: prepared.status, reason: prepared.reason, minimumCalls: prepared.status === 'ready' ? rounds + strategy.planningCalls : 0 };

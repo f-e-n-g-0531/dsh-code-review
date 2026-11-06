@@ -54,7 +54,7 @@ for (const kind of ['primary', 'group-primary', 'file-interaction']) for (const 
     const receipts = createEvidenceReceipts(raw.read);
     const scope = { ...raw, read: receipts.read };
     const request = { ...prepare(kind, snapshot, scope), nativeOutputTools };
-    const base = JSON.parse(request.input), initial = retrievalRequest(request, scope);
+    const base = JSON.parse(request.input), initial = retrievalRequest(request, scope, [], {max:3,remaining:3});
     const maxInputBytes = bytes(initial) + 50;
     const reads = [scope.catalog().find(s => s.fileId === 'a' && s.side === 'old'), scope.catalog().find(s => s.fileId === 'b' && s.side === 'new')].map((s, i) => ({ kind: 'read', id: s.id, start: kind === 'file-interaction' && i === 1 ? 2 : 1, count: kind === 'file-interaction' && i === 1 ? 1 : 2 }));
     const events = [], audit = []; let calls = 0, gates = 0, saved;
@@ -95,7 +95,7 @@ test('small followup stays byte-for-byte uncompressed', async () => {
     const p = JSON.parse(req.input);
     if (++calls === 1) return { requests: [{ kind: 'read', id: 's1', start: 2, count: 1 }] };
     assert.equal(p.followupSourceNotice, undefined);
-    assert.equal(req.input, retrievalRequest(request, scope, p.retrieved).input);
+    assert.equal(req.input, retrievalRequest(request, scope, p.retrieved, p.retrievalRounds).input);
     return { findings: [], limitations: [] };
   }, request, scope, { correctProtocol: true, maxInputBytes: 1000000 });
   assert.equal(calls, 2);
@@ -118,7 +118,7 @@ test('still oversized evidence is honestly omitted without body, receipt or deli
     assert.equal(r.omitted, true); assert.equal(r.text, undefined); assert.equal(r.receiptId, undefined);
     assert.deepEqual(p.risks, [{ text: 'keep claim' }]);
     return { findings: [], limitations: ['Evidence unavailable'] };
-  }, { ...request, onProtocolEvent: e => events.push(e) }, scope, { correctProtocol: true, maxInputBytes: bytes(retrievalRequest(request, scope)) + 100, onRetrieved: r => audit.push(...r) });
+  }, { ...request, onProtocolEvent: e => events.push(e) }, scope, { correctProtocol: true, maxInputBytes: bytes(retrievalRequest(request, scope, [], {max:Number.MAX_SAFE_INTEGER,remaining:Number.MAX_SAFE_INTEGER})) + 100, onRetrieved: r => audit.push(...r) });
   assert.equal(scope.usage().calls, 1); assert.equal(calls, 2); assert.equal(audit.length, 0);
   assert.ok(events.some(e => e.action === 'oversized-retrieval-omitted'));
 });
@@ -126,7 +126,7 @@ test('still oversized evidence is honestly omitted without body, receipt or deli
 test('cancellation at followup admission neither sends nor publishes retrieved evidence', async () => {
   const snapshot = fixture(), scope = createRetrievalScope(snapshot), request = prepare('primary', snapshot, scope), controller = new AbortController();
   let calls = 0, gates = 0; const audit = [];
-  await assert.rejects(retrievalLoop(async () => { calls++; return { requests: [{ kind: 'read', id: 's1', start: 1, count: 2 }] }; }, { ...request, signal: controller.signal }, scope, { correctProtocol: true, maxInputBytes: bytes(retrievalRequest(request, scope)) + 50, beforeCall: () => { if (++gates === 2) controller.abort(); }, onRetrieved: rows => audit.push(...rows) }), /abort/i);
+  await assert.rejects(retrievalLoop(async () => { calls++; return { requests: [{ kind: 'read', id: 's1', start: 1, count: 2 }] }; }, { ...request, signal: controller.signal }, scope, { correctProtocol: true, maxInputBytes: bytes(retrievalRequest(request, scope, [], {max:Number.MAX_SAFE_INTEGER,remaining:Number.MAX_SAFE_INTEGER})) + 50, beforeCall: () => { if (++gates === 2) controller.abort(); }, onRetrieved: rows => audit.push(...rows) }), /abort/i);
   assert.equal(calls, 1); assert.equal(gates, 2); assert.equal(scope.usage().calls, 1); assert.equal(audit.length, 0);
 });
 
@@ -163,11 +163,12 @@ test('window synthesis followup strips only source bodies, not claims, changes o
     const p = JSON.parse(req.input);
     if (++calls === 1) { assert.deepEqual(p.windows, payload.windows); return { requests: [{ kind: 'read', id: 's1', start: 1, count: 1 }] }; }
     assert.deepEqual(Object.fromEntries(Object.entries(p).filter(([k]) => Object.hasOwn(payload, k))), withoutBodies(payload));
-    assert.equal(p.retrievalFinalization.code, 'RETRIEVAL_ROUND_BUDGET_EXCEEDED');
+    assert.equal(p.retrievalFinalization,undefined);
+    assert.deepEqual(p.retrievalRounds,{max:1,remaining:0});
     assert.equal(p.retrieved[0].result.text, 'evidence '.repeat(500));
     assert.equal(receipts.resolve({ receiptId: p.retrieved[0].result.receiptId }).text, p.retrieved[0].result.text);
-    assert.match(req.instructions, /不得再返回requests/);
+    assert.match(req.instructions, /do not request more reads/);
     return { findings: [], limitations: ['Only supplied fragment checked'] };
-  }, request, scope, { correctProtocol: true, maxInputBytes: bytes(retrievalRequest(request, scope)) + 100, maxRounds: 1, onBudgetLimited: () => limited++ });
-  assert.equal(calls, 2); assert.equal(limited, 1); assert.equal(scope.usage().calls, 1);
+  }, request, scope, { correctProtocol: true, maxInputBytes: bytes(retrievalRequest(request, scope, [], {max:Number.MAX_SAFE_INTEGER,remaining:Number.MAX_SAFE_INTEGER})) + 100, maxRounds: 1, onBudgetLimited: () => limited++ });
+  assert.equal(calls, 2); assert.equal(limited, 0); assert.equal(scope.usage().calls, 1);
 });

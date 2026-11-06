@@ -1,7 +1,9 @@
+import { validateModelComparisonAssessment } from './model-comparison-assessment.mjs';
 import { validateMigrationRegression } from './migration-regression.mjs';
 
 // Host-validated comparison references are not proof of a model's causal claim.
 export function validateRegressionAssessment(value, evidence, catalog, fileId, options = {}) {
+  if (value && typeof value === 'object' && Object.hasOwn(value, 'comparison')) return validateModelComparisonAssessment(value, evidence, catalog, fileId, { enableModelComparison: options.enableModelComparison, snapshotId: options.snapshotId, candidate: options.modelComparisonCandidate, changes: options.modelComparisonChanges, ...(options.modelComparisonContext?{context:options.modelComparisonContext}:{}) });
   if (value === undefined) return { classification: 'unassessed', causality: 'unverified' };
   const keys = ['classification', 'reason', 'oldEvidence', 'newEvidence'];
   if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== keys.length + (Object.hasOwn(value, 'migrationContractId') ? 1 : 0) || keys.some(k => !Object.hasOwn(value, k))) throw new Error('Invalid regression assessment');

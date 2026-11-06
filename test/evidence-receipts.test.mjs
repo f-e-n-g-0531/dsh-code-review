@@ -36,7 +36,9 @@ test('unknown, cross-review and mixed receipt references fail closed', () => {
   const a = createEvidenceReceipts(reader.read), b = createEvidenceReceipts(reader.read);
   const { receiptId } = a.read({ id: 's1', start: 1, count: 1 });
   for (const value of [{ receiptId: 'forged' }, { receiptId, text: 'override' }, { receiptId: null }]) assert.throws(() => a.resolve(value), /Invalid evidence receipt/);
-  assert.throws(() => b.resolve({ receiptId }), /Invalid evidence receipt/);
+  assert.throws(() => b.resolve({ receiptId }), e=>e.code==='INVALID_EVIDENCE_RECEIPT'&&e.receiptFailure==='unknown-in-current-verification');
+  assert.throws(() => a.resolve({receiptId,text:'PRIVATE_SOURCE'}), e=>e.code==='INVALID_EVIDENCE_RECEIPT'&&e.receiptFailure==='mixed-fields'&&!JSON.stringify(e).includes('PRIVATE_SOURCE')&&!JSON.stringify(e).includes(receiptId));
+  assert.throws(() => a.resolve({receiptId:null}), e=>e.code==='INVALID_EVIDENCE_RECEIPT'&&e.receiptFailure==='invalid-id-type');
   const legacy = { text: 'not silently repaired' };
   assert.equal(a.resolve(legacy), legacy);
 });

@@ -135,21 +135,22 @@ test('finalization does not bypass model call guard, cancellation or input capac
   assert.equal(calls, 1);
 
   const tight = scope({ maxCalls: 1 }); calls = 0;
-  const envelope = retrievalRequest(request, tight);
+  const envelope = retrievalRequest(request, tight, [], {max:Number.MAX_SAFE_INTEGER,remaining:Number.MAX_SAFE_INTEGER});
   const maxInputBytes = Buffer.byteLength(envelope.input) + Buffer.byteLength(envelope.instructions);
   await assert.rejects(retrievalLoop(async () => { calls++; return { requests: [read()] }; }, request, tight, { maxInputBytes }), /input budget/);
   assert.equal(calls, 1);
 });
 
-test('round exhaustion reserves its existing final turn rather than granting extra retrieval', async () => {
+test('using the last permitted retrieval round allows a natural final without claiming denied evidence', async () => {
   const reader = scope(); let calls = 0, limited = 0;
   const result = await retrievalLoop(async req => {
     calls++;
     if (calls === 1) return { requests: [read()] };
-    assert.equal(JSON.parse(req.input).retrievalFinalization.code, 'RETRIEVAL_ROUND_BUDGET_EXCEEDED');
+    assert.equal(JSON.parse(req.input).retrievalFinalization, undefined);
+    assert.deepEqual(JSON.parse(req.input).retrievalRounds,{max:1,remaining:0});
     return final;
   }, request, reader, { maxRounds: 1, onBudgetLimited: () => limited++ });
-  assert.deepEqual(result, final); assert.equal(calls, 2); assert.equal(limited, 1); assert.equal(reader.usage().calls, 1);
+  assert.deepEqual(result, final); assert.equal(calls, 2); assert.equal(limited, 0); assert.equal(reader.usage().calls, 1);
 });
 
 test('decorated output failures roll back the whole batch and publish no audit or receipt', async () => {

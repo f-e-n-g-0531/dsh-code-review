@@ -62,6 +62,6 @@ export function chooseRiskStrategy(input, file, prepared, options) {
     return fallback('incomplete-edit-scope');
   }
   const instructions = options.instructions + '\n' + INLINE_RISK_INSTRUCTIONS;
-  const budget = initialInputBudget({ instructions, input: prepared.payload }, options.scope, options.maxInputBytes);
+  const budget = initialInputBudget({ instructions, input: prepared.payload, maxRetrievalRounds: options.maxRetrievalRounds }, options.scope, options.maxInputBytes);
   return budget.fits ? { mode: 'inline', decision, instructions, budget } : fallback('input-budget');
 }

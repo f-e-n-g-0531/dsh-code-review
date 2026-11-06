@@ -115,7 +115,7 @@ test('disabled policy and exact wire-boundary fallback preserve old full-body gr
   const f = fixture({ native: true }), old = fixture({ native: true, enabled: false });
   assert.equal(old.prepared.groupInteraction, undefined); assert.equal(old.check().status, 'disabled');
   assert.equal(JSON.parse(old.prepared.payload).groupInteraction, undefined);
-  const actual = retrievalRequest({ input: f.prepared.payload, instructions: f.prepared.instructions, nativeOutputTools: true }, f.scope);
+  const actual = retrievalRequest({ input: f.prepared.payload, instructions: f.prepared.instructions, nativeOutputTools: true }, f.scope, [], {max:3,remaining:3});
   const bytes = modelWireBudget(actual, 98304).bytes;
   const prepare = maxInputBytes => prepareGroupPrimary(f.input, f.group, { scope: f.scope, instructions: 'Review approved snapshot', maxInputBytes, enableGroupInteractions: true });
   assert.equal(prepare(bytes).groupInteraction, true);

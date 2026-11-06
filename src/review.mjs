@@ -28,7 +28,7 @@ import { preparePrimaryInput } from './primary-input.mjs';
 import { validateAttribution } from './attribution.mjs';
 import { changeScopeLabel } from './git-change-scope.mjs';
 import { canonicalRiskInput } from './risk-scope.mjs';
-import { changesConcurrency, retrievalRounds } from './review-execution-policy.mjs';
+import { changesConcurrency, retrievalRounds, verificationRetrievalRounds } from './review-execution-policy.mjs';
 import { scheduleFileChains } from './file-chain-scheduler.mjs';
 import { reviewReaderBudget, readerAdmission } from './review-reader-policy.mjs';
 import { primarySeeds } from './primary-seeds.mjs';
@@ -119,6 +119,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   // Low-level callers retain serial compatibility; the production changes service opts into two chains.
   const fileConcurrency = changesConcurrency(options.changesConcurrency ?? 1);
   const maxRetrievalRounds = retrievalRounds(options.maxRetrievalRounds);
+  const maxVerificationRetrievalRounds = verificationRetrievalRounds(options.maxVerificationRetrievalRounds, maxRetrievalRounds);
   let checkpointFailed = false, checkpointFailure;
   const progress = options.onProgress;
   const resumeCheckpoint = options.onResumeCheckpoint;
@@ -143,7 +144,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   }
   if (options.enableBusinessGrouping === true && options.enableRetrieval !== true) throw new Error('Business grouping requires approved retrieval scope');
   if (options.enableVerification === true && options.enableRetrieval !== true) throw new Error('Verification requires approved retrieval scope');
-  for (const key of ['enableEvidenceContext', 'inlineInteractionRisks', 'enableMigrationContracts', 'enableMigrationRegression', 'enableGroupInteractions', 'enableStageContinuation']) if (options[key] !== undefined && typeof options[key] !== 'boolean') throw new Error('Invalid review optimization option');
+  for (const key of ['enableEvidenceContext', 'inlineInteractionRisks', 'enableMigrationContracts', 'enableMigrationRegression', 'enableModelComparison', 'enableGroupInteractions', 'enableStageContinuation']) if (options[key] !== undefined && typeof options[key] !== 'boolean') throw new Error('Invalid review optimization option');
   const evidenceContext = options.enableEvidenceContext === true ? createEvidenceContext(input.id) : null;
   const readerLimits = reviewReaderBudget(input, options.readerBudgetPolicy ?? 'fixed');
   const scope = options.enableRetrieval === true ? createRetrievalScope({ ...approvedRetrievalSnapshot(input, options.approvedRetrievalSnapshot), context: input.context ?? [] }, { ...readerLimits, signal, ...(options.optimizeReviewCalls === true ? { reuseResults: true } : {}) }) : null;
@@ -174,7 +175,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   report.interactions = [];
   const selectedGroups = (report.grouping?.groups ?? []).filter(group => group.fileIds.length > 1);
   if (report.migrationContracts) report.migrationContracts.groups = selectedGroups.filter(group => report.migrationContracts.groups.some(other => [...other.fileIds].sort().join(',') === [...group.fileIds].sort().join(',')));
-  const interactionPlans = scope ? selectedGroups.map(group => ({ group, prepared: prepareInteractionInput(input, group, payload => initialInputBudget({ instructions, input: payload }, scope, maxInputBytes)) })) : [];
+  const interactionPlans = scope ? selectedGroups.map(group => ({ group, prepared: prepareInteractionInput(input, group, payload => initialInputBudget({ instructions, input: payload, maxRetrievalRounds }, scope, maxInputBytes)) })) : [];
   for (const plan of interactionPlans.filter(p => p.prepared.status !== 'not-applicable')) report.interactions.push({ groupId: plan.group.id, fileIds: plan.prepared.fileIds, status: plan.prepared.status === 'ready' ? 'pending' : 'blocked', reason: plan.prepared.reason, lifecycle: 'shares-last-primary-timeout' });
   const fileResults = new Array(input.files.length);
   const sharedState = report.orchestration = { modelMetrics: {}, modelCallPurposes: {} };
@@ -291,7 +292,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     if (signal?.aborted) { state.status = 'cancelled'; state.reason = '用户取消'; return; }
     const assignedGroup = [...groupPrepared].find(([, value]) => value.fileIds.includes(file.id));
     if (!assignedGroup && (report.modelCalls >= maxCalls || options.remainingCalls?.() <= 0)) { state.reason = '模型调用预算耗尽'; state.failureCode = 'PROJECT_MODEL_CALL_LIMIT'; return; }
-    const prepared = preparePrimaryInput(input, file, { instructions, scope, grouping: report.grouping, maxInputBytes, riskPlanningMode: options.riskPlanningMode, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning, skipSmallRiskPlans: options.skipSmallRiskPlans });
+    const prepared = preparePrimaryInput(input, file, { instructions, scope, grouping: report.grouping, maxInputBytes, maxRetrievalRounds, riskPlanningMode: options.riskPlanningMode, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning, skipSmallRiskPlans: options.skipSmallRiskPlans });
     const { changes, payload } = prepared;
     Object.assign(state, prepared.metadata);
     if (prepared.synthesis) state.synthesisStatus = prepared.synthesis.status === 'ready' ? 'pending' : 'blocked';
@@ -387,7 +388,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         const scheduled = Array.from({length:rounds},(_,i)=>batches.map(b=>({...b,round:i+1}))).flat();
         primaryStageKeys.set(file.id, scheduled.filter(batch => !batch.synthesis && !batch.interaction).map(batch => stageKey(file.id, { phase: 'primary', round: batch.round, windowIds: batch.windowIds ?? [] })));
         if(rounds>1) state.reviewPasses=scheduled.map(b=>({round:b.round,windowIds:b.windowIds,...(b.interaction?{groupId:b.interaction.id}:{}),...(b.synthesis?{synthesis:true}:{}),status:'pending'}));
-        const riskInput = canonicalRiskInput(input, file, prepared, { instructions: RISK_PLAN_INSTRUCTIONS, scope, maxInputBytes });
+        const riskInput = canonicalRiskInput(input, file, prepared, { instructions: RISK_PLAN_INSTRUCTIONS, scope, maxInputBytes, maxRetrievalRounds });
         let primaryRiskPlan;
         const executeStage = async (batch, batchIndex, enclosingRequest, retry = false) => {
         enclosingRequest.signal.throwIfAborted();
@@ -454,7 +455,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         const relevantContracts = report.migrationContracts?.contracts.filter(contract => contract.candidateFileIds.includes(file.id) || batch.interaction?.fileIds.some(id => contract.candidateFileIds.includes(id))) ?? [];
         if (relevantContracts.length) {
           const enriched = JSON.stringify({ ...JSON.parse(batchPayload), migrationContracts: relevantContracts, migrationNotice: 'Host navigation hypotheses only; old/new entries and callers are side-qualified. Follow the complete old public gate → new entry → caller chain under the SAME trigger. Contracts do not prove semantic migration, grant sources, or replace current independent verification.' });
-          if (initialInputBudget({ input: enriched, instructions }, activeReader, maxInputBytes).fits) batchPayload = enriched;
+          if (initialInputBudget({ input: enriched, instructions, maxRetrievalRounds }, activeReader, maxInputBytes).fits) batchPayload = enriched;
           else (state.migrationContextLimitations ??= []).push('Migration navigation did not fit this stage; no coverage claim.');
         }
         const interactionStrategy = batch.interaction && !combinedInteraction ? prepareInteractionRisk(input, batch.interaction, matchingInteractionPlans.find(plan => plan.group.id === batch.interaction.id).prepared, { ...options, instructions, scope: activeReader, maxInputBytes, round: batch.round }) : null;
@@ -499,7 +500,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           activeRisks = visibleEdits ? riskEntry.risks.filter(risk => risk.editRefs.some(ref => ref.fileId === file.id && visibleEdits.has(ref.editId))) : riskEntry.risks;
           if (riskEntry.status === 'completed') {
             const enriched = JSON.stringify({ ...JSON.parse(batch.payload), riskPlan: activeRisks, riskPlanNotice: '未可信假设而非发现或证据；须验证及寻找反证，不增加读取权限。' });
-            if (initialInputBudget({ instructions, input: enriched }, scope, maxInputBytes).fits) batchPayload = enriched;
+            if (initialInputBudget({ instructions, input: enriched, maxRetrievalRounds }, scope, maxInputBytes).fits) batchPayload = enriched;
             else {
               activeRisks = [];
               (riskEntry.enrichmentFallbacks ??= []).push({ windowIds: batch.windowIds, reason: 'input-budget' });
@@ -514,7 +515,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
         let auditStart = suspended?.auditStart ?? state.retrievalAudit?.length ?? 0;
         const finalResponseOnly = suspended?.finalResponseOnly ?? { value: false };
         const generate = async attempt => {
-          if (!initialInputBudget(attempt, scope, maxInputBytes).fits) throw new Error('Review correction input budget exceeded');
+          if (!initialInputBudget({ ...attempt, maxRetrievalRounds }, scope, maxInputBytes).fits) throw new Error('Review correction input budget exceeded');
           if (suspended?.resume) {
             const resume = suspended.resume; suspended.resume = undefined;
             try { return await resume(attempt.signal); }
@@ -615,8 +616,8 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
           try {
             activeStage = 'verification';
             let verdicts = await verificationLoop(trackedModel, { ...request, onProtocolEvent, reviewPhase: 'verification' }, generated.findings, stageScope('verification:' + file.id), {
-              correctProtocol:options.correctProtocol===true,maxRounds:maxRetrievalRounds,maxInputBytes, beforeCall, onBudgetLimited, yieldOnBudget: options.enableStageContinuation === true,
-              enableMigrationRegression: options.enableMigrationRegression === true, migrationContracts: report.migrationContracts?.contracts ?? [], migrationSnapshot: input,
+              correctProtocol:options.correctProtocol===true,maxRounds:maxVerificationRetrievalRounds,maxInputBytes, beforeCall, onBudgetLimited, yieldOnBudget: options.enableStageContinuation === true,
+              enableModelComparison: options.enableModelComparison === true && !input.projectScope, enableMigrationRegression: options.enableMigrationRegression === true, migrationContracts: report.migrationContracts?.contracts ?? [], migrationSnapshot: input,
               onMigrationSeeds: event => {
                 // Source-free host events only; never persist model text or reader bodies.
                 if (!['accepted', 'fallback'].includes(event?.status)) return;
@@ -628,7 +629,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
               onTruncated: () => { result.limitations.push({ fileId: file.id, text: '复核检索结果达到数量上限' }); },
             });
             request.signal.throwIfAborted();
-            verdicts = await runCounterVerification(trackedModel, { ...request, onProtocolEvent, reviewPhase:'verification' }, generated.findings, verdicts, stageScope('verification:' + file.id), { enabled:options.enableCounterVerification === true, maxRounds:maxRetrievalRounds,maxInputBytes,beforeCall,onBudgetLimited, isFatalError:error=>checkpointFailed||error?.code==='MODEL_ARTIFACT_FAILED' });
+            verdicts = await runCounterVerification(trackedModel, { ...request, onProtocolEvent, reviewPhase:'verification' }, generated.findings, verdicts, stageScope('verification:' + file.id), { enabled:options.enableCounterVerification === true, enableModelComparison:options.enableModelComparison===true&&!input.projectScope,enableMigrationRegression:options.enableMigrationRegression===true,migrationContracts:report.migrationContracts?.contracts??[],migrationSnapshot:input,maxRounds:maxVerificationRetrievalRounds,maxInputBytes,beforeCall,onBudgetLimited, isFatalError:error=>checkpointFailed||error?.code==='MODEL_ARTIFACT_FAILED' });
             request.signal.throwIfAborted();
             generated.findings.forEach((finding, i) => { finding.verification = { status: verdicts[i].counterVerification?.status === 'incomplete' ? 'incomplete' : 'completed', ...verdicts[i] }; });
             if (verdicts.some(v => v.verdict === 'supported' && v.regression?.classification === 'uncertain')) result.limitations.push({ fileId: file.id, text: '部分模型支持候选缺少充分前后对照，不能确认由本次变更引入' });
@@ -726,7 +727,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
       report.businessGrouping = { status: 'completed', ...grouped };
       for (const group of grouped.groups.filter(g => g.fileIds.length > 1)) {
         if (interactionPlans.some(p => [...p.group.fileIds].sort().join(',') === [...group.fileIds].sort().join(','))) continue;
-        const prepared = prepareInteractionInput(input, group, payload => initialInputBudget({ instructions, input: payload }, scope, maxInputBytes));
+        const prepared = prepareInteractionInput(input, group, payload => initialInputBudget({ instructions, input: payload, maxRetrievalRounds }, scope, maxInputBytes));
         interactionPlans.push({ group, prepared });
         if (prepared.status !== 'not-applicable') report.interactions.push({ groupId: group.id, fileIds: prepared.fileIds, status: group.fileIds.every(id => options.resumeState?.completed?.some(row => row.fileId === id)) ? 'completed' : prepared.status === 'ready' ? 'pending' : 'blocked', reason: prepared.reason, lifecycle: 'shares-last-primary-timeout' });
       }
@@ -741,7 +742,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     const groups = [...(report.migrationContracts?.groups ?? []), ...(report.businessGrouping?.groups ?? report.grouping?.groups ?? [])];
     for (const group of groups) {
       if (group.fileIds.some(id => seen.has(id) || options.resumeState?.completed?.some(row => row.fileId === id) || options.resumeState?.stageGenerations?.some(row => row.fileId === id))) continue;
-      const prepared = prepareGroupPrimary(input, group, { instructions, scope, maxInputBytes, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning === true, enableGroupInteractions: options.enableGroupInteractions === true, migrationContracts: report.migrationContracts?.contracts ?? [] });
+      const prepared = prepareGroupPrimary(input, group, { instructions, scope, maxInputBytes, maxRetrievalRounds, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning === true, enableGroupInteractions: options.enableGroupInteractions === true, migrationContracts: report.migrationContracts?.contracts ?? [] });
       if (!prepared) continue;
       groupPrepared.set(group.id, prepared);
       for (const id of group.fileIds) seen.add(id);
@@ -753,7 +754,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
     const reusable = new Set((options.resumeState?.completed ?? []).map(row => row.fileId));
     for (const [id, prepared] of groupPrepared) units.push({ id: 'group:' + id, weight: prepared.fileIds.length * 4 });
     for (const file of input.files.filter(file => file.eligibility === 'reviewable' && !reusable.has(file.id))) {
-      const prepared = preparePrimaryInput(input, file, { instructions, scope, grouping: report.grouping, maxInputBytes, riskPlanningMode: options.riskPlanningMode, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning, skipSmallRiskPlans: options.skipSmallRiskPlans });
+      const prepared = preparePrimaryInput(input, file, { instructions, scope, grouping: report.grouping, maxInputBytes, maxRetrievalRounds, riskPlanningMode: options.riskPlanningMode, focusPrimaryContext: options.focusPrimaryContext === true, enableRiskPlanning: options.enableRiskPlanning, skipSmallRiskPlans: options.skipSmallRiskPlans });
       // Reserve fallback floors before the group starts; released immediately
       // after successful validation, without granting a second root budget.
       if (options.enableStageContinuation || ![...groupPrepared.values()].some(group => group.fileIds.includes(file.id))) units.push({ id: 'primary:' + file.id, weight: 4 * Math.max(1, prepared.batches?.length ?? 1) });
@@ -838,7 +839,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   report.findings = fileResults.flatMap(result => result.findings);
   report.limitations.push(...fileResults.flatMap(result => result.limitations));
   report.execution = { fileConcurrency, maxRetrievalRounds };
-  report.readerLimits = { maxRounds: maxRetrievalRounds };
+  report.readerLimits = { maxRounds: maxRetrievalRounds, maxVerificationRounds: maxVerificationRetrievalRounds };
   await options.onProgress?.({stage:'batch-complete',snapshotId:input.id,files:report.files,findings:report.findings,limitations:report.limitations});
   for (const interaction of report.interactions) if (interaction.status !== 'completed') report.limitations.push({ text: '跨文件综合未完成：' + interaction.groupId + ' (' + interaction.status + ')' });
   if (report.grouping?.links.some(l => l.split)) report.limitations.push({ text: '跨组关系未综合覆盖；关联分组不代表全部跨文件交互覆盖' });

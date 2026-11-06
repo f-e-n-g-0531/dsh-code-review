@@ -1,3 +1,5 @@
+import { buildModelComparisonSchema } from './model-comparison-schema.mjs';
+import { trustedReceiptIds } from './verification-receipt-policy.mjs';
 // Installed dsh-llm ToolSchema: {name,description,parameters}; tool arguments are
 // strings, not parsed objects. This declares a data result, never an executable tool.
 export const RESULT_TOOL_NAME = 'submit_review_result';
@@ -31,22 +33,37 @@ export function modelResultStage(input, instructions = '') {
   if (p.file || p.sourceMode === 'file-interaction') return 'findings';
   return undefined;
 }
-export function modelResultTools(input, instructions = '') {
+export function modelResultTools(input, instructions = '', receiptProof) {
   const stage = modelResultStage(input, instructions);
   if (!stage) return [];
   let p; try { p = JSON.parse(input); } catch { return []; }
   const migrationIds = Array.isArray(p.migrationContracts) ? p.migrationContracts.map(contract => contract?.id).filter(id => typeof id === 'string' && id.length > 0 && id.length <= 200).slice(0, 128) : [];
   const regression = migrationIds.length ? object({ classification: { enum: ['introduced', 'preexisting', 'uncertain'] }, reason: text, oldEvidence: array({ type: 'integer', minimum: 0 }), newEvidence: array({ type: 'integer', minimum: 0 }), migrationContractId: { type: 'string', maxLength: 200, enum: [...new Set(migrationIds)] } }, ['classification', 'reason', 'oldEvidence', 'newEvidence']) : object({ classification: { enum: ['introduced', 'preexisting', 'uncertain'] }, reason: text, oldEvidence: array({ type: 'integer', minimum: 0 }), newEvidence: array({ type: 'integer', minimum: 0 }) });
+  const issued = trustedReceiptIds(receiptProof);
   const final = stage === 'findings' ? review : stage === 'risks' ? object({ risks: array(risk) }) :
     stage === 'groups' ? object({ groups: array(object({ fileIds: strings, reason: { type: 'string' } })) }) :
     stage === 'reviews' ? object({ reviews: array(object({ fileId: { type: 'string' }, findings, limitations: strings, risks: array(risk) }, ['fileId', 'findings', 'limitations'])), limitations: strings, ...(p.groupInteraction ? { interactions: object({ groupId: { const: p.groupInteraction.groupId }, findings, limitations: strings }) } : {}) }, ['reviews', 'limitations']) :
-    object({ verdicts: array(object({ candidateId: text, verdict: { enum: ['supported', 'refuted', 'uncertain'] }, reason: text, evidence: array({ oneOf: [object({ receiptId: text }), object({ snapshotId: text, sourceId: text, hash: text, start: { type: 'integer', minimum: 1 }, count: { type: 'integer', minimum: 1, maximum: 200 }, text })] }), regression }, ['candidateId', 'verdict', 'reason', 'evidence'])) });
+    object({ verdicts: array(object({ candidateId: text, verdict: { enum: ['supported', 'refuted', 'uncertain'] }, reason: text, evidence: array({ oneOf: [{ ...object({ receiptId: {type:'string',description:'Copy exactly one receiptId actually returned by a read in this verification invocation. This object contains ONLY receiptId; never add sourceId, text, range or other fields. Unknown or earlier-review IDs are rejected.'} }), description:'Receipt-only reference. Exactly one key: receiptId. Mutually exclusive with the complete six-field reference. Do not invent or repair an ID.' }, { ...object({ snapshotId: text, sourceId: text, hash: text, start: { type: 'integer', minimum: 1 }, count: { type: 'integer', minimum: 1, maximum: 200 }, text }), description:'Complete reference: copy exactly snapshotId, sourceId, hash, start, count, text from one actual read result. Do not include receiptId or endOfSource; never combine this form with a receipt-only reference.' }] }), regression }, ['candidateId', 'verdict', 'reason', 'evidence'])) });
+  if(stage==='verdicts'){
+    const evidence=final.properties.verdicts.items.properties.evidence;
+    evidence.maxItems=8;
+    evidence.description='At most eight evidence references per candidate. Supported/refuted require at least one actual approved read; uncertain may use an empty array. Select the minimal sufficient old/new/public-gate/counterevidence set, not every retrieved fragment. Never invent, merge, truncate or renumber evidence bodies.';
+    for(const field of ['oldEvidence','newEvidence']){regression.properties[field].maxItems=8;regression.properties[field].description='At most eight distinct zero-based indices into this candidate evidence array; duplicates are rejected by the host.';}
+    if (p.modelComparisonPolicy && typeof p.modelComparisonPolicy === 'object' && !Array.isArray(p.modelComparisonPolicy) && p.modelComparisonPolicy.enabled === true) {
+      final.properties.verdicts.items.properties.regression = { oneOf: [regression, buildModelComparisonSchema()] };
+    }
+  }
+  if (stage === 'verdicts' && issued !== undefined) {
+    const branches = final.properties.verdicts.items.properties.evidence.items.oneOf;
+    if (issued.length) branches[0].properties.receiptId.enum = issued;
+    else branches.shift(); // Never emit invalid enum:[] or an unrestricted fallback.
+  }
   const parameters = p.retrievalFinalization || stage === 'risks' || stage === 'groups' ? final : { type: 'object', oneOf: [final, requests] };
   return [{ name: RESULT_TOOL_NAME, description: 'Submit only the current approved review stage result or approved retrieval requests as JSON data. Does not execute actions.', parameters }];
 }
 // Additional wire bytes beyond the ordinary text contract/input. No token estimate.
-export function nativeResultWireBytes(input, instructions = '') {
-  const tools = modelResultTools(input, instructions);
+export function nativeResultWireBytes(input, instructions = '', receiptProof) {
+  const tools = modelResultTools(input, instructions, receiptProof);
   return tools.length ? Buffer.byteLength(JSON.stringify(tools)) + Buffer.byteLength(NATIVE_RESULT_INSTRUCTIONS) : 0;
 }
 export function validateNativeResult(text, input, instructions) {

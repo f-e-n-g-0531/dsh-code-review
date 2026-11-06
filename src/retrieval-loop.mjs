@@ -1,3 +1,4 @@
+import { transferReceiptPolicy } from './verification-receipt-policy.mjs';
 import { RETRIEVAL_INSTRUCTIONS } from './prompts.mjs';
 import { searchSeeds } from './search-seeds.mjs';
 import { modelWireBudget } from './model-wire-budget.mjs';
@@ -36,8 +37,8 @@ function compactFollowup(input) {
   return Buffer.byteLength(compact) < Buffer.byteLength(input) ? compact : input;
 }
 
-export function retrievalRequest(request, scope, retrieved = []) {
-  return { ...request, instructions: request.instructions + '\n' + RETRIEVAL_INSTRUCTIONS + BUDGET_SUFFIX, input: JSON.stringify({ ...JSON.parse(request.input), catalog: scope.catalog(), retrieved, ...(scope.budget ? { retrievalBudget: scope.budget() } : {}) }) };
+export function retrievalRequest(request, scope, retrieved = [], rounds) {
+  return transferReceiptPolicy(request, { ...request, instructions: request.instructions + '\n' + RETRIEVAL_INSTRUCTIONS + BUDGET_SUFFIX, input: JSON.stringify({ ...JSON.parse(request.input), catalog: scope.catalog(), retrieved, ...(rounds ? {retrievalRounds:rounds} : {}), ...(scope.budget ? { retrievalBudget: scope.budget() } : {}) }) });
 }
 
 function recordRetrieval(operation, result, onTruncated, onRetrieved) {
@@ -90,17 +91,19 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
       const error = new Error(budget.remainingCalls === 0 ? 'Reader call budget exceeded' : 'Reader output budget exceeded');
       error.code = budget.remainingCalls === 0 ? 'READER_CALL_BUDGET_EXCEEDED' : 'READER_OUTPUT_BUDGET_EXCEEDED';
       await finalize(error);
-    } else if (!finalization && round >= maxRounds) await finalize(roundBudgetError());
+    } else if (!finalization && maxRounds === 0) await finalize(roundBudgetError());
   };
-  const fits = value => request.nativeOutputTools === true ? modelWireBudget(value, maxInputBytes).fits : Buffer.byteLength(value.input) + Buffer.byteLength(value.instructions) <= maxInputBytes;
+  const fits = value => request.nativeOutputTools === true ? modelWireBudget(transferReceiptPolicy(request, value), maxInputBytes).fits : Buffer.byteLength(value.input) + Buffer.byteLength(value.instructions) <= maxInputBytes;
   const nextRequest = records => {
-    const next = retrievalRequest(request, scope, records);
+    // Use the same round annotation in seed admission and actual transmission.
+    const next = retrievalRequest(request, scope, records, {max:maxRounds,remaining:finalization?0:Math.max(0,maxRounds-currentRound)});
     if (enableSearchSeeds) {
       const annotated = { input: JSON.stringify({ ...JSON.parse(next.input), retrievalRounds: { max: maxRounds, remaining: finalization ? 0 : Math.max(0, maxRounds - currentRound) } }),
         instructions: next.instructions + ' Batch independent exact reads/searches together (1..8). retrievalRounds is per-stage request turns, not reader calls or authority. Search-hit host reads may accompany results; supplied fragments are not complete coverage.' };
       // Optional guidance must not turn an otherwise admitted envelope into a block.
       if (fits({ ...next, ...annotated })) Object.assign(next, annotated);
     }
+    if(!finalization&&currentRound>=maxRounds)next.instructions+=' The permitted supplemental read rounds have been used. Return the final stage schema using delivered evidence; do not request more reads. Missing external evidence requires explicit uncertainty, not invented support.';
     if (finalization) {
       // The live ledger is already present in retrievalBudget. Do not duplicate it
       // or stack contradictory read/final guidance on a nearly full source envelope.
@@ -137,6 +140,8 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
       if (!fits({ ...request, input, instructions })) throw new Error('Retrieval input budget exceeded');
       request.signal?.throwIfAborted();
     }
+    if(!finalization&&maxRounds>0&&round>=maxRounds)await request.onProtocolEvent?.({action:'retrieval-round-cap-reached',maxRounds,remainingRounds:0,retrievalDenied:false});
+    request.signal?.throwIfAborted();
     for (const item of retrieved) {
       if (!item.result.omitted && !delivered.has(item)) {
         recordRetrieval(item.request, item.result, onTruncated, onRetrieved);
@@ -145,7 +150,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
     }
     request.signal?.throwIfAborted();
     const callPurpose = finalization ? 'budget-finalization' : round === 0 ? 'primary-initial' : 'retrieval-followup';
-    const response = await model({ ...request, instructions, input, callPurpose });
+    const response = await model(transferReceiptPolicy(request, { ...request, instructions, input, callPurpose }));
     request.signal?.throwIfAborted();
     const serialized = typeof response === 'string' ? response : JSON.stringify(response);
     if (typeof serialized !== 'string' || Buffer.byteLength(serialized) > 128 * 1024) throw new Error('Retrieval response too large');
@@ -155,22 +160,40 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
     }
     // Schema and authorization remain hard failures, including on the final turn.
     // Preflight all dynamic ranges and aggregate budgets before any capability.
-    let batch;
+    let batch, validationPhase = 'schema';
     try {
       const operations = parseRetrievalResponse(parsed);
+      validationPhase = 'source';
       const allowed = new Set(scope.catalog().map(item => item.id));
       if (operations.some(r => r.kind === 'read' ? !allowed.has(r.id) : r.sourceIds?.some(id => !allowed.has(id)))) throw new Error('Source not authorized');
       if (finalization) {
+        await request.onProtocolEvent?.({ action: 'retrieval-protocol-unobserved', code: 'RETRIEVAL_RANGE_NOT_OBSERVED' });
+        request.signal?.throwIfAborted();
         const error = new Error(finalization.reason + '; final response required, no further retrieval permitted');
         error.code = 'RETRIEVAL_FINAL_RESPONSE_REQUIRED';
         throw error;
       }
-      if (round >= maxRounds) throw roundBudgetError();
+      if (round >= maxRounds) {
+        await request.onProtocolEvent?.({ action: 'retrieval-protocol-unobserved', code: 'RETRIEVAL_RANGE_NOT_OBSERVED' });
+        request.signal?.throwIfAborted();
+        throw roundBudgetError();
+      }
+      validationPhase = 'range';
       scope.preflight?.(operations);
       const execute = () => executeRetrievalBatch(parsed, scope, request.signal);
       batch = scope.transaction ? scope.transaction(execute) : execute();
     } catch (error) {
       request.signal?.throwIfAborted();
+      // Categorize only confirmed retrieval validation, not arbitrary model output
+      // parsing, budgets, cancellation or a final-only policy denial. Never echo
+      // the exception or a model-provided source/range in telemetry.
+      const invalidCode = validationPhase === 'schema' ? 'RETRIEVAL_INVALID_SCHEMA' :
+        validationPhase === 'source' && error.message === 'Source not authorized' ? 'RETRIEVAL_UNAUTHORIZED_SOURCE' :
+        validationPhase === 'range' && /^(?:Invalid line range|Line range outside source)(?:$|[ (:])/.test(error.message) ? 'RETRIEVAL_INVALID_RANGE' : undefined;
+      if (invalidCode) {
+        await request.onProtocolEvent?.({ action: 'retrieval-protocol-invalid', code: invalidCode });
+        request.signal?.throwIfAborted();
+      }
       if (!finalization && budgetFailure(error)) { if (yieldOnBudget && ['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(error.code)) throw Object.assign(error, { pendingRequests: parseRetrievalResponse(parsed) }); pendingResponse = undefined; await finalize(error); continue; }
       if (finalization || !correctProtocol || protocolCorrection || !(/Invalid retrieval batch|Invalid read request|Invalid search request|Invalid find request|Invalid line range|Line range outside source/.test(error.message))) throw error;
       pendingResponse = undefined;

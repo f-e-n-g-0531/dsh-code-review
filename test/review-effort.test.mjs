@@ -111,3 +111,9 @@ test('bounded exact diff exhaustion is uncertainty, never an inferred changed ca
   assert.ok(policy.reasons.includes('change-scope-unavailable')); assert.deepEqual(policy.counterVerification.categories, []);
   assert.equal(policy.identity.complete, true); // Complete sources can be bound even when their edit script is unavailable.
 });
+test('baseline checks distinguish rejected-request mutations from preexisting shared state without incident answers',()=>{
+ const policy=reviewEffortPolicy(fixture());const checks=policy.checks.join(' ');
+ assert.match(checks,/public entry point/);assert.match(checks,/mutation-before-validation/);assert.match(checks,/previous public wrapper/);
+ for(const incidentName of ['r7364','C3Resource','m_dwLife','RolePart'])assert.ok(!checks.includes(incidentName));
+ assert.equal(policy.status,'planned');assert.equal(policy.humanReview.approvalGranted,false);
+});

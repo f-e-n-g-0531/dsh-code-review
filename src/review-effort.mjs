@@ -6,6 +6,8 @@ const LIMITS = Object.freeze({ files: 200, sourceChars: 262144, totalSourceChars
 const BASELINE = Object.freeze([
   'Require exact changed-code evidence, a concrete trigger and impact before reporting a defect.',
   'Compare before/after behavior and captured callers; missing context remains uncertainty.',
+  'Trace validation and rejection paths from the public entry point: a rejected request must not newly mutate shared state used by already accepted work unless the captured contract permits it. An old shared-state mechanism does not by itself refute a newly reachable mutation-before-validation path.',
+  'For moved or newly added implementations, locate the captured previous public wrapper and delegated implementation before calling behavior preexisting. An empty old side of the new file is not proof that no previous public behavior exists.',
   'Retain strict evidence verification in every effort tier; no policy result proves completion or approval.',
 ]);
 const CATEGORIES = Object.freeze({

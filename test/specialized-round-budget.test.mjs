@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { prepareGroupPrimary } from '../src/group-primary.mjs';
+import { canonicalRiskInput } from '../src/risk-scope.mjs';
+import { preparePrimaryInput } from '../src/primary-input.mjs';
+import { prepareInteractionInput } from '../src/interaction-input.mjs';
+import { prepareInteractionRisk } from '../src/interaction-risk.mjs';
+import { createRetrievalScope } from '../src/retrieval-scope.mjs';
+import { initialInputBudget } from '../src/input-budget.mjs';
+import { retrievalLoop } from '../src/retrieval-loop.mjs';
+const snapshot={id:'specialized',vcs:'git',context:[],files:['a','b'].map(id=>({id,path:id+'.js',eligibility:'reviewable',properties:[],left:{text:'old();'},right:{text:'new();'}}))};
+const group={id:'g',fileIds:['a','b']};
+for(const rounds of [0,10])test('group risk interaction use configured initial round measurement '+rounds,()=>{
+ const scope=createRetrievalScope(snapshot),options={instructions:'review',scope,maxInputBytes:100000,maxRetrievalRounds:rounds};
+ const grouped=prepareGroupPrimary(snapshot,group,options);assert.ok(grouped);
+ const exact=initialInputBudget({input:grouped.payload,instructions:grouped.instructions,maxRetrievalRounds:rounds},scope,100000).bytes;
+ assert.ok(prepareGroupPrimary(snapshot,group,{...options,maxInputBytes:exact}));
+ assert.equal(prepareGroupPrimary(snapshot,group,{...options,maxInputBytes:exact-1}),null);
+ const prepared=preparePrimaryInput(snapshot,snapshot.files[0],options);
+ const risk=canonicalRiskInput(snapshot,snapshot.files[0],prepared,options);assert.equal(risk.cacheable,true);
+ const riskBytes=initialInputBudget({input:risk.payload,instructions:options.instructions,maxRetrievalRounds:rounds},scope,100000).bytes;
+ assert.equal(canonicalRiskInput(snapshot,snapshot.files[0],prepared,{...options,maxInputBytes:riskBytes-1}).cacheable,false);
+ const interaction=prepareInteractionInput(snapshot,group,()=>({fits:true}));
+ const strategy=prepareInteractionRisk(snapshot,group,interaction,{...options,enableRiskPlanning:true,inlineInteractionRisks:true});
+ assert.equal(strategy.mode,'inline');
+ assert.equal(strategy.budget.bytes,initialInputBudget({instructions:strategy.instructions,input:interaction.payload,maxRetrievalRounds:rounds},scope,100000).bytes);
+});
+test('real N+1 request refuses before another reader operation',async()=>{
+ const scope=createRetrievalScope(snapshot);let calls=0;
+ await assert.rejects(retrievalLoop(()=>{calls++;return{requests:[{kind:'read',id:'s1',start:1,count:1}]};},{instructions:'review',input:'{}'},scope,{maxRounds:1}),/final response required/);
+ assert.equal(scope.usage().calls,1);assert.equal(calls,3);
+});

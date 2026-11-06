@@ -79,11 +79,34 @@ test('long judgement retains beginning and ending without classifying or reorder
  assert.match(text,/本次新增复核支持 0 项/);assert.ok(text.split(nl).length<=60);assert.deepEqual(report,before);
 });
 
+test('execution failures lead the first screen using host codes, never model prose',()=>{
+ const files=Array.from({length:74},(_,i)=>({fileId:'f'+i,path:'file'+i,status:i<64?'failed':i<68?'pending':i===68?'blocked':'completed',...(i<64?{failureCode:'WHOLE_SCOPE_INPUT_BUDGET'}:i<68?{failureCode:'WHOLE_SCOPE_MODEL_CALL_LIMIT'}:{})}));
+ const report={status:'partial',files,findings:[],limitations:[],dispatch:{plannedChildCount:6},orchestration:{batchExecution:'host-subagents',childrenStarted:['a','b','c','d','e','f'],batches:[{execution:'host-subagent',childId:'f',status:'completed'}]}};
+ const before=structuredClone(report),text=renderUserReport(report),lines=text.split(nl);
+ assert.match(lines[3],/审核执行受阻，不能据此判断业务代码/);
+ assert.match(lines[4],/子会话输入超过批准容量，64 项/);assert.match(lines[5],/子会话达到模型调用次数限制，4 项/);
+ assert.ok(text.indexOf('WHOLE')<text.indexOf('本次新增复核支持 0 项'));
+ assert.match(text,/计划 6，已启动 6，已完成批次 1；已记录返回身份 1/);
+ assert.ok(lines.length<=60);assert.deepEqual(report,before);
+ const fake={...base([]),status:'partial',files:[{status:'failed',path:'x',failureCode:'ALIEN',reason:'WHOLE_SCOPE_INPUT_BUDGET malicious prose'}]};
+ const unknown=renderUserReport(fake);assert.match(unknown,/尚无可识别的执行原因代码/);assert.doesNotMatch(unknown,/子会话输入超过批准容量/);
+});
+
+test('paged execution cause counts are loaded only, never extrapolated to aggregate failures',()=>{
+ const report={status:'partial',findings:[],coverage:{total:74,completed:5,failed:64,pending:4,blocked:1},files:Array.from({length:20},(_,i)=>({status:i===0?'blocked':'failed',path:'file'+i,...(i?{failureCode:'WHOLE_SCOPE_INPUT_BUDGET'}:{})}))};
+ const text=renderUserReport(report);
+ assert.match(text,/已加载明细中的原因：子会话输入超过批准容量，19 项/);
+ assert.match(text,/原因计数仅覆盖已加载 20.74 项/);
+ assert.doesNotMatch(text,/子会话输入超过批准容量，64 项/);
+ assert.match(text,/主审失败 64 项/);
+});
+
 test('execution records actual children not planned fanout and unknown metrics stay absent',()=>{
  const report=base([]);report.orchestration={batchExecution:'host-subagents',batches:[{execution:'host-subagent',childId:'child-a'},{execution:'host-subagent',childId:'child-b'},{execution:'host-subagent',childId:'child-a'}]};
- let text=renderUserReport(report);assert.match(text,/实际执行：2 个宿主子会话/);assert.doesNotMatch(text,/模型调用|执行耗时/);
+ let text=renderUserReport(report);assert.match(text,/已启动 未记录，已完成批次 0；已记录返回身份 2/);assert.doesNotMatch(text,/模型调用|执行耗时/);
  report.orchestration={batchExecution:'direct'};assert.match(renderUserReport(report),/主会话直接调用模型/);
  report.orchestration={batchExecution:'host-subagents',batches:[]};assert.doesNotMatch(renderUserReport(report),/实际执行：.*个宿主子会话/);
- report.dispatch={effectiveStrategy:'staged',reason:'complete-files-exceed-capacity',plannedChildCount:99};
+ report.orchestration={};report.dispatch={effectiveStrategy:'staged',reason:'complete-files-exceed-capacity',plannedChildCount:0};
  assert.match(renderUserReport(report),/完整文件超过单次输入容量.*未使用宿主子会话/);
 });
+test('model-assessed cross-file support is disclosed separately without strict support promotion',()=>{const f=candidate('supported');f.verification.evidence=f.verification.evidence.map((ref,index)=>({...ref,snapshotId:'s',hash:'a'.repeat(64),start:1,count:1,text:index?'new();':'old();'}));Object.assign(f.verification.regression,{status:'model-comparison-references-validated',relationshipStatus:'model-assessed',sourceReferencesValidated:true,causality:'unverified',comparison:{kind:'model-assessed-cross-file',roles:{oldEntry:[0],oldDelegate:[0],newEntry:[1],callers:[0]},relationshipReason:'Compare same request'}});const text=renderUserReport(base([f]));assert.match(text,/本次新增复核支持 0 项/);assert.match(text,/另有模型跨文件比较支持 1 项/);assert.match(text,/关系由模型判断，未证明因果/);assert.doesNotMatch(text,/SECRET_RECEIPT/);});

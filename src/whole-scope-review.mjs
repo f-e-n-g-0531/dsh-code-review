@@ -1,3 +1,7 @@
+import { buildMigrationRouteHints } from './migration-route-hints.mjs';
+import { buildMigrationContracts } from './migration-contracts.mjs';
+import { splitWholeBatch } from './whole-batch-split.mjs';
+import { splitUnsentChildBatch } from './child-capacity-error.mjs';
 import { REVIEW_INSTRUCTIONS } from './prompts.mjs';
 import { runWholeScopeWorkers, createCheckpointQueue } from './whole-scope-workers.mjs';
 import { changesConcurrency } from './review-execution-policy.mjs';
@@ -8,7 +12,7 @@ import { verificationLoop } from './verification-loop.mjs';
 import { runCounterVerification } from './counter-verification.mjs';
 import { validateGroupPrimary } from './group-primary.mjs';
 import { modelWireBudget } from './model-wire-budget.mjs';
-import { retrievalRounds } from './review-execution-policy.mjs';
+import { retrievalRounds, verificationRetrievalRounds } from './review-execution-policy.mjs';
 import { validateBusinessRequirement } from './business-requirement.mjs';
 
 const failure = (code, message) => Object.assign(new Error(message), { code });
@@ -22,8 +26,10 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
   if (typeof model !== 'function' || typeof options.validateFindingResponse !== 'function') throw new Error('Whole-scope review requires model and validateFindingResponse');
   for (const value of [maxInputBytes, maxCalls]) if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid whole-scope limit');
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 0) throw new Error('Invalid whole-scope timeout');
+  if (options.enableModelComparison !== undefined && typeof options.enableModelComparison !== 'boolean') throw new Error('Invalid model comparison policy');
   if (options.enableAnchorCorrection !== undefined && typeof options.enableAnchorCorrection !== 'boolean') throw new Error('Invalid anchor correction option');
   const maxRounds = retrievalRounds(options.maxRetrievalRounds);
+  const maxVerificationRounds = verificationRetrievalRounds(options.maxVerificationRetrievalRounds, maxRounds);
   const concurrency = changesConcurrency(options.wholeScopeConcurrency ?? 2);
   if (options.createBatchModel !== undefined && typeof options.createBatchModel !== 'function') throw new Error('Invalid child agent factory');
   const input = structuredClone(snapshot);
@@ -42,9 +48,13 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
   const report = {
     schemaVersion: 1, snapshotId: input.id, vcs: input.vcs, status: 'completed',
     files: [], findings: [], limitations: [], modelCalls: 0, startedAt: new Date().toISOString(),
-    orchestration: { strategy: 'whole-scope', wholeScope: true, modelMetrics: {}, modelCallPurposes: {}, batches: [] },
+    orchestration: { strategy: 'whole-scope', wholeScope: true, maxRetrievalRounds: maxRounds, maxVerificationRetrievalRounds: maxVerificationRounds, modelMetrics: {}, modelCallPurposes: {}, batches: [] },
     interactions: [], rules: (input.rules ?? []).map(({ path, hash }) => ({ path, hash })),
   };
+  const protocolTelemetry={scope:'all-child-tool-generations',complete:false,invalidRequests:0,directInvalidRequests:0,childInvalidRequests:0};
+  let telemetryCovered=true;
+  const recordProtocolEvent=async event=>{if(event?.action==='retrieval-protocol-unobserved')telemetryCovered=false;if(event?.action==='retrieval-protocol-invalid'&&['RETRIEVAL_INVALID_SCHEMA','RETRIEVAL_UNAUTHORIZED_SOURCE','RETRIEVAL_INVALID_RANGE'].includes(event.code)){protocolTelemetry.invalidRequests++;protocolTelemetry.directInvalidRequests++;}await options.onProtocolEvent?.(event);};
+  const publishProtocolTelemetry=complete=>{report.diagnostics??={};report.diagnostics.retrievalProtocolTelemetry={...protocolTelemetry,complete:complete&&telemetryCovered};};
   const stateById = new Map();
   let reader, checkpointFailed = false, fatalError;
   const checkpoints = createCheckpointQueue(options.onResumeCheckpoint, error => { checkpointFailed = true; fatalError ??= error; controller.abort(error); });
@@ -93,7 +103,7 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
   const trackedModel = trackModel(model);
   const requestFor = batch => ({ input: batch.payload, instructions: batch.instructions, signal,
     reviewPhase: 'group-primary', nativeOutputTools: options.nativeOutputTools === true,
-    onProtocolEvent: options.onProtocolEvent });
+    onProtocolEvent: recordProtocolEvent });
   const loopOptions = stage => ({ maxRounds, maxInputBytes, beforeCall: gate, correctProtocol: options.correctProtocol === true,
     onRetrieved: records => { (stage.retrievalAudit ??= []).push(...records); },
     onTruncated: () => { report.limitations.push({ text: '批准检索结果截断，不代表全部证据已核查。' }); },
@@ -105,7 +115,10 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
   try {
     signal.throwIfAborted();
     reader = createReviewReader(input, { ...options, signal });
-    const plan = prepareWholeScope(input, { instructions: options.instructions ?? REVIEW_INSTRUCTIONS, scope: reader, maxInputBytes });
+    if (options.enableMigrationContracts === true || options.enableMigrationRegression === true) report.migrationContracts = buildMigrationContracts(input);
+    if(report.migrationContracts)report.migrationRouteNavigation=buildMigrationRouteHints(input);
+    const migrationOptions = { enableModelComparison: options.enableModelComparison === true, enableMigrationRegression: options.enableMigrationRegression === true, migrationContracts: report.migrationContracts?.contracts ?? [], migrationSnapshot: input };
+    const plan = prepareWholeScope(input, { enableMigrationContracts: options.enableMigrationContracts, enableMigrationRegression: options.enableMigrationRegression, instructions: options.instructions ?? REVIEW_INSTRUCTIONS, scope: reader, maxInputBytes, maxRetrievalRounds:maxRounds, childTransport:options.childTransport===true });
     for (const file of input.files) {
       const state = { fileId: file.id, path: file.path, status: file.eligibility === 'reviewable' ? 'pending' : file.eligibility, primaryMethod: 'whole-scope', ...(file.reason ? { reason: file.reason } : {}) };
       stateById.set(file.id, state); report.files.push(state);
@@ -121,25 +134,30 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
     report.scopeNotices = [{ text: '整体主审结合当前 batch 完整文件；批准关联源须按需检索，不声明专门 interaction 阶段或全部上下文覆盖。' }];
     const generatedBatches = [];
     const parallelChildren = plan.batches.length > 1 && typeof options.createBatchModel === 'function';
+    if(parallelChildren)report.orchestration.retrievalProtocol={observed:false,invalidRequests:0,scope:'host-child-snapshot-request-parser'};
     report.orchestration.batchExecution = parallelChildren ? (options.childExecution ?? 'child-factory') : 'direct';
     report.orchestration.batchConcurrency = parallelChildren ? Math.min(concurrency, plan.batches.length) : 1;
-    const accepted = new Array(plan.batches.length);
+    const verificationSources = [], findingByIdentity = new Map(), capacityStages = new WeakSet();
+    const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value === 'object' ? Object.fromEntries(Object.keys(value).sort().filter(key => value[key] !== undefined).map(key => [key, canonical(value[key])])) : value;
     report.orchestration.batches = plan.batches.map(batch => ({ id: batch.id, fileIds: [...batch.fileIds], status: 'pending' }));
-    const runBatch = async (batch, index) => {
-      const stage = report.orchestration.batches[index];
+    const runBatch = async (batch, index, depth=0, ownStage) => {
+      const stage = ownStage ?? report.orchestration.batches[index];
       let child;
       try {
         gate();
         if (parallelChildren) {
           child = await options.createBatchModel({ batchId: batch.id, fileIds: [...batch.fileIds], signal });
           if (!child || (typeof child.invoke !== 'function' && typeof child.runPrimary !== 'function') || typeof child.dispose !== 'function') throw new Error('Invalid host child model');
+          if(typeof child.runPrimary==='function'&&!(child.retrievalTelemetry?.version===1&&child.retrievalTelemetry?.scope==='schema-authorization-range'&&child.retrievalTelemetry?.complete===true))telemetryCovered=false;
           signal.throwIfAborted();
         }
         const batchModel = child ? trackModel(request => child.invoke(request)) : trackedModel;
         const response = child?.runPrimary ? await child.runPrimary({ request: requestFor(batch), scope: reader, maxRounds, maxInputBytes,
           reserveModelCall: () => { gate(); report.modelCalls++; },
-          onRetrieved: loopOptions(stage).onRetrieved, onBudgetLimited: loopOptions(stage).onBudgetLimited, onTruncated: loopOptions(stage).onTruncated,
-          onProgress: options.onProgress }) : await retrievalLoop(batchModel, requestFor(batch), reader, loopOptions(stage));
+          onRetrieved: loopOptions(stage).onRetrieved, onBudgetLimited: loopOptions(stage).onBudgetLimited,
+          onCapacityFinalOnly: () => { if (child?.transport === 'host-subagent') capacityStages.add(stage); },
+          onTruncated: loopOptions(stage).onTruncated,
+          onProgress: options.onProgress, onRetrievalProtocolUnobserved:()=>{telemetryCovered=false;}, onRetrievalProtocolError:()=>{report.orchestration.retrievalProtocol.invalidRequests++;protocolTelemetry.invalidRequests++;protocolTelemetry.childInvalidRequests++;}, onChildStarted:info=>{if(info.transport==='host-subagent')report.orchestration.retrievalProtocol.observed=true;stage.childId=info.childId;stage.execution='host-subagent';(report.orchestration.childrenStarted??=[]).push({childId:info.childId,batchId:batch.id});} }) : await retrievalLoop(batchModel, requestFor(batch), reader, loopOptions(stage));
         if (child?.transport === 'host-subagent') { stage.childId = child.childId; stage.execution = 'host-subagent'; }
         const members = validateGroupPrimary(response, batch, input, options.validateFindingResponse, reader.catalog(), { enableAnchorCorrection: options.enableAnchorCorrection === true, signal });
         signal.throwIfAborted();
@@ -148,26 +166,63 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
           const state = stateById.get(id);
           Object.assign(state, { status: stage.retrievalLimited ? 'pending' : 'completed', primaryStatus: stage.retrievalLimited ? 'pending' : 'completed', batchId: batch.id });
           if (generated.anchorCorrections) state.anchorCorrections = generated.anchorCorrections;
-          if (stage.retrievalLimited) Object.assign(state, { retrievalLimited: true, retrievalLimits: stage.retrievalLimits });
-          report.findings.push(...generated.findings);
+          if (stage.retrievalLimited) Object.assign(state, { retrievalLimited: true, retrievalLimits: structuredClone(stage.retrievalLimits) });
+          else { delete state.retrievalLimited; delete state.retrievalLimits; delete state.failureCode; }
+          (state.primaryAttempts ??= []).push({ batchId: batch.id, ...(stage.parentBatchId ? { parentBatchId: stage.parentBatchId } : {}), depth, status: state.primaryStatus, ...(stage.retrievalLimited ? { retrievalLimited: true, retrievalLimits: structuredClone(stage.retrievalLimits) } : {}) });
+          for (const finding of generated.findings) {
+            const key = JSON.stringify(canonical(finding));
+            const origin = { batchId: batch.id, depth, ...(stage.parentBatchId ? { parentBatchId: stage.parentBatchId } : {}), limited: stage.retrievalLimited === true };
+            const existing = findingByIdentity.get(key);
+            if (existing) existing.primaryOrigins.push(origin);
+            else { const published = { ...finding, primaryOrigins: [origin] }; findingByIdentity.set(key, published); report.findings.push(published); }
+          }
           report.limitations.push(...generated.limitations.map(text => ({ fileId: id, text })));
         }
         stage.status = stage.retrievalLimited ? 'pending' : 'completed';
-        accepted[index] = batch;
+        verificationSources.push(batch);
+        const completionSplit = capacityStages.has(stage) && stage.retrievalLimited && depth < 8 ? splitWholeBatch(batch) : null;
+        if (completionSplit) {
+          // Parent candidates and committed audit remain visible even if cleanup,
+          // cancellation, a child or checkpoint fails during the fresh attempts.
+          await checkpoint();
+          if (child) { const parent = child; child = null; try { await parent.dispose(); } catch (cleanup) { fatalError ??= cleanup; controller.abort(cleanup); throw cleanup; } }
+          signal.throwIfAborted();
+          stage.status = 'capacity-superseded';
+          stage.childBatchIds = completionSplit.map(smaller => smaller.id);
+          (report.orchestration.capacityCompletions ??= []).push({ batchId: batch.id, childBatchIds: [...stage.childBatchIds], depth, approvedCap: maxInputBytes, modelSent: true });
+          await checkpoint();
+          for (const smaller of completionSplit) {
+            signal.throwIfAborted();
+            const childStage = { id: smaller.id, parentBatchId: batch.id, fileIds: [...smaller.fileIds], status: 'pending' };
+            report.orchestration.batches.push(childStage);
+            await runBatch(smaller, index, depth + 1, childStage);
+          }
+          return;
+        }
         await checkpoint();
       } catch (error) {
         signal.throwIfAborted();
         if (checkpointFailed || error.code === 'MODEL_ARTIFACT_FAILED') { fatalError ??= error; controller.abort(error); throw error; }
+        const split=depth<8?splitUnsentChildBatch(batch,error,{approvedCap:maxInputBytes}):null;
+        if(split){
+          if(child){const rejected=child;child=null;try{await rejected.dispose();}catch(cleanup){fatalError??=cleanup;controller.abort(cleanup);throw cleanup;}}
+          stage.status='split-before-send';stage.requiredBytes=error.requiredBytes;stage.approvedCap=maxInputBytes;stage.childBatchIds=split.map(smaller=>smaller.id);
+          (report.orchestration.capacityReplans??=[]).push({batchId:batch.id,requiredBytes:error.requiredBytes,approvedCap:maxInputBytes,depth,childBatchIds:split.map(b=>b.id),modelSent:false});
+          for(const smaller of split){signal.throwIfAborted();const childStage={id:smaller.id,parentBatchId:batch.id,fileIds:[...smaller.fileIds],status:'pending'};report.orchestration.batches.push(childStage);await runBatch(smaller,index,depth+1,childStage);}
+          return;
+        }
         stage.status = isBudget(error) ? 'pending' : 'failed';
         stage.failureCode = error.code ?? 'WHOLE_SCOPE_PRIMARY_FAILED'; stage.reason = error.message;
+        if(Number.isSafeInteger(error.requiredBytes))stage.requiredBytes=error.requiredBytes;
+        if(Number.isSafeInteger(error.approvedCap))stage.approvedCap=error.approvedCap;
         for (const id of batch.fileIds) Object.assign(stateById.get(id), { status: stage.status, primaryStatus: stage.status, failureCode: stage.failureCode, reason: error.message });
         report.limitations.push({ text: '整体主审未完成：' + error.message });
       } finally {
         if (child) { try { await child.dispose(); } catch (error) { fatalError ??= error; controller.abort(error); throw error; } }
       }
     };
-    await runWholeScopeWorkers(plan.batches, runBatch, { concurrency: report.orchestration.batchConcurrency, signal, onFatal: error => { if (!signal.aborted) { fatalError ??= error; controller.abort(error); } } });
-    generatedBatches.push(...accepted.filter(Boolean));
+    await runWholeScopeWorkers(plan.batches, (batch,index)=>runBatch(batch,index), { concurrency: report.orchestration.batchConcurrency, signal, onFatal: error => { if (!signal.aborted) { fatalError ??= error; controller.abort(error); } } });
+    generatedBatches.push(...verificationSources);
     const order = new Map(input.files.map((file, index) => [file.id, index]));
     report.findings.sort((a, b) => order.get(a.fileId) - order.get(b.fileId));
     // One global verification queue, not a per-file chain. Receipt ownership and
@@ -179,9 +234,9 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
       (report.orchestration.verifications ??= []).push(stage);
       try {
         gate(); // Do not prefetch receipt evidence for a vetoed model call.
-        let verdicts = await verificationLoop(trackedModel, { ...requestFor(generatedBatches[0]), reviewPhase: 'verification' }, candidates, reader, loopOptions(stage));
+        let verdicts = await verificationLoop(trackedModel, { ...requestFor(generatedBatches[0]), reviewPhase: 'verification' }, candidates, reader, { ...loopOptions(stage), ...migrationOptions, maxRounds: maxVerificationRounds });
         signal.throwIfAborted();
-        verdicts = await runCounterVerification(trackedModel, { ...requestFor(generatedBatches[0]),reviewPhase:'verification' }, candidates, verdicts, reader, { ...loopOptions(stage),enabled:options.enableCounterVerification===true,isFatalError:error=>checkpointFailed||error?.code==='MODEL_ARTIFACT_FAILED' });
+        verdicts = await runCounterVerification(trackedModel, { ...requestFor(generatedBatches[0]),reviewPhase:'verification' }, candidates, verdicts, reader, { ...loopOptions(stage),...migrationOptions,maxRounds:maxVerificationRounds,enabled:options.enableCounterVerification===true,isFatalError:error=>checkpointFailed||error?.code==='MODEL_ARTIFACT_FAILED' });
         signal.throwIfAborted();
         candidates.forEach((finding, i) => { finding.verification = { status: verdicts[i].counterVerification?.status === 'incomplete' ? 'incomplete' : 'completed', ...verdicts[i] }; });
         stage.status = stage.retrievalLimited || verdicts.some(v => v.counterVerification?.status === 'incomplete') ? 'pending' : 'completed';
@@ -190,6 +245,9 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
         signal.throwIfAborted();
         if (checkpointFailed || error.code === 'MODEL_ARTIFACT_FAILED') throw error;
         stage.status = 'failed'; stage.failureCode = error.code ?? 'WHOLE_SCOPE_VERIFICATION_FAILED'; stage.reason = error.message;
+        if(error.code==='INVALID_MODEL_COMPARISON'&&['structural-schema','evidence-identity','role-side','role-completeness','anchor-edit','context-token'].includes(error.comparisonFailure))stage.comparisonFailure=error.comparisonFailure;
+        if(error.code==='INVALID_VERIFICATION_EVIDENCE_SET'&&['not-array','too-many','required-evidence-missing'].includes(error.evidenceFailure)){stage.evidenceFailure=error.evidenceFailure;if(Number.isSafeInteger(error.evidenceCount)&&error.evidenceCount>=0)stage.evidenceCount=error.evidenceCount;}
+        if(error.code==='INVALID_EVIDENCE_RECEIPT'&&['mixed-fields','invalid-id-type','unknown-in-current-verification'].includes(error.receiptFailure))stage.receiptFailure=error.receiptFailure;
         candidates.forEach(finding => { finding.verification = { status: 'incomplete', causality: 'unverified' }; });
         report.limitations.push({ text: '候选批量复核未完成：' + error.message });
       }
@@ -208,6 +266,7 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
     report.readerUsage = reader.usage(); report.retrievalUsage = report.readerUsage;
     report.retrievalSources = reader.catalog(); report.readerBudget = { ...reader.usage(), ...reader.budget() };
     report.finishedAt = new Date().toISOString();
+    publishProtocolTelemetry(true);
     await options.onProgress?.({ stage: 'batch-complete', snapshotId: input.id, files: report.files, findings: report.findings, limitations: report.limitations });
     return report;
   } catch (error) {
@@ -223,6 +282,7 @@ export async function reviewWholeScope(snapshot, model, options = {}) {
     report.coverage = { total: report.files.length, ...Object.fromEntries(['completed', 'excluded', 'blocked', 'failed', 'cancelled', 'pending'].map(status => [status, report.files.filter(file => file.status === status).length])) };
     report.finishedAt = new Date().toISOString();
     if (reader) { report.readerUsage = reader.usage(); report.readerBudget = { ...reader.usage(), ...reader.budget() }; }
+    publishProtocolTelemetry(false);
     await checkpoint();
     return report;
   } finally {

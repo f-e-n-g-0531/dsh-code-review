@@ -1,3 +1,4 @@
+import { receiptSchemaProof } from './verification-receipt-policy.mjs';
 import { modelContract } from './model-contract.mjs';
 import { modelResultTools, validateNativeResult, RESULT_TOOL_NAME, NATIVE_RESULT_INSTRUCTIONS } from './model-tools.mjs';
 import { createHash, randomUUID } from 'node:crypto';
@@ -230,7 +231,8 @@ export function createDshModel(llm, route, {
     const onProtocolCorrection = request.onProtocolCorrection, onProtocolEvent = request.onProtocolEvent;
     const native = request.nativeOutputTools ?? useNativeTools;
     if (typeof native !== 'boolean') throw new Error('nativeOutputTools must be boolean');
-    const tools = native ? modelResultTools(original.input, original.instructions) : [];
+    const receiptProof = receiptSchemaProof(request); // Freeze issued/delivered IDs before any await.
+    const tools = native ? modelResultTools(original.input, original.instructions, receiptProof) : [];
     const contract = modelContract(original.input, original.instructions) + (tools.length ? NATIVE_RESULT_INSTRUCTIONS : '');
     const correctionLimit = correctJson ? maxJsonCorrections : 0;
     const attempts = [];

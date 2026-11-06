@@ -21,7 +21,7 @@ const RELATION_NOTICE = '命名和相对导入关系仅为源码线索，可能�
 const optional = h => h.confidence === 'namespace-member-syntax-only' || h.confidence === 'instance-method-syntax-only';
 
 // Pure preparation over already captured data. No model calls or new reads.
-export function preparePrimaryInput(input, file, { instructions, scope, grouping, maxInputBytes, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, round, focusPrimaryContext = false }) {
+export function preparePrimaryInput(input, file, { instructions, scope, grouping, maxInputBytes, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, round, maxRetrievalRounds = 3, focusPrimaryContext = false }) {
   validateRiskPlanningMode(riskPlanningMode);
   if (typeof focusPrimaryContext !== 'boolean') throw new Error('focusPrimaryContext must be boolean');
   const changes = reviewChangeMap(file.left.text, file.right.text);
@@ -67,7 +67,7 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
     }
   }
 
-  const measure = value => initialInputBudget({ instructions, input: value }, scope, maxInputBytes);
+  const measure = value => initialInputBudget({ instructions, input: value, maxRetrievalRounds }, scope, maxInputBytes);
   const focused = focusPrimaryContext ? primaryContextFocus(base, { scope, maxInputBytes, measure }) : { base, metadata: {} };
   base = focused.base;
   let payload = JSON.stringify(base);
@@ -121,7 +121,7 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
   }
 
   const strategy = chooseRiskStrategy(input, file, { changes, payload, metadata }, {
-    instructions, scope, maxInputBytes, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, round,
+    instructions, scope, maxInputBytes, maxRetrievalRounds, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, round,
   });
   if (strategy.mode === 'inline') return {
     changes, payload, batches, synthesis, inlineRisk: true, instructions: strategy.instructions, budget: strategy.budget,
@@ -175,7 +175,7 @@ export function preparePrimaryInput(input, file, { instructions, scope, grouping
   }
 
   const finalStrategy = chooseRiskStrategy(input, file, { changes, payload, batches, synthesis, metadata }, {
-    instructions, scope, maxInputBytes, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, round,
+    instructions, scope, maxInputBytes, maxRetrievalRounds, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, round,
   });
   if (finalStrategy.mode === 'inline') return {
     changes, payload, batches, synthesis, inlineRisk: true, instructions: finalStrategy.instructions, budget: finalStrategy.budget,

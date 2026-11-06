@@ -11,7 +11,10 @@ export function validateCandidateVerificationEnvelope(value, candidateIds) {
     if (!candidateIds.includes(item.candidateId) || seen.has(item.candidateId)) throw new Error('Unknown or duplicate candidate');
     seen.add(item.candidateId);
     if (!['supported', 'refuted', 'uncertain'].includes(item.verdict) || typeof item.reason !== 'string' || !item.reason.trim() || item.reason.length > 8000) throw new Error('Invalid verdict explanation');
-    if (!Array.isArray(item.evidence) || item.evidence.length > 8 || (item.verdict !== 'uncertain' && !item.evidence.length)) throw new Error('Missing or excessive evidence');
+    const evidenceFailure = kind => Object.assign(new Error('Missing or excessive evidence'),{code:'INVALID_VERIFICATION_EVIDENCE_SET',evidenceFailure:kind,...(Array.isArray(item.evidence)?{evidenceCount:item.evidence.length}:{})});
+    if(!Array.isArray(item.evidence))throw evidenceFailure('not-array');
+    if(item.evidence.length>8)throw evidenceFailure('too-many');
+    if(item.verdict!=='uncertain'&&!item.evidence.length)throw evidenceFailure('required-evidence-missing');
   }
 }
 
@@ -19,7 +22,7 @@ export function validateCandidateVerification(value, candidateIds, read, resolve
   validateCandidateVerificationEnvelope(value, candidateIds);
   const results = new Map(value.verdicts.map(item => {
     const evidence = item.evidence.map(ref => validateEvidenceReference(resolveEvidence(ref), read));
-    const regression = validateRegressionAssessment(item.regression, evidence, comparison.catalog ?? [], comparison.fileIds?.[item.candidateId], { ...comparison, candidateId: item.candidateId });
+    const regression = validateRegressionAssessment(item.regression, evidence, comparison.catalog ?? [], comparison.fileIds?.[item.candidateId], { ...comparison, candidateId: item.candidateId, modelComparisonCandidate: comparison.modelComparisonCandidates?.[item.candidateId], modelComparisonChanges: comparison.modelComparisonChanges?.[item.candidateId] });
     return [item.candidateId, { candidateId: item.candidateId, verdict: item.verdict, reason: item.reason, evidence, regression, causality: 'unverified' }];
   }));
   return candidateIds.map(id => results.get(id));

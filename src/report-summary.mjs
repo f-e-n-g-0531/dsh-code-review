@@ -17,6 +17,20 @@ export function comparisonValidated(finding) {
   return old.every(i => typeof evidence[i].sourceId === 'string' && evidence[i].sourceId) && fresh.every(i => typeof evidence[i].sourceId === 'string' && evidence[i].sourceId && old.every(j => evidence[j].sourceId !== evidence[i].sourceId));
 }
 
+// Presentation-only consistency check. This distinct marker never becomes strict comparison.
+export function modelComparisonValidated(finding) {
+  const v = finding?.verification, r = v?.regression;
+  if (v?.status !== 'completed' || v.verdict !== 'supported' || r?.status !== 'model-comparison-references-validated' || r.relationshipStatus !== 'model-assessed' || r.sourceReferencesValidated !== true || r.causality !== 'unverified' || !['introduced', 'preexisting'].includes(r.classification) || r.comparison?.kind !== 'model-assessed-cross-file') return false;
+  if (!Array.isArray(v.evidence) || !v.evidence.length || v.evidence.length > 8 || v.evidence.some(ref => ref?.status !== 'references-validated' || typeof ref.snapshotId !== 'string' || !ref.snapshotId || ref.snapshotId !== v.evidence[0].snapshotId || typeof ref.sourceId !== 'string' || !ref.sourceId || typeof ref.hash !== 'string' || ref.hash.length !== 64 || !Number.isSafeInteger(ref.start) || ref.start < 1 || !Number.isSafeInteger(ref.count) || ref.count < 1 || ref.count > 200 || typeof ref.text !== 'string' || !ref.text)) return false;
+  const roles = r.comparison.roles;
+  if (!roles || typeof roles !== 'object' || Array.isArray(roles) || Object.keys(roles).some(key => !['oldEntry', 'oldDelegate', 'newEntry', 'newDelegate', 'callers'].includes(key))) return false;
+  const indices = list => Array.isArray(list) && list.length > 0 && list.length <= 8 && new Set(list).size === list.length && list.every(i => Number.isSafeInteger(i) && i >= 0 && i < v.evidence.length);
+  if (!['oldEntry', 'oldDelegate', 'newEntry', 'callers'].every(key => indices(roles[key])) || roles.newDelegate !== undefined && !indices(roles.newDelegate)) return false;
+  if (!indices(r.oldEvidence) || !indices(r.newEvidence) || r.oldEvidence.some(i => r.newEvidence.includes(i))) return false;
+  if (![...roles.oldEntry, ...roles.oldDelegate].every(i => r.oldEvidence.includes(i)) || ![...roles.newEntry, ...(roles.newDelegate ?? [])].every(i => r.newEvidence.includes(i)) || !roles.callers.every(i => r.oldEvidence.includes(i) || r.newEvidence.includes(i))) return false;
+  return comparisonValidated({ verification: { ...v, regression: { ...r, status: 'comparison-references-validated' } } });
+}
+
 // Rendering-only states. A completed uncertain verdict may legitimately have no
 // evidence (the verifier contract allows this); it is not an unfinished run.
 export function verificationPresentation(finding, report = {}) {
@@ -94,6 +108,7 @@ export function reportSummaryData(report = {}) {
     status: typeof report.status === 'string' ? report.status : 'unknown',
     complete, outdated: Boolean(report.outdated), emptySelection: total === 0,
     counts: { total: findings.length, ...counts },
+    modelComparison: { supported: findings.filter(modelComparisonValidated).length, introduced: findings.filter(f => modelComparisonValidated(f) && f.verification.regression.classification === 'introduced').length, preexisting: findings.filter(f => modelComparisonValidated(f) && f.verification.regression.classification === 'preexisting').length },
     coverage: { total, loaded: files.length, detailsComplete, unit: project ? 'files' : 'change-entries', ...coverage },
     unfinished, crossFile, stages, unverifiedCandidates,
     verification: {
@@ -122,6 +137,7 @@ export function reportSummaryMarkdown(report = {}) {
   const headline = firstCounts + state + (data.outdated ? '；报告已过期' : '') + '；' +
     (counts.total ? '记录 ' + counts.total + ' 个候选问题' : '未记录候选问题') + '；不得据此放行。';
   const output = ['', '## 结论摘要', '- ' + headline];
+  if (data.modelComparison.supported) output.push('- 模型跨文件比较支持 ' + data.modelComparison.supported + ' 项（模型判断新增 ' + data.modelComparison.introduced + '，原有 ' + data.modelComparison.preexisting + '）；关系由模型判断，未证明因果，不计入上述严格新增／原有支持统计。');
   if (counts.total || !data.complete || data.outdated) {
     output.push('- 下一步：' + (data.outdated ? '先基于当前批准快照重新审核；' : '') +
       (data.verification.supported ? '按下列候选编号核对触发条件与修复必要性；' : '无复核支持的问题不等于审核通过；') +

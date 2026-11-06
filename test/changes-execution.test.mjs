@@ -146,7 +146,7 @@ test('policy bounds validate before sends and project workers honor nondefault r
   const batch = { ...snapshot(1), projectScope: { mode: 'project' } }; let sends = 0;
   const reports = await reviewProjectBatches([batch], req => {
     sends++; const p = JSON.parse(req.input);
-    if (p.retrievalFinalization) return final;
+    if (p.retrievalFinalization || p.retrievalRounds.remaining === 0) return final;
     return { requests: [{ kind: 'read', id: p.catalog[1].id, start: 1, count: 1 }] };
   }, { remainingCalls: () => 100 - sends, maxRetrievalRounds: 5 });
   assert.equal(sends, 6); assert.equal(reports[0].retrievalUsage.calls, 5);
@@ -172,13 +172,13 @@ test('actual provider lifecycle summaries count primary and verification without
   assert.equal(events.filter(e => e.action === 'model-end').length, 2);
 });
 
-test('production review round bound finalizes after three successful reads without fake completion', async () => {
+test('production review permits natural final after exactly three successful reads', async () => {
   let calls = 0;
   const report = await reviewSnapshot(snapshot(1), req => {
     calls++; const p = JSON.parse(req.input);
-    if (p.retrievalFinalization) return final;
+    if (p.retrievalFinalization || p.retrievalRounds.remaining === 0) return final;
     return { requests: [{ kind: 'read', id: p.catalog[1].id, start: 1, count: 1 }] };
   }, { enableRetrieval: true });
   assert.equal(calls, 4); assert.equal(report.retrievalUsage.calls, 3);
-  assert.equal(report.files[0].status, 'pending'); assert.equal(report.status, 'partial');
+  assert.equal(report.files[0].status, 'completed'); assert.equal(report.status, 'completed');
 });

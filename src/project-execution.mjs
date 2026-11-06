@@ -1,7 +1,7 @@
 import { reviewEffortPolicy } from './review-effort.mjs';
 import { PROJECT_REVIEW_INSTRUCTIONS } from './prompts.mjs';
 import { reviewSnapshot } from './review.mjs';
-import { retrievalRounds } from './review-execution-policy.mjs';
+import { retrievalRounds, verificationRetrievalRounds } from './review-execution-policy.mjs';
 
 export const DEFAULT_PROJECT_CONCURRENCY = 8;
 export function projectConcurrency(value = DEFAULT_PROJECT_CONCURRENCY) {
@@ -11,9 +11,10 @@ export function projectConcurrency(value = DEFAULT_PROJECT_CONCURRENCY) {
 
 // Parallelize independent approved snapshots, never dependent stages within a batch.
 // Admission and the shared call reservation are synchronous; completion order is not report order.
-export async function reviewProjectBatches(batches, model, { concurrency = DEFAULT_PROJECT_CONCURRENCY, reviewEffortMode = 'auto', enableCounterVerification = false, remainingCalls, signal, onProgress, maxRetrievalRounds = 3, resumeStates, onResumeCheckpoint, onModelArtifact, enableGroupPrimary = false, nativeOutputTools = false } = {}) {
+export async function reviewProjectBatches(batches, model, { concurrency = DEFAULT_PROJECT_CONCURRENCY, reviewEffortMode = 'auto', enableCounterVerification = false, remainingCalls, signal, onProgress, maxRetrievalRounds = 3, maxVerificationRetrievalRounds, resumeStates, onResumeCheckpoint, onModelArtifact, enableGroupPrimary = false, nativeOutputTools = false } = {}) {
   projectConcurrency(concurrency);
   retrievalRounds(maxRetrievalRounds);
+  maxVerificationRetrievalRounds = verificationRetrievalRounds(maxVerificationRetrievalRounds, maxRetrievalRounds);
   if (!Array.isArray(batches) || typeof remainingCalls !== 'function') throw new Error('Invalid project execution');
   const controller = new AbortController();
   const batchSignal = signal ? AbortSignal.any([signal, controller.signal]) : controller.signal;
@@ -32,7 +33,7 @@ export async function reviewProjectBatches(batches, model, { concurrency = DEFAU
           instructions: PROJECT_REVIEW_INSTRUCTIONS + '\nReview focus (not proof): ' + JSON.stringify(effort.checks),
           enableCounterVerification:enableCounterVerification && effort.counterVerification.eligible,
           signal: batchSignal, maxCalls: remainingCalls(), remainingCalls, enableRetrieval: true, enableVerification: true,
-          enableGroupPrimary, nativeOutputTools, enableAnchorCorrection: true, correctProtocol: true, maxRetrievalRounds,
+          enableGroupPrimary, nativeOutputTools, enableAnchorCorrection: true, correctProtocol: true, maxRetrievalRounds, maxVerificationRetrievalRounds,
           resumeState: resumeStates?.get(batch.id), onResumeCheckpoint: onResumeCheckpoint ? report => onResumeCheckpoint(batch, report) : undefined, onModelArtifact,
           onProgress: onProgress ? event => onProgress({ ...event, snapshotId: batch.id, batchIndex: index }) : undefined,
         });

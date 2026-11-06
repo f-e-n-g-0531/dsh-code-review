@@ -61,7 +61,7 @@ test('primary continuation preserves retrieval rounds and cannot convert round e
   if(p.retrievalFinalization)return {findings:[],limitations:['round cap']};
   return batch('bounded-'+(++turns)+'-');
  },{...options,maxRetrievalRounds:3});
- assert.equal(initial,1);assert.equal(turns,3);assert.equal(report.readerBudget.calls,24);
+ assert.equal(initial,1);assert.equal(turns,4);assert.equal(report.readerBudget.calls,24); // Fourth batch requested, never executed.
  assert.equal(report.status,'partial');assert.equal(report.files.find(f=>f.fileId==='a').retrievalLimited,true);assert.equal(report.stageGenerations.some(g=>g.fileId==='a'),false);
 });
 test('disabled primary continuation retains legacy finalization and never retries a stage',async()=>{

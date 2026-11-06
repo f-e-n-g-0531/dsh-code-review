@@ -19,7 +19,7 @@ test('cached read survives zero materialization calls but not output bytes or a 
 test('shared grouped round limit preserves exact reason on every member and counts shared event once',async()=>{
  const s=make(2);let groupCalls=0;
  const r=await reviewSnapshot(s,request=>{const p=JSON.parse(request.input);if(request.reviewPhase==='file-interaction')return{findings:[],limitations:[]};groupCalls++;if(!p.retrievalFinalization)return{requests:[{kind:'read',id:'s2',start:1,count:1}]};return{reviews:p.reviews.map(row=>({fileId:row.fileId,findings:[],limitations:[],risks:[]})),limitations:[]};},{...options,enableBusinessGrouping:true,enableGroupPrimary:true,maxRetrievalRounds:1});
- assert.equal(groupCalls,2);assert.equal(r.coverage.pending,2);assert.ok(r.files.every(f=>f.failureCode==='RETRIEVAL_ROUND_BUDGET_EXCEEDED'));assert.ok(r.files.every(f=>f.groupRetrievalLimits?.[0].code==='RETRIEVAL_ROUND_BUDGET_EXCEEDED'));assert.equal(r.diagnostics.readerLimitReasons.find(x=>x.code==='RETRIEVAL_ROUND_BUDGET_EXCEEDED').calls,1);assert.doesNotMatch(markdownReport(r),/共享组末主文件超时/);
+ assert.equal(groupCalls,3);assert.equal(r.readerBudget.calls,1);assert.equal(r.coverage.pending,2);assert.ok(r.files.every(f=>f.failureCode==='RETRIEVAL_ROUND_BUDGET_EXCEEDED'));assert.ok(r.files.every(f=>f.groupRetrievalLimits?.[0].code==='RETRIEVAL_ROUND_BUDGET_EXCEEDED'));assert.equal(r.diagnostics.readerLimitReasons.find(x=>x.code==='RETRIEVAL_ROUND_BUDGET_EXCEEDED').calls,1);assert.doesNotMatch(markdownReport(r),/共享组末主文件超时/);
 });
 test('74-file greedy early stage cannot take future stages protected read capacity',async()=>{
  const s=make();let laterRead=false;

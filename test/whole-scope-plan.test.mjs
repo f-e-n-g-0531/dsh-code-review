@@ -31,14 +31,15 @@ test('74 small files remain one whole primary request with full original members
   }
   assert.match(batch.instructions, /跨文件调用/);
   assert.match(batch.instructions, /不得返回成员risks/);
-  assert.match(batch.instructions, /不是独立read receipt/);
+  assert.match(batch.instructions, /不要求为主审资格/);
+  assert.match(batch.instructions, /独立verification阶段另行要求新读取和回执/);
   assert.equal(value.groupInteraction, undefined);
 });
 
 test('exact native wire fit includes retrieval catalog, instructions, contract and result tools', () => {
   const input = snapshot([file(1), file(2)]), scope = scopeFor();
   const batch = plan(input, { scope }).batches[0];
-  const actual = retrievalRequest({ input: batch.payload, instructions: batch.instructions, nativeOutputTools: true }, scope);
+  const actual = retrievalRequest({ input: batch.payload, instructions: batch.instructions, nativeOutputTools: true }, scope, [], {max:3,remaining:3});
   const required = modelWireBudget(actual, Number.MAX_SAFE_INTEGER).bytes;
   assert.equal(bytes(batch, scope), required);
   assert.ok(required > Buffer.byteLength(actual.input) + Buffer.byteLength(actual.instructions));

@@ -13,7 +13,7 @@ import { detectVcs } from './snapshot.mjs';
 import { projectInventory, captureProjectBatch } from './project-snapshot.mjs';
 import { reviewProjectBatches, projectConcurrency as validateProjectConcurrency, DEFAULT_PROJECT_CONCURRENCY } from './project-execution.mjs';
 import { createDshModel } from './dsh-model.mjs';
-import { retrievalRounds } from './review-execution-policy.mjs';
+import { retrievalRounds, verificationRetrievalRounds } from './review-execution-policy.mjs';
 
 const PREVIEW_NOTICE_SUFFIX = ' Full current source audit, not regression-only diff. Shared session execution budget: no internal elapsed-time or model-call cutoff, 16MiB capture memory protection. Blocked/excluded/pending files are not reviewed successfully. No untracked/ignored/external bodies; no complete semantic call graph. Independent approved batches run with bounded concurrency; per-batch evidence and global model-call budgets remain enforced. Inspect scope and model against current explicit user authorization before execute. A matching explicit review request needs no duplicate confirmation; do not execute preview-only or explicit wait-for-confirmation requests, and ask if scope/model/destination exceeds authorization or is unclear. Host permissions and snapshot/identity checks remain required.';
 const REPORT_NOTICE_SUFFIX = ' Coverage counts processing of selected tracked files only, not proof of correctness. Excluded and blocked are never completed. No cross-batch whole-program semantic coverage is claimed.';
@@ -74,7 +74,7 @@ async function captureProject(cwd, args, signal) {
   return { ...result, id: hash(JSON.stringify(result)) };
 }
 
-export function createProjectReviewService(llm, { reviewEffort = 'auto', enableCounterVerification = false, executionStrategy = 'staged', allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = DEFAULT_PROJECT_CONCURRENCY, maxRetrievalRounds = 3, nativeOutputTools = false, enableGroupPrimary = false } = {}) {
+export function createProjectReviewService(llm, { reviewEffort = 'auto', enableCounterVerification = false, executionStrategy = 'staged', allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = DEFAULT_PROJECT_CONCURRENCY, maxRetrievalRounds = 3, maxVerificationRetrievalRounds, nativeOutputTools = false, enableGroupPrimary = false } = {}) {
   for (const n of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(n) || n < 1) throw new Error('Invalid project preview limit');
   if (!Number.isSafeInteger(projectMaxCalls) || projectMaxCalls < 1) throw new Error('Invalid project model call limit');
 
@@ -82,8 +82,9 @@ export function createProjectReviewService(llm, { reviewEffort = 'auto', enableC
   if(typeof enableCounterVerification!=='boolean')throw new Error('Invalid counterverification policy');
   validateProjectConcurrency(projectConcurrency);
   retrievalRounds(maxRetrievalRounds);
+  maxVerificationRetrievalRounds = verificationRetrievalRounds(maxVerificationRetrievalRounds, maxRetrievalRounds);
   if (typeof nativeOutputTools !== 'boolean' || typeof enableGroupPrimary !== 'boolean') throw new Error('Invalid project execution options');
-  const resumeIdentity = (args, route) => ({ captureOptions: args, route, runtime: REVIEW_RUNTIME, execution: { projectMaxCalls, projectConcurrency, maxRetrievalRounds, nativeOutputTools, enableGroupPrimary, enableVerification: true, enableAnchorCorrection: true, correctProtocol: true } });
+  const resumeIdentity = (args, route) => ({ captureOptions: args, route, runtime: REVIEW_RUNTIME, execution: { projectMaxCalls, projectConcurrency, maxRetrievalRounds, maxVerificationRetrievalRounds, nativeOutputTools, enableGroupPrimary, enableVerification: true, enableAnchorCorrection: true, correctProtocol: true } });
   const projectBinding = snapshot => ({ ...snapshot, files: snapshot.batches.flatMap(batch => batch.files) });
   const previews = new Map();
   const lifetime = new AbortController();
@@ -132,10 +133,10 @@ export function createProjectReviewService(llm, { reviewEffort = 'auto', enableC
           totalTrackedNodes: s.totalTrackedNodes, selectedFiles: s.selectedFiles, selectionComplete: s.selectionComplete,
           inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes, batches: s.batches.length,
           privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 4096, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
-          execution: { nativeOutputTools, enableGroupPrimary, batchConcurrency: projectConcurrency, maxRetrievalRounds },
+          execution: { nativeOutputTools, enableGroupPrimary, batchConcurrency: projectConcurrency, maxRetrievalRounds, maxVerificationRetrievalRounds },
           reviewEffort: {mode:effortMode,status:"planned-per-batch",counterVerification:enableCounterVerification},
           files: s.batches.flatMap(b => b.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason }))),
-          notice: s.notice + PREVIEW_NOTICE_SUFFIX + ' Each stage allows at most ' + maxRetrievalRounds + ' retrieval rounds; exhaustion requires a final-only response and explicit unfinished coverage.',
+          notice: s.notice + PREVIEW_NOTICE_SUFFIX + ' Primary retrieval allows at most ' + maxRetrievalRounds + ' rounds; verification retrieval allows at most ' + maxVerificationRetrievalRounds + ' rounds. Both share the unchanged root reader and model-call budgets; additional model calls are billed. Exhaustion requires a final-only response and explicit unfinished coverage.',
         };
       } finally { busy = false; }
     },
@@ -188,7 +189,7 @@ export function createProjectReviewService(llm, { reviewEffort = 'auto', enableC
         };
 
         const results = await reviewProjectBatches(s.batches, model, {
-          concurrency: projectConcurrency, reviewEffortMode:p.effortMode, enableCounterVerification, maxRetrievalRounds, enableGroupPrimary, nativeOutputTools, signal, remainingCalls: () => projectMaxCalls - calls,
+          concurrency: projectConcurrency, reviewEffortMode:p.effortMode, enableCounterVerification, maxRetrievalRounds, maxVerificationRetrievalRounds, enableGroupPrimary, nativeOutputTools, signal, remainingCalls: () => projectMaxCalls - calls,
           onProgress: exec.reviewCheckpoint, resumeStates: states, onResumeCheckpoint: persist, onModelArtifact: exec.onModelArtifact,
         });
 
@@ -213,7 +214,7 @@ export function createProjectReviewService(llm, { reviewEffort = 'auto', enableC
           totalTrackedNodes: s.totalTrackedNodes, selectionComplete: s.selectionComplete, inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes,
           coverage, files, findings, scopeNotices: results.flatMap(result => result.scopeNotices ?? []), artifacts: results.flatMap(result => result.artifacts ?? []), batches: results, resume: { reusedFiles: files.filter(file => file.reused).length },
           privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 4096, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
-          execution: { nativeOutputTools, enableGroupPrimary, batchConcurrency: projectConcurrency, maxRetrievalRounds },
+          execution: { nativeOutputTools, enableGroupPrimary, batchConcurrency: projectConcurrency, maxRetrievalRounds, maxVerificationRetrievalRounds },
           reviewEffort: {mode:p.effortMode,status:"planned-per-batch",counterVerification:enableCounterVerification},
           notice: s.notice + REPORT_NOTICE_SUFFIX,
         };

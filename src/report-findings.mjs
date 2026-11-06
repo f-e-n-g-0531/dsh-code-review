@@ -1,5 +1,5 @@
 import { groupDuplicateFindings } from './finding-groups.mjs';
-import { comparisonValidated, verificationPresentation } from './report-summary.mjs';
+import { comparisonValidated, verificationPresentation, modelComparisonValidated } from './report-summary.mjs';
 
 const safe = value => Array.from(String(value ?? '')).map(c => {
   if (c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127) return ' ';
@@ -16,6 +16,7 @@ export function findingDisposition(finding, report = {}) {
   if (v.verdict === 'refuted') return '已反驳';
   if (v.verdict !== 'supported') return '待核实';
   if (report.mode === 'project' || report.reviewMode === 'project' || report.projectScope || finding.attribution?.causality === 'current-source-only') return '当前源码问题（复核支持）';
+  if (modelComparisonValidated(finding)) return '模型跨文件比较支持（关系由模型判断，未证明因果）';
   const r = v.regression;
   if (!comparisonValidated(finding)) return '待核实';
   return r.classification === 'introduced' ? '本次新增（复核支持）' : r.classification === 'preexisting' ? '原有问题（复核支持）' : '待核实';
@@ -30,10 +31,10 @@ export function findingsMarkdown(report) {
   const findings = Array.isArray(report.findings) ? report.findings : [];
   const duplicate = new Map();
   for (const group of groupDuplicateFindings(findings)) for (const i of group.findingIndices.slice(1)) duplicate.set(i, group.findingIndices[0]);
-  const sections = new Map([['本次新增（复核支持）',[]],['当前源码问题（复核支持）',[]],['复核后不确定',[]],['复核未完成',[]],['原有问题（复核支持）',[]],['已反驳',[]]]);
+  const sections = new Map([['本次新增（复核支持）',[]],['当前源码问题（复核支持）',[]],['模型跨文件比较支持（关系由模型判断，未证明因果）',[]],['复核后不确定',[]],['复核未完成',[]],['原有问题（复核支持）',[]],['已反驳',[]]]);
   findings.forEach((f,i)=>{
     const state = verificationPresentation(f, report);
-    const label = state === 'uncertain' ? '复核后不确定' : state === 'incomplete' ? '复核未完成' : findingDisposition(f,report);
+    const label = modelComparisonValidated(f) ? findingDisposition(f,report) : state === 'uncertain' ? '复核后不确定' : state === 'incomplete' ? '复核未完成' : findingDisposition(f,report);
     if (!duplicate.has(i)) sections.get(label).push({f,i});
   });
   const output = ['', '## 审查发现'];
@@ -46,6 +47,7 @@ export function findingsMarkdown(report) {
     items.sort((a,b)=>(levels[a.f.severity]??4)-(levels[b.f.severity]??4)||a.i-b.i);
     for (const {f,i} of items) {
       const severity = ({critical:'严重',high:'高',medium:'中',low:'低'})[f.severity] ?? safe(f.severity ?? '未分级');
+      if (modelComparisonValidated(f)) output.push('- 比较依据：角色引用已校验；角色关系及“' + (f.verification.regression.classification === 'introduced' ? '本次新增' : '原有') + '”为模型语义判断，不是宿主契约或因果证明。' + safe(f.verification.regression.comparison.relationshipReason));
       const hypothesis = label === '复核后不确定' || label === '复核未完成' || label === '已反驳';
       output.push('', '#### ' + (i+1) + '. ' + (hypothesis ? '主审假说：' : '') + safe(f.title) + '（' + (hypothesis ? '主审拟议严重程度' : '严重程度') + '：' + severity + '）', '- 位置：' + location(f));
       if (hypothesis) output.push('- 阅读方式：以下为主审记录的线索和假说，不是确定事实或必改建议；原始字段及完整证据保留在技术附录。');

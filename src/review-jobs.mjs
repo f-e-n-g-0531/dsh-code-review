@@ -1,3 +1,4 @@
+import { safeReviewFailure } from './review-failure.mjs';
 import {createReviewArtifacts} from './review-artifacts.mjs';
 import {jobProgress} from './job-progress.mjs';
 import {recoveryCoverage} from './recovery-coverage.mjs';
@@ -63,7 +64,7 @@ export function createReviewJobs({directory}={}){
      controller.signal.throwIfAborted();
      const result=await work({signal:controller.signal,artifact:async value=>{const ref=await artifacts.record(id,job.record.owner,value);await enqueue(async()=>{(job.record.artifacts??=[]).push(ref);await save(job);});return ref;},saveResumeState:async value=>enqueue(async()=>{job.record.resumeState=structuredClone(value);await save(job);}),checkpoint:async value=>enqueue(async()=>{job.record.stage=value.stage??'reviewing';job.record.checkpoints.push(structuredClone(value));await save(job);})});
      job.record.result=result;job.record.status=controller.signal.aborted?'cancelled':'completed';
-    }catch(error){job.record.status=controller.signal.aborted?'cancelled':'failed';job.record.error=error?.message??String(error);}
+    }catch(error){job.record.status=controller.signal.aborted?'cancelled':'failed';job.record.error=error?.message??String(error);job.record.failure=safeReviewFailure(error);}
     finally{
      job.record.finishedAt=new Date().toISOString();
      try{await enqueue(()=>save(job));jobs.delete(id);}

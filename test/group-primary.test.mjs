@@ -58,7 +58,7 @@ test('group fallback keeps round exhaustion final and does not mint an accepted 
     if (p.retrievalFinalization) return { findings: [], limitations: ['round cap'] };
     return retrievalBatch(++turns);
   }, { ...continuationOptions, maxRetrievalRounds: 3 });
-  assert.equal(starts, 1); assert.equal(turns, 3);
+  assert.equal(starts, 1); assert.equal(turns, 4); // Fourth request is refused; only three read batches execute.
   assert.equal(report.readerBudget.calls, 40);
   assert.equal(report.status, 'partial');
   assert.equal(report.stageGenerations.some(stage => stage.fileId === 'a'), false);

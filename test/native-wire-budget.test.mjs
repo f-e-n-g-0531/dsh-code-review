@@ -57,7 +57,7 @@ test('scope opt-in is isolated and immutable, with legacy initial-budget bytes u
   assert.equal(configureWireBudget(a, { nativeOutputTools: true }), a);
   assert.equal(nativeWireEnabled(r, a), true);
   assert.equal(nativeWireEnabled(r, b), false);
-  const actual = retrievalRequest(r, a);
+  const actual = retrievalRequest(r, a, [], {max:3,remaining:3});
   assert.deepEqual(initialInputBudget(r, a, 100000), modelWireBudget({ ...actual, nativeOutputTools: true }, 100000));
   assert.deepEqual(initialInputBudget(r, b, 100000), before);
   assert.deepEqual(initialInputBudget({ ...r, nativeOutputTools: false }, a, 100000), before);

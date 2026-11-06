@@ -1,3 +1,4 @@
+import { receiptSchemaProof } from './verification-receipt-policy.mjs';
 import { modelContract } from './model-contract.mjs';
 import { nativeResultWireBytes } from './model-tools.mjs';
 
@@ -8,7 +9,7 @@ export function modelWireBudget(request, maxBytes) {
   if (!request || typeof request.instructions !== 'string' || typeof request.input !== 'string') throw new Error('Invalid model wire request');
   if (request.nativeOutputTools !== undefined && typeof request.nativeOutputTools !== 'boolean') throw new Error('nativeOutputTools must be boolean');
   const bytes = Buffer.byteLength(request.input) + Buffer.byteLength(request.instructions + '\n' + modelContract(request.input, request.instructions)) +
-    (request.nativeOutputTools === true ? nativeResultWireBytes(request.input, request.instructions) : 0);
+    (request.nativeOutputTools === true ? nativeResultWireBytes(request.input, request.instructions, receiptSchemaProof(request, { forBudget: true })) : 0);
   return { bytes, maxBytes, fits: bytes <= maxBytes };
 }
 

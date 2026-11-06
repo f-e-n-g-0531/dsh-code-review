@@ -51,6 +51,7 @@ function terminalSummary(value) {
     lines.push('最少调用仅为初始计划下限，不是总调用数或耗时上限；后续取证、复核及综合会增加工作量。');
     if (typeof report.expiresAt === 'string' && Number.isFinite(Date.parse(report.expiresAt))) lines.push('预览有效至：' + new Date(report.expiresAt).toISOString() + '；过期后须重新预览并核对当前授权，不得复用旧预览或恢复旧批准。');
   } else {
+    if(value.failure)lines.push('执行原因：'+value.failure.label+'（'+value.failure.code+'）'+(Number.isSafeInteger(value.failure.requiredBytes)?'；输入'+value.failure.requiredBytes+' bytes':'')+(Number.isSafeInteger(value.failure.approvedCap)?'／批准'+value.failure.approvedCap+' bytes':''));
     lines.push('未提供完整报告摘要；终态不会自动恢复或重新发送源码。请检查已保存检查点和未完成范围。');
   }
   return lines.join('\n');
