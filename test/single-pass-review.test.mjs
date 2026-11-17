@@ -34,10 +34,12 @@ for (const candidates of [[], [{ path: 'clients/use.js', status: 'captured' }]])
   assert.equal(reportSummaryData(report).complete, true);
   assert.equal(report.modelCalls, 1);
   for (const text of [markdownReport(report), renderUserReport(report)]) {
-    assert.match(text, /约定静态审核完成/);
+    assert.doesNotMatch(text, /审核尚未完成|审核失败|审核已取消|审核已中断/);
     assert.doesNotMatch(text, /不完整验收失败/);
     assert.match(text, /调用方|caller/);
   }
+  assert.match(markdownReport(report), /约定静态审核完成/);
+  assert.match(renderUserReport(report), /代码检查已完成/);
 });
 
 test('caller truncation cannot be promoted by completed model declarations', async () => {
@@ -48,7 +50,8 @@ test('caller truncation cannot be promoted by completed model declarations', asy
   assert.equal(report.orchestration.captureComplete, false);
   assert.equal(report.orchestration.primaryComplete, false);
   assert.equal(reportSummaryData(report).complete, false);
-  assert.match(renderUserReport(report), /不完整验收失败/);
+  assert.match(renderUserReport(report), /审核尚未完成/);
+  assert.doesNotMatch(renderUserReport(report), /代码检查已完成|不完整验收失败/);
 });
 
 test('global limitations are preserved once rather than copied to every member', async () => {

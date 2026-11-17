@@ -22,11 +22,17 @@ test('35 candidates plus assurance notes complete only the agreed static scope',
   assert.equal(data.unverifiedCandidates,0); assert.equal(data.verification.incomplete,0);
   assert.equal(data.counts.singleModel,35);
   for(const text of [summary(r),renderUserReport(r)]) {
-    assert.match(text,/约定静态审核完成/); assert.match(text,/单模型候选（未独立复核）/);
+    assert.match(text,/单模型候选（未独立复核）/);
     assert.match(text,/未运行构建和运行测试/); assert.match(text,/范围外外部二进制未提供/);
-    assert.match(text,/src[/]example[.]cpp/); assert.match(text,/保证边界：2 项/);
+    assert.match(text,/src[/]example[.]cpp/);
     assert.doesNotMatch(text,/不完整验收失败|未完成条目 1|已运行|安全通过|无bug/);
   }
+  assert.match(summary(r),/约定静态审核完成/); assert.match(summary(r),/保证边界：2 项/);
+  assert.match(renderUserReport(r),/代码检查已完成/);
+  assert.match(renderUserReport(r),/需注意：全局范围：未运行构建和运行测试/);
+  assert.match(renderUserReport(r),/需注意：src[/]example[.]cpp：范围外外部二进制未提供/);
+  assert.doesNotMatch(renderUserReport(r),/保证边界：2 项|候选总数|模型调用|完成度|保证等级/);
+  assert.deepEqual(renderUserReport(r).match(/^## .+$/gm),['## 1. 改动内容','## 2. 报告']);
   assert.match(summary(r),/其余 30 项候选/); assert.match(renderUserReport(r),/另有 30 项候选/);
   assert.deepEqual(r,before);
 });
@@ -37,21 +43,31 @@ test('scope gaps remain separate from notes and keep member path ownership', () 
   r.files[0].status='pending';r.files[0].primaryStatus='partial';r.orchestration.primaryComplete=false;
   assert.equal(reportSummaryData(r).complete,false); assert.equal(reportSummaryData(r).unfinished.length,1);
   for(const text of [summary(r),renderUserReport(r)]) {
-    assert.match(text,/不完整验收失败/); assert.match(text,/实际缺口/);
+    assert.doesNotMatch(text,/代码检查已完成/);
     assert.match(text,/全局范围：缺少必要接口合同/); assert.match(text,/src[/]example[.]cpp：尚未核查旧调用路径/);
-    assert.match(text,/保证边界：2 项/);assert.doesNotMatch(text,/约定静态审核完成/);
+    assert.doesNotMatch(text,/约定静态审核完成/);
   }
+  assert.match(summary(r),/不完整验收失败/); assert.match(summary(r),/实际缺口/);
+  assert.match(summary(r),/保证边界：2 项/);
+  const user=renderUserReport(r);
+  assert.match(user,/审核尚未完成/); assert.doesNotMatch(user,/不完整验收失败|保证边界：2 项/);
+  assert.match(user,/尚未核实：全局范围：缺少必要接口合同/);
+  assert.match(user,/尚未核实：src[/]example[.]cpp：尚未核查旧调用路径/);
+  assert.match(user,/需注意：全局范围：未运行构建和运行测试/);
 });
 
 for(const status of ['partial','cancelled','failed','blocked','unknown','interrupted','pending','running']) test('host '+status+' overrides completed model declaration',()=>{
   const r=report(0);r.status=status;
   assert.equal(reportSummaryData(r).complete,false);
-  for(const text of [summary(r),renderUserReport(r)]) {assert.match(text,/不完整验收失败/);assert.doesNotMatch(text,/约定静态审核完成/);}
+  assert.match(summary(r),/不完整验收失败/);assert.doesNotMatch(summary(r),/约定静态审核完成/);
+  assert.match(renderUserReport(r),status === 'cancelled' ? /审核已取消/ : status === 'failed' ? /审核失败/ : status === 'interrupted' ? /审核已中断/ : /审核尚未完成/);
+  assert.doesNotMatch(renderUserReport(r),/不完整验收失败|约定静态审核完成|代码检查已完成/);
 });
 
 for(const field of ['captureComplete','primaryComplete','protocolValid','modelCompletionComplete']) test('host '+field+' false cannot be promoted',()=>{
   const r=report(0);r.orchestration[field]=false;
-  assert.equal(reportSummaryData(r).complete,false);assert.match(renderUserReport(r),/不完整验收失败/);
+  assert.equal(reportSummaryData(r).complete,false);assert.match(renderUserReport(r),/审核尚未完成/);
+    assert.doesNotMatch(renderUserReport(r),/代码检查已完成|不完整验收失败/);
 });
 
 test('capture manifest blocked paths and truncation override optimistic host totals',()=>{
@@ -63,14 +79,17 @@ test('capture manifest blocked paths and truncation override optimistic host tot
 test('unknown declarations and completed declarations with gaps cannot hide unresolved scope',()=>{
   for(const declaration of [{status:'needs-classification',gaps:[]},{status:'other',gaps:[]},{status:'completed',gaps:['实际未审'] }]){
     const r=report(0);r.completeness=declaration;
-    assert.equal(reportSummaryData(r).complete,false);assert.match(renderUserReport(r),/不完整验收失败/);
+    assert.equal(reportSummaryData(r).complete,false);assert.match(renderUserReport(r),/审核尚未完成/);
+    assert.doesNotMatch(renderUserReport(r),/代码检查已完成|不完整验收失败/);
   }
 });
 
 test('explicit member gaps override spoofed completed host status without a root gap',()=>{
   const r=report(0);r.files[0].completion={status:'incomplete',gaps:['member gap']};
   assert.equal(reportSummaryData(r).complete,false);assert.equal(reportSummaryData(r).unfinished.length,1);
-  for(const text of [summary(r),renderUserReport(r)]) {assert.match(text,/不完整验收失败/);assert.doesNotMatch(text,/约定静态审核完成/);}
+  assert.match(summary(r),/不完整验收失败/);assert.doesNotMatch(summary(r),/约定静态审核完成/);
+  assert.match(renderUserReport(r),/审核尚未完成/);
+  assert.doesNotMatch(renderUserReport(r),/不完整验收失败|约定静态审核完成|代码检查已完成/);
 });
 
 test('notes alone never increase unfinished counts and deep count shape stays unchanged',()=>{
@@ -86,7 +105,13 @@ test('all original notes and gaps survive technical rendering, summaries show fi
   const r=report(0);r.status='partial';
   r.completeness={status:'incomplete',gaps:Array.from({length:8},(_,i)=>'gap-'+i+String.fromCharCode(10)+'z'.repeat(350))};
   r.assuranceNotes=Array.from({length:9},(_,i)=>({text:'note-'+i+String.fromCharCode(10)+'y'.repeat(350),fileId:'f'}));
-  for(const text of [summary(r),renderUserReport(r)]) {assert.match(text,/另 3 项未在摘要展开/);assert.match(text,/另 4 项未在摘要展开/);}
+  assert.match(summary(r),/另 3 项未在摘要展开/);assert.match(summary(r),/另 4 项未在摘要展开/);
+  const user=renderUserReport(r);
+  assert.match(user,/另 3 项尚未核实内容未展开/);assert.match(user,/另 4 项需注意内容未展开/);
+  assert.equal((user.match(/^- 尚未核实：全局范围：gap-/gm)||[]).length,5);
+  assert.equal((user.match(/^- 需注意：src[/]example[.]cpp：note-/gm)||[]).length,5);
+  for(let i=0;i<5;i++){assert.ok(user.includes('gap-'+i));assert.ok(user.includes('note-'+i));}
+  assert.doesNotMatch(user,/gap-[5-7]|note-[5-8]/);
   const technical=markdownReport(r);
   const pre=technical.match(/<pre>([^]*?)<[/]pre>/)[1].replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&amp;','&');
   const originals=JSON.parse(pre);
@@ -101,8 +126,10 @@ test('malicious text, paths, code, body and forged status never inject markup',(
   r.assuranceNotes=[{text:payload,fileId:'f',body:'<iframe>body</iframe>',code:'<img>code'}];
   for(const text of [summary(r),renderUserReport(r)]) {
     assert.doesNotMatch(text,/<script>|<iframe>|<img>|^# [[]x[]]|[]][(]javascript:/m);
-    assert.match(text,/&lt;script&gt;/);assert.match(text,/不完整验收失败/);
+    assert.match(text,/&lt;script&gt;/);
   }
+  assert.match(summary(r),/不完整验收失败/);
+  assert.match(renderUserReport(r),/审核尚未完成/);assert.doesNotMatch(renderUserReport(r),/代码检查已完成/);
   const original=JSON.parse(summary(r).match(/<pre>([^]*?)<[/]pre>/)[1].replaceAll('&lt;','<').replaceAll('&gt;','>').replaceAll('&amp;','&'));
   assert.equal(original.assuranceNotes[0].text,payload);assert.equal(original.gaps[0].text,payload);
 });

@@ -11,7 +11,9 @@ test('execute diagnostics expose loaded version and wall scope in report and ren
     assert.ok(result.report.diagnostics.reviewWallMs >= 0);
     assert.ok(result.report.diagnostics.executionWallMs >= result.report.diagnostics.reviewWallMs);
     assert.equal(result.report.diagnostics.observedModelCalls, 1);
-    assert.match(result.markdown, /执行诊断/); assert.match(result.markdown, /不含预览／用户确认等待/);
+    assert.deepEqual(result.markdown.match(/^## .+$/gm), ['## 1. 改动内容', '## 2. 报告']);
+    assert.doesNotMatch(result.markdown, /执行诊断|墙钟|耗时|模型调用/);
+    assert.match(result.technicalMarkdown, /执行诊断/);
     assert.equal(sends, 1); assert.equal(captures, 3);
     assert.doesNotMatch(JSON.stringify(result.report.diagnostics), /modulePath|index[.]mjs|old|new/);
   } finally { service.dispose(); }

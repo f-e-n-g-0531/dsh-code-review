@@ -16,9 +16,11 @@ test('host validated single-pass candidates are neither supported, uncertain nor
   assert.deepEqual(data.unfinished,[]); assert.deepEqual(supportedFindingPriorities(r),[]);
   assert.deepEqual(data.counts,{total:1,introduced:0,unresolved:0,refuted:0,preexisting:0,current:0,singleModel:1});
   for(const text of [summary(r),renderUserReport(r)]){
-    assert.match(text,/单模型候选（未独立复核）/); assert.match(text,/不可当放行/);
+    assert.match(text,/单模型候选（未独立复核）/);
     assert.doesNotMatch(text,/补齐未.*阶段|未完成复核 1|已复核不确定 1|复核支持本次新增 1|PRIVATE_/);
   }
+  assert.match(summary(r),/不可当放行/);
+  assert.match(renderUserReport(r),/代码检查已完成/);
   assert.deepEqual(r,before);
 });
 
@@ -51,7 +53,8 @@ test('anchor validation markers must match the host-approved anchor kind',()=>{
 test('partial failures cancellation and actual incomplete stages remain truthful',()=>{
   for(const status of ['partial','failed','cancelled','interrupted','running']){
     const r=report();r.status=status;assert.equal(reportSummaryData(r).complete,false);
-    assert.doesNotMatch(renderUserReport(r),/所选范围处理完成/);assert.match(summary(r),/尚未查完/);
+    assert.doesNotMatch(renderUserReport(r),/所选范围处理完成|代码检查已完成/);assert.match(summary(r),/尚未查完/);
+    assert.match(renderUserReport(r), status === 'failed' ? /审核失败/ : status === 'cancelled' ? /审核已取消/ : status === 'interrupted' ? /审核已中断/ : /审核尚未完成/);
   }
   for(const mutate of [r=>r.files[0].status='failed',r=>r.files[0].primaryStatus='failed',r=>r.files[0].verificationStatus='failed',r=>r.files[0].stageFailures=[{}],r=>r.files[0].retrievalLimited=true,r=>r.stageContinuation={pending:1},r=>r.interactions=[{status:'pending'}],r=>r.coverage={total:2,completed:1,pending:1}]){
     const r=report();mutate(r);assert.equal(reportSummaryData(r).complete,false);
@@ -62,12 +65,13 @@ test('all candidates retained; summaries expand five with explicit remaining cou
   const r=report(8), before=structuredClone(r), head=summary(r), user=renderUserReport(r), technical=findingsMarkdown(r).join(String.fromCharCode(10));
   assert.match(head,/完整候选总数 8/);assert.match(head,/其余 3 项候选未在摘要展开/);
   assert.equal((head.match(/^- 候选 [0-9]+ ·/gm)||[]).length,5);
-  assert.match(user,/候选总数 8/);assert.match(user,/另有 3 项候选未在简报展开/);
+  assert.doesNotMatch(user,/候选总数|模型调用|已记录.*限制|保证等级|完成度统计/);assert.match(user,/另有 3 项候选未在简报展开/);
+  assert.deepEqual(user.match(/^## .+$/gm),['## 1. 改动内容','## 2. 报告']);
   assert.equal((user.match(/^### 候选 /gm)||[]).length,5);
   assert.match(user,/输入失效时/);assert.match(user,/请求状态可能丢失/);assert.match(user,/仅在校验后更新状态/);
   assert.match(technical,/### 单模型候选（未独立复核）/);
   assert.equal((technical.match(/^#### [0-9]+[.]/gm)||[]).length,8);
-  assert.match(head,/已记录限制：1 项/);assert.match(user,/已记录 1 条限制/);
+  assert.match(head,/已记录限制：1 项/);assert.doesNotMatch(user,/已记录 1 条限制/);
   assert.deepEqual(r,before);
 });
 

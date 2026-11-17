@@ -347,7 +347,7 @@ export function createReviewService(llm, options = {}) {
       const result = await get(exec).execute(args, exec);
       result.report.diagnostics = { ...reviewDiagnostics(result.report), ...result.report.diagnostics };
       result.report.diagnostics.executionWallMs = Math.round(performance.now() - started);
-      return { ...result, markdown: result.markdown + '\n执行工具墙钟（含批准快照复核、审查和末尾来源复核，不含预览／用户确认等待）：' + (result.report.diagnostics.executionWallMs / 1000).toFixed(1) + ' 秒。\n' };
+      return result;
     },
     dispose() {
       disposed = true;

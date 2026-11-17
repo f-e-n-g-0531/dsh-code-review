@@ -15,7 +15,7 @@ const finding = { type: 'object', properties: { fileId: text, severity: { enum: 
   required: ['fileId', 'severity', 'title', 'evidence', 'trigger', 'impact', 'suggestion', 'anchor'] };
 const findings = array(finding); // Existing validators still enforce exact evidence and identities.
 const completion = object({ status: { enum: ['completed', 'incomplete'] }, gaps: strings });
-const singlePassReview = object({ fileId: text, findings, limitations: strings, completion, assuranceNotes: strings });
+const singlePassReview = object({ fileId: text, changeSummary: { type: 'string', minLength: 1, maxLength: 2000 }, findings, limitations: strings, completion, assuranceNotes: strings }, ['fileId', 'findings', 'limitations', 'completion', 'assuranceNotes']);
 const risk = object({ id: { type: 'string' }, fileIds: strings,
   editRefs: array(object({ fileId: { type: 'string' }, editId: { type: 'string' } })),
   question: { type: 'string' }, trigger: { type: 'string' }, impact: { type: 'string' }, checks: strings, sourceIds: strings });

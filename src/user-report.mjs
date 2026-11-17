@@ -1,4 +1,4 @@
-import { reportSummaryData, verificationPresentation, modelComparisonValidated, singlePassCompletionData, singlePassCompletionMarkdown } from './report-summary.mjs';
+import { reportSummaryData, verificationPresentation, modelComparisonValidated, singlePassCompletionData } from './report-summary.mjs';
 
 const rows = value => Array.isArray(value) ? value : [];
 const count = n => Number.isSafeInteger(n) && n >= 0;
@@ -32,40 +32,45 @@ function location(f, report) {
   return path + (a?.kind === 'line' && count(a.start) && a.start > 0 ? ' · ' + (a.side === 'old' ? '修改前' : a.side === 'new' ? '修改后' : '行') + ' ' + a.start + (count(a.end) && a.end > a.start ? '–' + a.end : '') : a?.kind === 'property' ? ' · 属性 ' + safe(a.name, 60) : '');
 }
 
-/** Presentation only: full evidence is unchanged, model prose never defines status. */
+/** Presentation only: full evidence and execution diagnostics stay in technical output. */
 export function renderUserReport(report = {}, { maxFindings = 5 } = {}) {
   if (!Number.isSafeInteger(maxFindings) || maxFindings < 1 || maxFindings > 20) throw new TypeError('Invalid user report finding limit');
-  const data = reportSummaryData(report), c = data.counts, coverage = data.coverage;
-  const states = { cancelled: '审核已取消', failed: '审核失败', interrupted: '审核已中断' };
+  const data = reportSummaryData(report), coverage = data.coverage;
   const completion = singlePassCompletionData(report);
-  const status = data.emptySelection ? '未选择审核条目' : data.complete ? (completion ? '约定静态审核完成' : '所选范围处理完成') : (Object.hasOwn(states, data.status) ? states[data.status] : '审核尚未完成') + (completion ? '；不完整验收失败' : '');
-  const failures = executionFailures(report), executionBlocked = failures.length > 0 || coverage.failed > 0;
-  const output = ['# 代码审核简报', '', '## 结论'];
-  if (executionBlocked) {
-    output.push('- 审核执行受阻，不能据此判断业务代码。主审失败 ' + coverage.failed + ' 项，待审 ' + coverage.pending + ' 项。');
-    for (const [code, total] of failures.slice(0, 3)) output.push('- ' + (coverage.detailsComplete ? '已记录原因' : '已加载明细中的原因') + '：' + executionCauses[code] + '，' + total + ' 项（' + safe(code) + '）。');
-    if (!coverage.detailsComplete) output.push('- 原因计数仅覆盖已加载 ' + coverage.loaded + '/' + coverage.total + ' 项；未加载条目的具体原因尚未核实。');
-    else if (!failures.length) output.push('- 尚无可识别的执行原因代码，请查技术报告；不从模型描述推断原因。');
+  const output = ['## 1. 改动内容', ''];
+  const files = rows(report.files);
+  for (const file of files.slice(0, 20)) {
+    const summary = safe(file?.changeSummary, 600);
+    output.push('- ' + (safe(file?.path, 200) || '位置未记录') + '：' + (summary || (data.currentSourceOnly ? '检查当前源码，未记录改动说明。' : '未记录改动说明。')));
   }
-  if (data.singlePass) output.push('- 保证等级：单模型候选（未独立复核）；仅宿主响应格式、文件身份与锚点校验，不是独立证据确认或因果证明，不可当放行。',
-    '- 候选总数 ' + c.total + ' 项；单模型候选 ' + data.singlePass.candidates + ' 项；未完成有效处理 ' + data.verification.incomplete + ' 项。');
-  else output.push('- ' + (data.currentSourceOnly ? '当前源码复核支持 ' + c.current + ' 项' : '本次新增复核支持 ' + c.introduced + ' 项') + '；原有问题 ' + c.preexisting + ' 项；尚不能确认 ' + data.verification.uncertain + ' 项；未完成复核 ' + data.verification.incomplete + ' 项。',
-    '- ' + status + (data.outdated ? '；报告已过期，仅对应原快照' : '') + '。未发现获支持的问题也不等于审核通过。');
-  if (data.singlePass) output.push('- ' + status + (data.outdated ? '；报告已过期，仅对应原快照' : '') + '；完成仅指主审处理进度，不代表独立复核或审核通过。');
-  if (completion && !data.singlePass) output.push('- ' + status + '；宿主未完成验收，模型声明不能代替实际执行结果。');
-  output.push(...singlePassCompletionMarkdown(report));
-  const modelAssessed=rows(report.findings).filter(modelComparisonValidated);
-  if(modelAssessed.length)output.push('- 另有模型跨文件比较支持 '+modelAssessed.length+' 项（关系由模型判断，未证明因果）；不计入上述严格新增支持统计。');
-  if (c.refuted) output.push('- 另有 ' + c.refuted + ' 项候选已被复核反驳，不计为待修问题。');
-  output.push('', '## 需要关注的内容');
+  if (!files.length) output.push('未提供改动内容。');
+  if (files.length > 20) output.push('- 另有 ' + (files.length - 20) + ' 个文件未展开。');
+  if (!coverage.detailsComplete) output.push('- 文件明细未齐，以上仅为已加载内容。');
+  output.push('', '## 2. 报告', '');
+  const states = { cancelled: '审核已取消', failed: '审核失败', interrupted: '审核已中断' };
+  if (data.emptySelection) output.push('未选择审核条目。');
+  else if (!data.complete) output.push((Object.hasOwn(states, data.status) ? states[data.status] : '审核尚未完成') + '，不能据此判断全部改动是否有问题。');
+  else if (!rows(report.findings).length) output.push('代码检查已完成，未发现明确问题。');
+  else output.push('代码检查已完成，发现以下需要关注的问题。');
+  if (data.outdated) output.push('报告已过期，仅对应原快照；请先对当前源码重新预览审核。');
+  const failures = executionFailures(report);
+  for (const [code, total] of failures.slice(0, 3)) output.push('- ' + (coverage.detailsComplete ? '未完成原因' : '已加载明细中的原因') + '：' + executionCauses[code] + '，' + total + ' 项。');
+  if (coverage.failed && !failures.length) output.push('- 部分文件检查失败，具体原因未记录。');
+  if (data.unfinished.length) output.push('- 尚未查完：' + data.unfinished.slice(0, 5).map(item => safe(item.path, 100)).join('；') + (data.unfinished.length > 5 ? '；另 ' + (data.unfinished.length - 5) + ' 项未展开' : '') + '。');
+  if (!coverage.detailsComplete || coverage.unaccounted) output.push('- 文件明细未齐或仍有状态未记账，不能判断全范围完成。');
+  if (data.crossFile.pending) output.push('- 部分跨文件调用关系尚未查完。');
+  if (completion) {
+    for (const [label, entries] of [['尚未核实', completion.gaps], ['需注意', completion.notes]]) {
+      for (const item of entries.slice(0, 5)) output.push('- ' + label + '：' + safe(item.path, 160) + '：' + safe(item.text, 400));
+      if (entries.length > 5) output.push('- 另 ' + (entries.length - 5) + ' 项' + label + '内容未展开，完整内容见技术报告。');
+    }
+  }
   const findings = rows(report.findings).map((finding, index) => ({ finding, index, state: verificationPresentation(finding, report) }));
   const rank = f => Object.hasOwn(levels, f?.severity) ? levels[f.severity] : 4;
   findings.sort((a, b) => order[a.state] - order[b.state] || rank(a.finding) - rank(b.finding) || a.index - b.index);
-  if (!findings.length) output.push('本轮未记录候选问题；仍需结合下方未完成范围判断。');
   for (const { finding: f, index, state } of findings.slice(0, maxFindings)) {
     output.push('', '### 候选 ' + (index + 1) + ' · ' + (modelComparisonValidated(f)?'模型跨文件比较支持（关系由模型判断，未证明因果）':labels[state]) + '：' + (safe(f?.title, 100) || '未提供标题'));
-    if (state === 'single-model') output.push('- 判断来源：一次主审模型评估；未请求独立复核，不是复核支持／反驳或已复核不确定。');
-    else output.push('- 复核判断：' + (safe(f?.verification?.reason, 420) || (state === 'incomplete' ? '尚无有效复核结论。' : '未记录判断理由；请查完整技术报告。')));
+    if (state !== 'single-model') output.push('- 判断：' + (safe(f?.verification?.reason, 420) || (state === 'incomplete' ? '尚未完成核实。' : '未记录判断理由。')));
     output.push('- 位置：' + location(f, report));
     if (f?.trigger) output.push('- 触发条件（候选描述）：' + safe(f.trigger, 150));
     if (['introduced', 'current', 'preexisting'].includes(state)) {
@@ -78,35 +83,5 @@ export function renderUserReport(report = {}, { maxFindings = 5 } = {}) {
     else output.push('- 下一步：补齐相关契约、调用路径和旧实现对照，再决定是否修复；原始假说与证据见技术报告。');
   }
   if (findings.length > maxFindings) output.push('', '另有 ' + (findings.length - maxFindings) + ' 项候选未在简报展开，见完整技术报告。');
-  output.push('', '## 覆盖与后续', '- 主审完成 ' + coverage.completed + '/' + coverage.total + ' 个' + (coverage.unit === 'files' ? '文件' : '变更条目（含目录）') + '；待审 ' + coverage.pending + '；阻断 ' + coverage.blocked + '；失败 ' + coverage.failed + '；取消 ' + coverage.cancelled + '。');
-  if (data.unfinished.length) output.push('- ' + (coverage.detailsComplete ? '未完成条目 ' : '已加载未完成条目 ') + data.unfinished.length + '：' + data.unfinished.slice(0, 5).map(item => safe(item.path, 100)).join('；') + (data.unfinished.length > 5 ? '；另 ' + (data.unfinished.length - 5) + ' 项未展开' : '') + '。');
-  if (!coverage.detailsComplete || coverage.unaccounted) output.push('- 文件明细未齐或仍有状态未记账，不能据已加载条目判断全范围完成。');
-  if (data.crossFile.total) output.push('- 跨文件综合完成 ' + data.crossFile.completed + '/' + data.crossFile.total + ' 项' + (data.crossFile.pending ? '；其余关系尚未核查。' : '。'));
-  if (Object.values(data.stages).some(Boolean)) output.push('- 后续阶段：待执行 ' + data.stages.pending + '，执行中 ' + data.stages.running + '，已停止 ' + data.stages.stopped + '。');
-  if (data.limitations) output.push('- 已记录 ' + data.limitations + ' 条限制；完整原因与对应范围见技术报告。');
-  output.push('- 建议顺序：' + (data.outdated ? '先对当前源码重新预览审核。' : executionBlocked ? '先排查审核执行容量或调用限制，再重新预览补审；不要按空发现放行业务代码。' : !data.complete ? '先补齐未审范围和未完成阶段，再处理缺少证据的候选。' : data.singlePass ? '结合模型候选的触发条件与影响判断修复和测试必要性；本轮未请求独立复核，不需为结束本轮另起验证，处理完成不是放行批准。' : '结合上述复核判断决定修复与测试；处理完成不是放行批准。'));
-  const metrics = [], calls = report.modelCalls ?? report.diagnostics?.modelCalls, wall = report.diagnostics?.executionWallMs;
-  if (count(calls)) metrics.push('模型调用 ' + calls + ' 次');
-  if (typeof wall === 'number' && Number.isFinite(wall) && wall >= 0) metrics.push('执行耗时 ' + (wall / 1000).toFixed(1) + ' 秒');
-  if (metrics.length) output.push('- ' + metrics.join('；') + '。');
-  const o = report.orchestration;
-  const childId = value => typeof value === 'string' && value ? value : typeof value?.childId === 'string' && value.childId ? value.childId : null;
-  const started = Array.isArray(o?.childrenStarted) ? [...new Set(o.childrenStarted.map(childId).filter(Boolean))] : null;
-  const childBatches = rows(o?.batches).filter(b => b?.execution === 'host-subagent' && childId(b));
-  const returned = [...new Set(childBatches.map(childId))];
-  const completed = [...new Set(childBatches.filter(b => b.status === 'completed').map(childId))];
-  const planned = count(report.dispatch?.plannedChildCount) ? report.dispatch.plannedChildCount : null;
-  if (started !== null || returned.length || o?.batchExecution === 'host-subagents') {
-    output.push('- 宿主子会话：计划 ' + (planned ?? '未记录') + '，已启动 ' + (started === null ? '未记录' : started.length) + '，已完成批次 ' + completed.length + '；已记录返回身份 ' + returned.length + '。');
-    const identities = started ?? returned;
-    if (identities.length) output.push('- 子会话身份（最多列三项）：' + identities.slice(0, 3).map(id => safe(id, 70)).join('、') + '。');
-  }
-  else if (o?.batchExecution === 'direct') output.push('- 实际执行：主会话直接调用模型，未记录宿主子会话执行。');
-  else if (o?.strategy === 'staged' || report.execution?.executionStrategy === 'staged' || report.dispatch?.effectiveStrategy === 'staged') {
-    const reasons = { 'explicit-staged': '明确选择分阶段策略', 'complete-files-exceed-capacity': '部分完整文件超过单次输入容量，改用分阶段审查', 'project-requires-staged': '项目审核使用分阶段策略', 'resume-requires-staged': '恢复审查使用分阶段策略', 'multiple-rounds-require-staged': '多轮审查使用分阶段策略' };
-    const reason = Object.hasOwn(reasons, report.dispatch?.reason) ? reasons[report.dispatch.reason] : '分阶段策略';
-    output.push('- 实际执行：' + reason + '；该策略未使用宿主子会话。');
-  }
-  output.push('', '完整候选、原始证据、逐项覆盖和执行诊断保留在显式 technical 技术报告中；本简报未展开这些记录。');
   return output.join(String.fromCharCode(10));
 }
