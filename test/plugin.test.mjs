@@ -5,7 +5,7 @@ test('plugin registers canonical review and durable task tools without executabl
   const definitions = [];
   let dispose; const events = [];
   apply({ tools: { register: def => definitions.push(def) }, llm: {}, approval: {}, on: (event, fn) => { events.push(event); if (event === 'dispose') dispose = fn; else assert.equal(event, 'llm/stream'); } });
-  assert.deepEqual(inject, ['tools', 'llm']);
+  assert.deepEqual(inject, ['tools', 'llm', 'workingDirectory']);
   assert.ok(events.includes('llm/stream'));
   assert.deepEqual(definitions.map(d => d.name), ['review_snapshot', 'code_review_preview', 'code_review_execute','code_review_start','code_review_status','code_review_cancel','code_review_wait','code_review_artifacts']);
   for (const def of definitions.filter(def => def.name !== 'review_snapshot')) {

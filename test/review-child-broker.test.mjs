@@ -5,6 +5,15 @@ import { registerReviewChild, getBinding, assertReviewChildAgent, attachReviewCh
 import { apply, registerSnapshotTool, SNAPSHOT_TOOL_SCHEMA } from '../src/review-child-plugin.mjs';
 import { parseRetrievalResponse } from '../src/retrieval-protocol.mjs';
 
+test('async parent cwd guard precedes each synchronous reservation and dispatch', async t => {
+  let cwd='/trusted',checks=0;const fatal=[];
+  const f=fixture(t,{async checkParentOwner(){await Promise.resolve();checks++;if(cwd!=='/trusted')throw new Error('parent cwd changed');},onFatal:error=>fatal.push(error)});
+  const consume=async stream=>{for await(const _ of stream){}};
+  await consume(f.stream());assert.deepEqual(f.events,['reserve','next']);
+  cwd='/changed';await assert.rejects(consume(f.stream()),/parent cwd changed/);
+  assert.equal(checks,2);assert.equal(fatal.length,1);assert.deepEqual(f.events,['reserve','next']);
+});
+
 // All contexts/agents below are explicit mocks, not proof of real host behavior.
 function fixture(t, overrides = {}) {
   const id = randomUUID(), events = [], agents = new Map(), hooks = new Map();

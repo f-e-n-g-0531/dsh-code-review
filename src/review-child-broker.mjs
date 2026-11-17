@@ -46,6 +46,7 @@ export function attachReviewChildMiddleware(ctx) {
     const childId = options?.sessionId;
     const binding = getReviewChildBinding(childId);
     if (!binding) return next();
+    const dispatch = () => {
     try {
       const agent = ctx.get?.('agents')?.get?.(childId);
       assertReviewChildAgent(childId, agent);
@@ -59,6 +60,14 @@ export function attachReviewChildMiddleware(ctx) {
       throw error;
     }
     return next();
+    };
+    // Parent cwd is an asynchronous host authority. Await it before dispatch while
+    // retaining the synchronous route/capacity reservation contract above.
+    if (binding.checkParentOwner) return (async function* () {
+      try { await binding.checkParentOwner(); } catch (error) { binding.onFatal?.(error); throw error; }
+      yield* dispatch();
+    })();
+    return dispatch();
   });
   attachments.set(ctx, dispose);
   return dispose;

@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { projectWholeGroups } from './whole-scope-groups.mjs';
 
 // Pure member partition, never permission to retry sent work. The caller must
 // validate its host-owned recovery trigger, join the parent and bound the depth.
@@ -16,7 +17,8 @@ export function splitWholeBatch(batch) {
       scoped.migrationRouteHints=input.migrationRouteHints.filter(hint=>ids.has(hint.candidateFileId));
       if(input.migrationRouteScope)scoped.migrationRouteScope={...input.migrationRouteScope,includedHints:scoped.migrationRouteHints.length};
     }
+    if (input.groupScope) scoped.groupScope = projectWholeGroups(input.groupScope, fileIds);
     const payload = JSON.stringify(scoped);
-    return { id: 'whole-' + createHash('sha256').update(payload).digest('hex'), payload, instructions: batch.instructions, fileIds, changes: new Map(fileIds.map(id => [id, structuredClone(batch.changes.get(id))])) };
+    return { ...(scoped.groupScope ? { groupScope: scoped.groupScope } : {}), ...(input.primaryInputMode ? { primaryInputMode: input.primaryInputMode } : {}), id: 'whole-' + createHash('sha256').update(payload).digest('hex'), payload, instructions: batch.instructions, fileIds, changes: new Map(fileIds.map(id => [id, structuredClone(batch.changes.get(id))])) };
   });
 }

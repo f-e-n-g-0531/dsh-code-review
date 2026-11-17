@@ -1,3 +1,4 @@
+import { createInvestigationState } from './investigation-state.mjs';
 import { transferReceiptPolicy } from './verification-receipt-policy.mjs';
 import { RETRIEVAL_INSTRUCTIONS } from './prompts.mjs';
 import { searchSeeds } from './search-seeds.mjs';
@@ -64,20 +65,23 @@ function roundBudgetError() {
   return error;
 }
 
-export async function retrievalLoop(model, request, scope, { correctProtocol = false, maxRounds = Number.MAX_SAFE_INTEGER, maxInputBytes = 96 * 1024, beforeCall = () => {}, onTruncated = () => {}, onRetrieved = () => {}, onBudgetLimited = () => {}, initialRetrieved = [], initialContext, yieldOnBudget = false, allowExhaustedInitial = false, enableSearchSeeds = false } = {}) {
+export async function retrievalLoop(model, request, scope, { correctProtocol = false, maxRounds = Number.MAX_SAFE_INTEGER, maxInputBytes = 96 * 1024, beforeCall = () => {}, onTruncated = () => {}, onRetrieved = () => {}, onBudgetLimited = () => {}, initialRetrieved = [], initialContext, yieldOnBudget = false, allowExhaustedInitial = false, enableSearchSeeds = false, enableInvestigationState = false } = {}) {
   if (!Number.isSafeInteger(maxRounds) || maxRounds < 0 || !Number.isSafeInteger(maxInputBytes) || maxInputBytes < 1) throw new Error('Invalid retrieval loop budget');
   // Only internal callers can seed this loop; the public model response cannot supply it.
   const allowedSeeds = new Set(scope.catalog().map(item => item.id));
   const validateSeeds = items => { if (!Array.isArray(items) || items.length > 50 || items.some(item => item?.request?.kind !== 'read' || !allowedSeeds.has(item.request.id) || item.result?.sourceId !== item.request.id || typeof item.result?.text !== 'string')) throw new Error('Invalid initial retrieval evidence'); };
   validateSeeds(initialRetrieved);
   if (initialContext !== undefined && typeof initialContext !== 'function') throw new Error('Invalid initial evidence context producer');
+  if (typeof enableInvestigationState !== 'boolean') throw new TypeError('Invalid investigation state option');
+  const investigation = enableInvestigationState ? createInvestigationState(scope.catalog(), JSON.parse(request.input).snapshotId) : undefined;
   const retrieved = structuredClone(initialRetrieved);
+  investigation?.validate(retrieved);
   if (retrieved.length) {
     const seeded = retrievalRequest(request, scope, retrieved);
     if (request.nativeOutputTools === true ? !modelWireBudget(seeded, maxInputBytes).fits : Buffer.byteLength(seeded.input) + Buffer.byteLength(seeded.instructions) > maxInputBytes) throw new Error('Initial retrieval input budget exceeded');
     // Publish only fragments admitted to an actual outgoing prompt below.
   }
-  const delivered = new Set();
+  const delivered = new WeakSet();
   let protocolCorrection, finalization, searchSeedAttempts = 0, currentRound = 0;
   const finalize = async error => {
     if (yieldOnBudget && ['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED'].includes(error.code)) throw error;
@@ -97,6 +101,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
   const nextRequest = records => {
     // Use the same round annotation in seed admission and actual transmission.
     const next = retrievalRequest(request, scope, records, {max:maxRounds,remaining:finalization?0:Math.max(0,maxRounds-currentRound)});
+    if (investigation && records.length) next.input = JSON.stringify({ ...JSON.parse(next.input), investigationState: investigation.describe(records.filter(item => item.navigation || !item.result.omitted)) });
     if (enableSearchSeeds) {
       const annotated = { input: JSON.stringify({ ...JSON.parse(next.input), retrievalRounds: { max: maxRounds, remaining: finalization ? 0 : Math.max(0, maxRounds - currentRound) } }),
         instructions: next.instructions + ' Batch independent exact reads/searches together (1..8). retrievalRounds is per-stage request turns, not reader calls or authority. Search-hit host reads may accompany results; supplied fragments are not complete coverage.' };
@@ -125,7 +130,7 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
     let parsed = pendingResponse;
     if (!parsed) {
     let { input, instructions } = nextRequest(retrieved);
-    if (correctProtocol && round > 0 && !fits({ ...request, input, instructions })) input = compactFollowup(input);
+    if ((correctProtocol || investigation) && round > 0 && !fits({ ...request, input, instructions })) input = compactFollowup(input);
     if (!fits({ ...request, input, instructions })) throw new Error('Retrieval input budget exceeded');
     request.signal?.throwIfAborted();
     beforeCall();
@@ -222,7 +227,22 @@ export async function retrievalLoop(model, request, scope, { correctProtocol = f
       batch.push(...seeds);
     }
     pendingResponse = undefined;
-    for (const item of batch) {
+    investigation?.validate(batch);
+    if (investigation) {
+      // Keep the entire newest batch, including late members. Never evict it one
+      // result at a time while admitting another member of the same batch.
+      const candidate = [...retrieved, ...batch];
+      const fitsCandidate = () => { const next = nextRequest(candidate); return fits(next) || fits({ ...next, input: compactFollowup(next.input) }); };
+      for (let index = 0; index < retrieved.length && !fitsCandidate(); index++) {
+        if (!delivered.has(retrieved[index]) || retrieved[index].result.omitted) continue;
+        const compact = investigation.compact(retrieved[index]);
+        if (Buffer.byteLength(JSON.stringify(compact)) < Buffer.byteLength(JSON.stringify(candidate[index]))) candidate[index] = compact;
+      }
+      retrieved.splice(0, retrieved.length, ...candidate);
+      // An irreducible batch stays in this closure, not silently replaced by an
+      // empty investigation. Capacity is a partial failure, never a new call.
+      if (!fitsCandidate()) throw Object.assign(new Error('Retrieval input budget exceeded with retained investigation'), { code: 'INVESTIGATION_INPUT_CAPACITY' });
+    } else for (const item of batch) {
       let candidate = [...retrieved, item];
       let next = nextRequest(candidate);
       if (correctProtocol) {

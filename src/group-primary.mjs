@@ -42,29 +42,81 @@ export function validateGroupPrimary(response, prepared, snapshot, validate, cat
   const output = new Map();
   for (const row of value.reviews) {
     if (!prepared.fileIds.includes(row?.fileId) || output.has(row.fileId)) throw new Error('Unknown or duplicate grouped primary member');
-    const file = snapshot.files.find(f => f.id === row.fileId);
     if (row.findings?.some(finding => finding.interaction !== undefined)) throw new Error('Grouped primary cannot bypass dedicated interaction evidence validation');
-    const changes = prepared.changes.get(row.fileId);
-    const anchorCorrections = [];
-    let memberResponse = row;
-    if (enableAnchorCorrection === true && Array.isArray(row.findings) && row.findings.length <= 50) {
-      // Host correction only relocates exact text within this member and source side.
-      // Preserve model output and still enforce every ordinary validation rule below.
-      memberResponse = structuredClone(row);
-      memberResponse.findings = memberResponse.findings.map(raw => {
-        const correction = correctAnchor(raw, file, changes, { signal });
-        if (!['unchanged', 'not-applicable'].includes(correction.status)) anchorCorrections.push(correction);
-        return correction.status === 'corrected' ? correction.candidate : raw;
-      });
-    }
-    const generated = validate(memberResponse, file, changes);
-    if (anchorCorrections.length) generated.anchorCorrections = anchorCorrections;
-    generated.limitations = [...generated.limitations, ...value.limitations];
-    if (prepared.inlineRisk) {
-      try { generated.groupRisk = row.risks === undefined ? { status: 'absent', risks: [] } : { status: 'completed', risks: validateRiskPlan({ risks: row.risks }, prepared.fileIds.map(id => ({ fileId: id, edits: prepared.changes.get(id).edits })), catalog) }; }
-      catch { generated.groupRisk = { status: 'invalid', risks: [] }; }
-    }
-    output.set(row.fileId, generated);
+    output.set(row.fileId, validateGroupPrimaryMember(row, value.limitations, prepared, snapshot, validate, catalog, { enableAnchorCorrection, signal }));
   }
   return output;
+}
+
+function validateGroupPrimaryMember(row, limitations, prepared, snapshot, validate, catalog, { enableAnchorCorrection, signal }) {
+  const file = snapshot.files.find(f => f.id === row.fileId);
+  const changes = prepared.changes.get(row.fileId);
+  const anchorCorrections = [];
+  let memberResponse = row;
+  if (enableAnchorCorrection === true && Array.isArray(row.findings) && row.findings.length <= 50) {
+    // Host correction only relocates exact text within this member and source side.
+    // Preserve model output and still enforce every ordinary validation rule below.
+    memberResponse = structuredClone(row);
+    memberResponse.findings = memberResponse.findings.map(raw => {
+      const correction = correctAnchor(raw, file, changes, { signal });
+      if (!['unchanged', 'not-applicable'].includes(correction.status)) anchorCorrections.push(correction);
+      return correction.status === 'corrected' ? correction.candidate : raw;
+    });
+  }
+  const generated = validate(memberResponse, file, changes);
+  if (anchorCorrections.length) generated.anchorCorrections = anchorCorrections;
+  generated.limitations = [...generated.limitations, ...limitations];
+  if (prepared.inlineRisk) {
+    try { generated.groupRisk = row.risks === undefined ? { status: 'absent', risks: [] } : { status: 'completed', risks: validateRiskPlan({ risks: row.risks }, prepared.fileIds.map(id => ({ fileId: id, edits: prepared.changes.get(id).edits })), catalog) }; }
+    catch { generated.groupRisk = { status: 'invalid', risks: [] }; }
+  }
+  return generated;
+}
+
+// Opt-in member isolation: admission remains atomic, only a deterministic anchor
+// mismatch from ordinary validation can fail one entire member. No retries,
+// candidate filtering, model calls or reader operations are performed here.
+export function validateGroupPrimaryMembers(response, prepared, snapshot, validate, catalog = [], { enableAnchorCorrection = false, signal } = {}) {
+  signal?.throwIfAborted();
+  if (Buffer.byteLength(typeof response === 'string' ? response : JSON.stringify(response) ?? '') > 128 * 1024) throw new Error('Grouped primary response too large');
+  const value = typeof response === 'string' ? JSON.parse(response) : response;
+  const validLimitations = items => Array.isArray(items) && items.length <= 50 && items.every(s => typeof s === 'string' && s.trim() && s.length <= 8000);
+  if (!value || !Array.isArray(value.reviews) || value.reviews.length !== prepared.fileIds.length || !validLimitations(value.limitations)) throw new Error('Invalid grouped primary response');
+  const members = new Set();
+  for (const row of value.reviews) {
+    if (!prepared.fileIds.includes(row?.fileId) || members.has(row.fileId)) throw new Error('Unknown or duplicate grouped primary member');
+    members.add(row.fileId);
+    if (!Array.isArray(row.findings) || row.findings.length > 50 || !validLimitations(row.limitations)) throw new Error('Invalid grouped primary member response');
+    for (const finding of row.findings) {
+      if (!finding || finding.fileId !== row.fileId) throw Object.assign(new Error('Invalid grouped primary finding identity'), { code: 'MODEL_INVALID_FINDING_IDENTITY' });
+      if (finding.interaction !== undefined) throw new Error('Grouped primary cannot bypass dedicated interaction evidence validation');
+    }
+  }
+  const completed = new Map(), failed = new Map();
+  for (const row of value.reviews) {
+    signal?.throwIfAborted();
+    // Catch only the ordinary validator, not correction, risk or host processing.
+    const anchorFailure = Symbol('member-anchor-mismatch');
+    const validateMember = (...args) => {
+      try {
+        const result = validate(...args);
+        signal?.throwIfAborted();
+        return result;
+      } catch (error) {
+        signal?.throwIfAborted();
+        if (error?.code !== 'MODEL_ANCHOR_MISMATCH') throw error;
+        throw anchorFailure;
+      }
+    };
+    try {
+      const generated = validateGroupPrimaryMember(row, value.limitations, prepared, snapshot, validateMember, catalog, { enableAnchorCorrection, signal });
+      signal?.throwIfAborted();
+      completed.set(row.fileId, generated);
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (error !== anchorFailure) throw error;
+      failed.set(row.fileId, { code: 'MODEL_ANCHOR_MISMATCH', reason: 'Grouped primary member anchor does not match approved source' });
+    }
+  }
+  return { completed, failed };
 }

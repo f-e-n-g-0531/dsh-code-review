@@ -1,3 +1,4 @@
+import { reviewOwner, ownerGuard, guardReviewLlm } from './review-owner.mjs';
 import { renderUserReport } from './user-report.mjs';
 import { reviewEffortPolicy, reviewEffortMode } from './review-effort.mjs';
 import { previewValidity } from './preview-validity.mjs';
@@ -18,11 +19,6 @@ import { retrievalRounds, verificationRetrievalRounds } from './review-execution
 const PREVIEW_NOTICE_SUFFIX = ' Full current source audit, not regression-only diff. Shared session execution budget: no internal elapsed-time or model-call cutoff, 16MiB capture memory protection. Blocked/excluded/pending files are not reviewed successfully. No untracked/ignored/external bodies; no complete semantic call graph. Independent approved batches run with bounded concurrency; per-batch evidence and global model-call budgets remain enforced. Inspect scope and model against current explicit user authorization before execute. A matching explicit review request needs no duplicate confirmation; do not execute preview-only or explicit wait-for-confirmation requests, and ask if scope/model/destination exceeds authorization or is unclear. Host permissions and snapshot/identity checks remain required.';
 const REPORT_NOTICE_SUFFIX = ' Coverage counts processing of selected tracked files only, not proof of correctness. Excluded and blocked are never completed. No cross-batch whole-program semantic coverage is claimed.';
 
-function owner(exec) {
-  const a = exec?.agent;
-  if (!a?.session?.header?.cwd || !a.options?.provider || !a.options?.model) throw new Error('Active Agent with cwd and model required');
-  return { agent: a, cwd: a.session.header.cwd, route: { provider: a.options.provider, model: a.options.model, ...(a.options.reasoningEffort ? { reasoningEffort: a.options.reasoningEffort } : {}) } };
-}
 
 function makeCaptureBudget(signal) {
   let commands = 0, metadataBytes = 0;
@@ -74,7 +70,7 @@ async function captureProject(cwd, args, signal) {
   return { ...result, id: hash(JSON.stringify(result)) };
 }
 
-export function createProjectReviewService(llm, { reviewEffort = 'auto', enableCounterVerification = false, executionStrategy = 'staged', allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = DEFAULT_PROJECT_CONCURRENCY, maxRetrievalRounds = 3, maxVerificationRetrievalRounds, nativeOutputTools = false, enableGroupPrimary = false } = {}) {
+export function createProjectReviewService(llm, { resolveCwd, reviewEffort = 'auto', enableCounterVerification = false, executionStrategy = 'staged', allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = DEFAULT_PROJECT_CONCURRENCY, maxRetrievalRounds = 3, maxVerificationRetrievalRounds, nativeOutputTools = false, enableGroupPrimary = false } = {}) {
   for (const n of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(n) || n < 1) throw new Error('Invalid project preview limit');
   if (!Number.isSafeInteger(projectMaxCalls) || projectMaxCalls < 1) throw new Error('Invalid project model call limit');
 
@@ -100,7 +96,7 @@ export function createProjectReviewService(llm, { reviewEffort = 'auto', enableC
       if (busy) throw new Error('Review service busy');
       if (!args || typeof args !== 'object') throw new Error('Project preview parameters required');
       if (Object.keys(args).some(k => !['reviewMode', 'repositoryPath', 'selectedPaths', 'resumeFromJobId', 'reviewEffort'].includes(k)) || args.reviewMode !== 'project') throw new Error('Project mode supports only reviewMode/repositoryPath/selectedPaths; change/history context parameters are not project parameters');
-      const current = owner(exec);
+      const current = await reviewOwner(exec, resolveCwd);
       busy = true;
       try {
         const captureArgs = structuredClone(args);
@@ -109,6 +105,7 @@ export function createProjectReviewService(llm, { reviewEffort = 'auto', enableC
         if (sourceJobId !== undefined && (typeof sourceJobId !== 'string' || !/^[a-f0-9-]{36}$/.test(sourceJobId) || typeof exec.resolveReviewResume !== 'function')) throw new Error('Invalid or unavailable resume job');
         const saved = sourceJobId === undefined ? undefined : await exec.resolveReviewResume(sourceJobId);
         const s = await captureProject(current.cwd, captureArgs, signalFor(exec));
+        await ownerGuard(exec, resolveCwd, current)();
         const identity = resumeIdentity({...captureArgs,reviewEffort:effortMode,enableCounterVerification}, current.route);
         let resumeStates;
         if (saved !== undefined) {
@@ -146,7 +143,7 @@ export function createProjectReviewService(llm, { reviewEffort = 'auto', enableC
       if (!allowModelSending) throw new Error('Model sending disabled');
       if (args.confirmed !== true || typeof args.previewId !== 'string' || Object.keys(args).some(k => !['previewId', 'confirmed'].includes(k))) throw new Error('Confirmed preview required');
       const p = previews.get(args.previewId);
-      const current = owner(exec);
+      const current = await reviewOwner(exec, resolveCwd);
       try { previewValidity(p, current, now()); }
       catch (error) { if (error.code === 'PREVIEW_EXPIRED') previews.delete(args.previewId); throw error; }
       previews.delete(args.previewId);
@@ -156,7 +153,8 @@ export function createProjectReviewService(llm, { reviewEffort = 'auto', enableC
         const s = await captureProject(current.cwd, p.args, signal);
         if (s.id !== p.snapshotId) throw new Error('Project changed since preview');
         if (await authorize({ snapshot: s, route: p.route, exec }) !== true) throw new Error('Model sending denied');
-        if (owner(exec).cwd !== p.cwd || JSON.stringify(owner(exec).route) !== JSON.stringify(p.route)) throw new Error('Agent changed during approval');
+        const checkOwner = ownerGuard(exec, resolveCwd, p);
+        await ownerGuard(exec, resolveCwd, p, 'Agent changed during approval')();
         signal.throwIfAborted();
 
         await exec.reviewCheckpoint?.({
@@ -177,7 +175,7 @@ export function createProjectReviewService(llm, { reviewEffort = 'auto', enableC
           await exec.reviewResumeCheckpoint({ schemaVersion: 1, mode: 'project', binding: buildResumeState(projectBinding(s), identity, { files: [], findings: [] }), batches: [...states.values()] });
         };
         let calls = 0;
-        const adapter = createDshModel(llm, p.route, { correctJson: true, useNativeTools: nativeOutputTools });
+        const adapter = createDshModel(guardReviewLlm(llm, checkOwner), p.route, { correctJson: true, useNativeTools: nativeOutputTools });
         const model = request => {
           if (calls >= projectMaxCalls) throw Object.assign(new Error('Shared project model call limit exceeded'), { code: 'PROJECT_MODEL_CALL_LIMIT' });
           calls++;
@@ -226,6 +224,7 @@ export function createProjectReviewService(llm, { reviewEffort = 'auto', enableC
           try { report.outdated = (await captureProject(current.cwd, p.args, signal)).id !== s.id; }
           catch { signal.throwIfAborted(); report.outdated = true; }
           signal.throwIfAborted();
+          await checkOwner();
         }
         report.diagnostics = reviewDiagnostics(report);
         return { report, markdown:renderUserReport(report), technicalMarkdown:renderProjectReport(report) };

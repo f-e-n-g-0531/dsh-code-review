@@ -1,3 +1,4 @@
+import { createInvestigationState, createChildInvestigationCompactor } from './investigation-state.mjs';
 import { createChildFollowupAdmission, isChildFollowupCapacityError } from './child-followup-admission.mjs';
 import { ChildInputCapacityError } from './child-capacity-error.mjs';
 import { randomUUID } from 'node:crypto';
@@ -26,15 +27,17 @@ export function createHostReviewChildren(ctx) {
     await ready;
   }
   return { capability, prepare,
-    async create({ parent, route, cwd, signal }) {
+    async create({ parent, route, cwd, signal, checkParentOwner }) {
       await prepare(); signal.throwIfAborted();
       const runtime = service(), childId = randomUUID();
       let handle, revoked, stop, started = false;
       const child = { transport: 'host-subagent', childId,
         retrievalTelemetry: Object.freeze({ version: 1, complete: true, scope: 'schema-authorization-range' }),
-        async runPrimary({ request, scope, maxRounds, maxInputBytes, reserveModelCall, onRetrieved, onBudgetLimited, onTruncated, onProgress, onChildStarted, onRetrievalProtocolError, onRetrievalProtocolUnobserved, onCapacityFinalOnly }) {
+        async runPrimary({ request, scope, maxRounds, maxInputBytes, reserveModelCall, onRetrieved, onBudgetLimited, onTruncated, onProgress, onChildStarted, onRetrievalProtocolError, onRetrievalProtocolUnobserved, onCapacityFinalOnly, enableInvestigationState = false }) {
           if (started) throw new Error('A review child cannot be reused for another primary');
           started = true; let rounds = 0, modelCalls = 0, bindingFatal;
+          if (typeof enableInvestigationState !== 'boolean') throw new TypeError('Invalid investigation state option');
+          const investigation = enableInvestigationState ? createChildInvestigationCompactor(createInvestigationState(scope.catalog(), JSON.parse(request.input).snapshotId), childId) : undefined;
           const admission=createChildFollowupAdmission({maxInputBytes});
           const supplemental = used => ({usedRounds:used,maxRounds,remainingRounds:Math.max(0,maxRounds-used),finalResponseRequired:used>=maxRounds||admission.finalOnly(),notice:used>=maxRounds||admission.finalOnly()?'No supplemental reads remain. Submit structured_output using supplied evidence; explicitly retain unresolved dependencies as limitations.':'Prioritize concrete unresolved dependencies; provided primary bodies need not be reread for receipts.'});
           const capacityNotice=()=>({snapshotId:JSON.parse(request.input).snapshotId,results:[],deliveryStatus:'not-delivered-capacity-policy',supplementalRetrieval:supplemental(rounds),capacityPolicy:admission.summary()});
@@ -42,13 +45,37 @@ export function createHostReviewChildren(ctx) {
           const assertAgent = agent => {
             if (!agent || agent.id !== childId || agent.session.header.parentSession !== (parent.session.header.id ?? parent.id) || agent.session.header.agentPreset !== REVIEW_CHILD_PRESET) throw failure('REVIEW_CHILD_IDENTITY', 'Review child ownership changed');
           };
-          const binding = { parent, parentId: parent.session.header.id ?? parent.id, presetId: REVIEW_CHILD_PRESET, route, assertAgent, onFatal: abortBinding,
+          const listeners = [];
+          if (investigation) {
+            listeners.push(ctx.on('session/event', (session, event) => {
+              if (session.id !== childId) return;
+              try { investigation.observeEvent(event, session.id); } catch (error) { abortBinding(error); }
+            }));
+            listeners.push(ctx.on('agent/pre-step', async (event, next) => {
+              if (event.agent?.id !== childId) return next();
+              try {
+                signal.throwIfAborted(); assertAgent(event.agent);
+                if (bindingFatal) throw bindingFatal;
+                await checkParentOwner?.();
+                signal.throwIfAborted();
+                const replaced = investigation.replaceSurface(event.agent.session, signal);
+                if (replaced) await onProgress?.({ stage: 'host-child-investigation-compacted', childId, replaced, semantics: 'append-only-tool-result-surface-replacement' });
+                signal.throwIfAborted();
+                return await next();
+              } catch (error) { abortBinding(error); throw error; }
+            }));
+          }
+          const binding = { parent, parentId: parent.session.header.id ?? parent.id, presetId: REVIEW_CHILD_PRESET, route, assertAgent, onFatal: abortBinding, checkParentOwner,
             beforeModelCall(options) {
               try {
                 signal.throwIfAborted();
                 if (bindingFatal) throw bindingFatal;
                 if (options.provider !== route.provider || options.model !== route.model || options.reasoningEffort !== route.reasoningEffort) throw failure('REVIEW_CHILD_ROUTE', 'Review child model route changed');
                 // This is the complete logical LLM envelope, not provider-specific HTTP bytes.
+                // Child-owned append-only surface replacements preserve original log,
+                // tool declarations, call IDs and permissions.
+                // Immutable host requests are derived from the committed surface.
+                // Surface compression occurs at pre-step, before this hard cap.
                 const bytes = Buffer.byteLength(JSON.stringify({ system: options.system, messages: options.messages, tools: options.tools }));
                 if (bytes > maxInputBytes) throw new ChildInputCapacityError(bytes,maxInputBytes,{unsent:modelCalls===0});
                 if (modelCalls >= maxRounds + 2) throw failure('WHOLE_SCOPE_MODEL_CALL_LIMIT', 'Child primary loop call limit exceeded');
@@ -78,6 +105,7 @@ export function createHostReviewChildren(ctx) {
                   admission.admit(delivery);
                   return rows;
                 });
+                investigation?.delivered(delivery);
                 rounds++;
                 for (const { request: operation, result } of results) {
                   if (result.truncated) onTruncated?.();
@@ -98,11 +126,11 @@ export function createHostReviewChildren(ctx) {
           const schema = buildReviewChildOutputSchema(request);
           stop = () => { handle?.dispose().catch(() => {}); }; signal.addEventListener('abort', stop, { once: true });
           try {
-            handle = await runtime.startActivation({ provider: 'spawn', childId, label: 'Whole-scope review batch', request: {
+            handle = await runtime.startActivation({ provider: 'spawn', childId, label: 'Whole-scope review batch',
               parent, cwd, agentPreset: REVIEW_CHILD_PRESET, maxDepth: runtime.resolveMaxDepth(undefined),
               agentOptions: { ...route, maxTokens: 4096 }, outputSchema: schema,
               prompt: [{ type: 'text', text:buildReviewChildPrompt(request,scope) }],
-            }, signal, delivery: 'caller' });
+              signal, delivery: 'caller' });
             onChildStarted?.({childId,transport:'host-subagent'});
             if (signal.aborted || bindingFatal) await handle.dispose();
             const result = await handle.result;
@@ -110,7 +138,7 @@ export function createHostReviewChildren(ctx) {
             if (result.stopReason !== 'completed' || !result.structured) throw failure('REVIEW_CHILD_INCOMPLETE', 'Host child did not commit a structured final result');
             await onProgress?.({stage:'host-child-complete',childId,modelCalls});
             return result.structured;
-          } catch (error) { throw bindingFatal ?? error; } finally { signal.removeEventListener('abort', stop); }
+          } catch (error) { if (bindingFatal && handle) { await handle.dispose(); await handle.result.catch(() => {}); } throw bindingFatal ?? error; } finally { signal.removeEventListener('abort', stop); for (const dispose of listeners) dispose(); }
         },
         async dispose() { revoked?.(); if (handle) await handle.dispose(); },
       };

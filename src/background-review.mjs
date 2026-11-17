@@ -100,9 +100,9 @@ async function startBackgroundJob(args, exec, jobs, service) {
   }));
 }
 
-export function registerBackgroundReview(ctx, service, { directory } = {}) {
+export function registerBackgroundReview(ctx, service, { directory, resolveCwd } = {}) {
   const root = directory ?? path.join(process.env.DSH_PROFILE_DIR ?? path.join(os.homedir(), '.dsh'), 'data', 'dsh-code-review', 'jobs');
-  const jobs = createReviewJobs({ directory: root });
+  const jobs = createReviewJobs({ directory: root, resolveCwd });
 
   ctx.tools.register({
     name: 'code_review_start', description: START_DESCRIPTION, parameters: START_PARAMETERS, output: reviewToolOutput,

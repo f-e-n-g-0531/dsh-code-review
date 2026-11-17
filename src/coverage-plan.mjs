@@ -12,14 +12,30 @@ import { prepareInteractionRisk } from './interaction-risk.mjs';
 import { buildMigrationContracts } from './migration-contracts.mjs';
 import { buildReviewGroups } from './review-groups.mjs';
 import { inferFileRelations } from './file-relations.mjs';
+import { prepareSinglePassInput } from './single-pass-input.mjs';
+import { SINGLE_PASS_INSTRUCTIONS } from './single-pass-review.mjs';
+import { modelWireBudget } from './model-wire-budget.mjs';
+import { modelContract } from './model-contract.mjs';
+import { hash } from './content.mjs';
 
 // Metadata only. No retained payload, file reads, model calls, or approval grants.
 export function buildCoveragePlan(input, options) {
   const rounds=reviewRounds(options?.reviewRounds);
+  if (options?.executionStrategy === 'single-pass') {
+    if (rounds !== 1 || input?.projectScope || options.resumeState) throw new Error('Single-pass requires fresh single-round changes review');
+    const instructions = options.instructions ?? SINGLE_PASS_INSTRUCTIONS;
+    const maxInputBytes = options.singlePassMaxInputBytes ?? options.maxInputBytes;
+    const prepared = prepareSinglePassInput(input, { instructions, maxInputBytes });
+    const wire = modelWireBudget({ input: prepared.input, instructions, nativeOutputTools: false }, maxInputBytes);
+    const fits = prepared.budget.fits && wire.fits;
+    const minimumCalls = fits && prepared.fileIds.length ? 1 : 0;
+    const requestHash = hash(JSON.stringify({ input: prepared.input, instructions, contract: modelContract(prepared.input, instructions), route: options.route, policy: options.singlePassPolicy }));
+    return { snapshotId: input.id, executionStrategy: 'single-pass', reviewRounds: 1, maxInputBytes, singlePassMaxInputBytes: maxInputBytes, minimumCalls, maximumCalls: minimumCalls, requestHash, input: prepared.metadata, inputBudget: { ...prepared.budget, wireBytes: wire.bytes, fits }, status: fits ? 'ready' : 'input-blocked', tokenFits: 'unknown', modelCapacity: options.modelCapacity ?? null, retrieval: false, verification: 'not-requested', counterVerification: 'not-requested', childMode: 'none', plannedChildCount: 0, assurance: 'single-model-not-independently-verified', interactions: [], primaryGroups: prepared.fileIds.length ? [{ groupId: 'single-pass', fileIds: prepared.fileIds, minimumCalls }] : [], items: input.files.map(file => ({ fileId: file.id, path: file.path, eligibility: file.eligibility, primaryMethod: 'single-pass', status: file.eligibility === 'reviewable' ? fits ? 'ready' : 'input-blocked' : file.eligibility, minimumCalls: 0 })), notice: fits ? '一次发送完整批准材料；无检索、独立复核、反证或子任务。字节适配不证明token适配；无tokenizer，允许一次试发，不自动追加阶段或扩大预算。' : '完整材料超过singlePassMaxInputBytes硬上限，0次模型调用；不隐式拆分、聚焦或切换staged。需新preview并显式选择深审策略。' };
+  }
   if (options?.executionStrategy === 'whole-scope') {
     if (rounds !== 1 || input?.projectScope || options.resumeState) throw new Error('Whole-scope requires fresh single-round changes review');
     const prepared = prepareWholeScope(input, options);
-    return { snapshotId: input.id, executionStrategy: 'whole-scope', reviewRounds: 1, maxInputBytes: options.maxInputBytes, childTransport:options.childTransport===true, hostReserveBytes:options.childTransport===true?(options.hostReserveBytes??65536):0, minimumCalls: prepared.batches.length, initialRequestsOnly: true, capacityRecovery: {enabled:options.childTransport===true,maxDepth:8,mode:'fresh-child-member-bisection',additionalCalls:true,sharedBudgetsUnchanged:true}, interactions: [], primaryGroups: prepared.batches.map(batch => ({ groupId: batch.id, fileIds: batch.fileIds, minimumCalls: 1 })), oversized: prepared.oversized, items: input.files.map(file => ({ fileId: file.id, path: file.path, eligibility: file.eligibility, primaryMethod: 'whole-scope', minimumCalls: 0 })), notice: '完整双侧按实际线缆字节合批；补读、受限批次在原共享预算内按成员二分的新子会话补审及候选集中复核会增加实际调用和耗时；最多8层，不重置预算，单成员仍受限时保留未完成，超大文件及跨批覆盖不足不会标成完成。' };
+    return { ...(prepared.grouping ? { grouping: prepared.grouping } : {}), primaryInputMode: options.primaryInputMode ?? 'full', snapshotId: input.id, executionStrategy: 'whole-scope', reviewRounds: 1, maxInputBytes: options.maxInputBytes, childTransport:options.childTransport===true, hostReserveBytes:options.childTransport===true?(options.hostReserveBytes??65536):0, minimumCalls: prepared.batches.length, initialRequestsOnly: true, capacityRecovery: {enabled:options.childTransport===true,maxDepth:8,mode:'fresh-child-member-bisection',additionalCalls:true,sharedBudgetsUnchanged:true}, interactions: [], primaryGroups: prepared.batches.map(batch => ({ groupId: batch.id, fileIds: batch.fileIds, minimumCalls: 1 })), oversized: prepared.oversized, items: input.files.map(file => ({ fileId: file.id, path: file.path, eligibility: file.eligibility, primaryMethod: 'whole-scope', minimumCalls: 0 })), notice: '按primaryInputMode投递完整双侧或原坐标精确编辑窗口；关系组及实际容量拆分见grouping，精简输入不等于完整函数或语义覆盖；补读、受限批次在原共享预算内按成员二分的新子会话补审及候选集中复核会增加实际调用和耗时；最多8层，不重置预算，单成员仍受限时保留未完成，超大文件及跨批覆盖不足不会标成完成。' };
   }
   riskPlanningMode(options?.riskPlanningMode);
   for (const key of ['enableEvidenceContext', 'inlineInteractionRisks', 'enableMigrationContracts', 'enableMigrationRegression', 'enableGroupInteractions', 'enableStageContinuation']) if (options?.[key] !== undefined && typeof options[key] !== 'boolean') throw new Error('Invalid review optimization option');

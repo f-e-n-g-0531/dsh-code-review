@@ -16,7 +16,8 @@ function inputValue(request) {
 export function buildReviewChildPrompt(request, scope) {
   const input = inputValue(request);
   if (typeof scope?.catalog !== 'function' || typeof scope?.budget !== 'function') invalid('Invalid approved child scope');
-  return request.instructions + CHILD_INSTRUCTIONS + JSON.stringify({ ...input, catalog: scope.catalog(), retrievalBudget: scope.budget() });
+  const childInstructions = input.primaryInputMode === 'focused' ? '\nMember sourceWindows are approved exact hunk windows with original source coordinates, not complete files or complete function coverage. Only file sides explicitly containing text are full bodies. Read missing necessary contracts/implementations from the approved catalog; do not reread already supplied windows merely for primary receipts. Independent verification still requires fresh evidence. Preserve this investigation context and unresolved dependencies. Return final reviews via structured_output, never requests.\n' : CHILD_INSTRUCTIONS;
+  return request.instructions + childInstructions + JSON.stringify({ ...input, catalog: scope.catalog(), retrievalBudget: scope.budget() });
 }
 
 export function buildReviewChildOutputSchema(request) {

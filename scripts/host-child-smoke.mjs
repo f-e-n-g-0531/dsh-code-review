@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readFile, writeFile } from 'node:fs/promises';
+import { createSnapshotReader } from '../src/snapshot-reader.mjs';
 import { createHostReviewChildren } from '../src/host-review-children.mjs';
 import { createReviewService } from '../src/service.mjs';
 import { attachReviewChildMiddleware } from '../src/review-child-broker.mjs';
@@ -15,7 +16,19 @@ const { LlmAdapter } = await load('dsh-llm');
 const ctx = new Context();
 const keepAlive = setInterval(() => {}, 1000);
 const timeout = setTimeout(() => { console.error('Offline child smoke timed out'); process.exit(1); }, 45000);
+const investigationFailureMode=process.argv.includes('--investigation-checkpoint-failure');
+const investigationMode = process.argv.includes('--investigation-mode')||investigationFailureMode;
+let investigationEvidence;
+const investigationSurfaceEvents=new Map();
+ctx.on('session/event',(session,event)=>{
+ if(!investigationMode||session.header.parentSession!=='offline-parent'||event.type!=='tool/result')return;
+ const rows=investigationSurfaceEvents.get(session.id)??[];
+ rows.push({seq:event.seq,operation:event.surfaceOp,sourceEventSeqs:event.sourceEventSeqs,messageId:event.data.message.id,toolCallId:event.data.message.toolCallId,bodyPresent:JSON.stringify(event.data.message.content).includes('OFFLINE_APPROVED_SNAPSHOT')});
+ investigationSurfaceEvents.set(session.id,rows);
+});
 const groupMode = process.argv.includes('--group');
+const cwdGuardMode = process.argv.includes('--cwd-guard');
+let trustedParentCwd=process.cwd(),parentGuardChecks=0;
 const capacityCompletionMode=process.argv.includes('--capacity-completion');
 const followupAdmissionMode=process.argv.includes('--followup-admission');
 const supplementLimitMode=process.argv.includes('--supplement-limit');
@@ -67,17 +80,32 @@ class OfflineAdapter extends LlmAdapter {
       yield {type:'block-end',index:0,block:{type:'tool-call',id:'service-'+id+'-'+n,name:readNow?'review_snapshot':'structured_output',arguments:JSON.stringify(readNow?{requests:Array.from({length:followupAdmissionMode||capacityCompletionMode?3:1},()=>({kind:'read',id:source.id,start:1,count:1}))}:{reviews:payload.reviews.map(row=>({fileId:row.fileId,findings:[],limitations:[]})),limitations:[]})}};
       yield {type:'finish',reason:{kind:'tool-calls'}};return;
     }
-    calls.set(id, n); assert.ok(n <= 2);
+    calls.set(id, n); assert.ok(n <= (investigationMode?3:2));
     observations.push({ childId: id, call: n, tools: names, messages: options.messages.length });
     if (n === 1) {
       active.add(id); if (active.size === 2) { overlap = true; release(); }
       await barrier;
+      if(cwdGuardMode)trustedParentCwd=process.cwd()+'-changed';
     } else {
+      if(investigationMode){
+        const delivered=options.messages.filter(message=>message.role==='tool');
+        observations.at(-1).toolMessageShape=delivered.map(message=>({keys:Object.keys(message),blocks:message.content.map(block=>({type:block.type,keys:Object.keys(block)}))}));
+        if(n===3){
+          const values=delivered.map(message=>JSON.parse(message.content[0].text));
+          investigationEvidence={toolMessageShape:observations.at(-1).toolMessageShape,oldCompressed:values[0].results.length===0,latestBodyRetained:values[1].results[0].result.text.includes('OFFLINE_APPROVED_SNAPSHOT'),sameActivation:true};
+          investigationEvidence.requestProjectionWritable=Object.getOwnPropertyDescriptor(options,'messages')?.writable===true;
+          investigationEvidence.compressionOutcome=investigationEvidence.oldCompressed?'append-only-surface-replacement':'unsupported';
+          // Real host currently freezes options and has no replacement next() API.
+          // Record the negative capability, never claim this as compression.
+          assert.equal(investigationEvidence.oldCompressed,true);
+          assert.equal(investigationEvidence.latestBodyRetained,true);
+        }
+      }
       assert.match(JSON.stringify(options.messages), /OFFLINE_APPROVED_SNAPSHOT/);
     }
     yield { type: 'block-end', index: 0, block: { type: 'tool-call', id: 'offline-' + id + '-' + n,
-      name: n === 1 ? 'review_snapshot' : 'structured_output',
-      arguments: JSON.stringify(n === 1 ? { requests: [{kind:'read',id:'source-1',start:1,count:1}] } : finalResult) } };
+      name: n <= (investigationMode?2:1) ? 'review_snapshot' : 'structured_output',
+      arguments: JSON.stringify(n <= (investigationMode?2:1) ? { requests: [{kind:'read',id:'source-1',start:1,count:1}] } : finalResult) } };
     yield { type: 'finish', reason: { kind: 'tool-calls' } };
   }
 }
@@ -90,7 +118,7 @@ try {
     ['dsh-llm', {}], ['dsh-agent-loop', {}],
   ]) await ctx.plugin((await load(name)).default, config).await();
   // Offline cwd seam only; real Session header still records the exact cwd.
-  ctx.provide('workingDirectory'); ctx.set('workingDirectory', {get:session=>session.header.cwd ?? process.cwd(),set:async()=>{}});
+  ctx.provide('workingDirectory'); ctx.set('workingDirectory', {get:session=>session.header.cwd ?? process.cwd(),ensure:async(agent,signal)=>{signal?.throwIfAborted();return agent.session.header.cwd ?? process.cwd();},set:async()=>{}});
   const { Loader } = await load('cordis-plugin-loader');
   const loader = new Loader(ctx, {baseUrl:pathToFileURL(path.join(host,'package.json')).href});
   // Isolated resolver: only the tested repo child export and installed ASAR packages.
@@ -129,7 +157,7 @@ try {
   if (serviceMode) {
     const snapshot={id:'offline-service-fixed',vcs:'git',root:process.cwd(),context:[],rules:[],files:Array.from({length:3},(_,i)=>({id:'service-file-'+i,path:'src/service-'+i+'.js',eligibility:'reviewable',properties:[],left:{text:'old();'},right:{text:'x'.repeat(300000)}}))};
     let captures=0;
-    const service=createReviewService(ctx.llm,{capture:async()=>{captures++;return structuredClone(snapshot);},hostChildren:transport,maxPreviews:1,executionStrategy:'auto',maxInputBytes:512*1024,wholeScopeConcurrency:2,allowModelSending:true,authorize:async()=>true,nativeOutputTools:true,enableGroupPrimary:true});
+    const service=createReviewService(ctx.llm,{capture:async()=>{captures++;return structuredClone(snapshot);},hostChildren:transport,maxPreviews:1,executionStrategy:capacityMode&&expectCapacityFit?'auto':'whole-scope',maxInputBytes:512*1024,wholeScopeConcurrency:2,allowModelSending:true,authorize:async()=>true,nativeOutputTools:true,enableGroupPrimary:true});
     try {
       const exec={agent:parent,signal};
       let measuredSize;
@@ -143,9 +171,9 @@ try {
       if(followupAdmissionMode)for(const file of snapshot.files)file.right.text='x'.repeat(40000)+String.fromCharCode(10)+'y'.repeat(260000);
       if(capacityCompletionMode)snapshot.files=[...Array.from({length:47},(_,i)=>({id:'sibling-'+i,path:'a/'+String(i).padStart(2,'0')+'.js',eligibility:'reviewable',properties:[],left:{text:'old();'},right:{text:'s'.repeat(8000)}})),...Array.from({length:3},(_,i)=>({id:'target-'+i,path:'z/'+i+'.js',eligibility:'reviewable',properties:[],left:{text:'old();'},right:{text:'x'.repeat(40000)+String.fromCharCode(10)+'y'.repeat(90000)}}))];
       const preview=await service.preview({},exec);
-      assert.equal(calls.size,0);assert.equal(preview.dispatch.requested,'auto');
+      assert.equal(calls.size,0);assert.equal(preview.dispatch.requested,capacityMode&&expectCapacityFit?'auto':'whole-scope');
       if(capacityMode&&expectCapacityFit){
-        assert.equal(preview.dispatch.effectiveStrategy,'staged');assert.equal(preview.dispatch.oversizedCount,3);assert.equal(calls.size,0);
+        assert.equal(preview.dispatch.effectiveStrategy,'single-pass');assert.equal(calls.size,0);
         serviceEvidence={dispatch:preview.dispatch,expected:'oversized-not-misclassified',executed:false,measuredSize};
       } else {
       assert.equal(preview.dispatch.effectiveStrategy,'whole-scope');
@@ -191,28 +219,64 @@ try {
       assert.ok(envelopes.every(row=>row.logicalBytes<=512*1024));
       const batches=report.orchestration.batches.map(batch=>({childId:batch.childId,status:batch.status,fileIds:batch.fileIds,retrievalReads:batch.retrievalAudit?.length??0}));
       assert.ok(batches.every(batch=>batch.retrievalReads===(supplementLimitMode?3:1)&&calls.has(batch.childId)));
-      serviceEvidence={dispatch:report.dispatch,status:report.status,coverage:report.coverage,modelCalls:report.modelCalls,captures,batches,mirroredIndexPolicy:{executionStrategy:'auto',maxInputBytes:512*1024},servicePreviewExecute:true,customCreateBatchModel:false,envelopes,retrievalProtocolTelemetry:report.diagnostics?.retrievalProtocolTelemetry??null};
+      serviceEvidence={dispatch:report.dispatch,status:report.status,coverage:report.coverage,modelCalls:report.modelCalls,captures,batches,explicitDeepPolicy:{executionStrategy:'whole-scope',maxInputBytes:512*1024},servicePreviewExecute:true,customCreateBatchModel:false,envelopes,retrievalProtocolTelemetry:report.diagnostics?.retrievalProtocolTelemetry??null};
       }
       }
     } finally {service.dispose();}
   } else {
-  const scope = () => ({
-    catalog:()=>[{id:'source-1'}], budget:()=>({remainingCalls:4}), preflight:()=>{}, transaction:fn=>fn(),
-    read:() => { reads++; return {snapshotId:'offline-snapshot',sourceId:'source-1',hash:'offline',start:1,count:1,text:'OFFLINE_APPROVED_SNAPSHOT'}; },
-  });
-  const children = await Promise.all([0,1].map(()=>transport.create({parent,route:{provider:'offline-child-smoke',model:'none'},cwd:process.cwd(),signal})));
+  const investigationReaders=[];
+  const scope = () => {
+    if(investigationMode){
+      const reader=createSnapshotReader('offline-snapshot',[{id:'source-1',side:'new',text:'OFFLINE_APPROVED_SNAPSHOT'+'x'.repeat(6000)}],{maxCalls:4});
+      investigationReaders.push(reader);
+      return {...reader,catalog:()=>[{id:'source-1',side:'new',lineCount:1}],read:args=>{reads++;return reader.read(args);}};
+    }
+    return ({
+    catalog:()=>[{id:'source-1',side:'new',lineCount:1}], budget:()=>({remainingCalls:4}), preflight:()=>{}, transaction:fn=>fn(),
+    read:() => { reads++; return {snapshotId:'offline-snapshot',sourceId:'source-1',hash:'offline',start:1,count:1,text:'OFFLINE_APPROVED_SNAPSHOT'+(investigationMode?'x'.repeat(6000):'')}; },
+  }); };
+  const children = await Promise.all([0,1].map(()=>transport.create({parent,route:{provider:'offline-child-smoke',model:'none'},cwd:process.cwd(),signal,...(cwdGuardMode?{checkParentOwner:async()=>{await Promise.resolve();parentGuardChecks++;assert.equal(trustedParentCwd,process.cwd(),'parent cwd changed before child follow-up');}}:{})})));
   try {
-    const results = await Promise.all(children.map(child=>child.runPrimary({
+    const pending = children.map(child=>child.runPrimary({
       request:{instructions:'Offline lifecycle test only.',input:JSON.stringify({snapshotId:'offline-snapshot',...(groupMode?{sourceMode:'group-primary',files:[{id:'file-1'}]}:{file:{id:'file-1'}})})},
-      scope:scope(), maxRounds:2,maxInputBytes:1000000,reserveModelCall:()=>{reservations++;},
-    })));
+      onProgress:async event=>{if(investigationFailureMode&&event.stage==='host-child-investigation-compacted')throw new Error('offline-checkpoint-failed');},
+      enableInvestigationState:investigationMode, scope:scope(), maxRounds:2,maxInputBytes:1000000,reserveModelCall:()=>{reservations++;},
+    }));
+    if(investigationFailureMode){
+      const settled=await Promise.allSettled(pending);
+      assert.ok(settled.every(row=>row.status==='rejected'&&/offline-checkpoint-failed/.test(row.reason.message)));
+      assert.equal(reservations,4);assert.equal(reads,4);assert.ok([...calls.values()].every(count=>count===2));
+      for(const child of children)assert.equal(ctx.agents.get(child.childId),undefined);
+      investigationEvidence={checkpointFailureJoined:true,noReplay:true,modelCalls:reservations,readerCalls:reads};
+    }else if(cwdGuardMode){
+      const settled=await Promise.allSettled(pending);assert.ok(settled.every(row=>row.status==='rejected'));
+      if(reservations!==2)throw settled.find(row=>row.status==='rejected')?.reason??new Error('Child activation never reached provider');
+      assert.equal(reservations,2);assert.equal(calls.size,2);assert.ok([...calls.values()].every(n=>n===1));assert.ok(parentGuardChecks>=4);
+    }else{
+    const results=await Promise.all(pending);
     assert.deepEqual(results,[finalResult,finalResult]);
-    assert.equal(overlap,true);assert.equal(reads,2);assert.equal(reservations,4);
-    assert.equal(calls.size,2);assert.ok([...calls.values()].every(n=>n===2));
+    assert.equal(overlap,true);assert.equal(reads,investigationMode?4:2);assert.equal(reservations,investigationMode?6:4);
+    if(investigationMode){
+      const ledgers=investigationReaders.map(reader=>reader.usage());
+      assert.ok(ledgers.every(usage=>usage.calls===2&&usage.outputBytes>12000));
+      const surfaceEvidence=[...investigationSurfaceEvents].map(([childId,events])=>({childId,events}));
+      assert.equal(surfaceEvidence.length,2);
+      for(const {events}of surfaceEvidence){
+        const sourceEvents=events.filter(event=>event.bodyPresent||event.operation?.op==='replace');
+        assert.equal(sourceEvents.length,3);const [first,latest,replacement]=sourceEvents;
+        assert.ok(first.bodyPresent&&latest.bodyPresent&&!replacement.bodyPresent);
+        assert.equal(replacement.operation.op,'replace');assert.equal(replacement.operation.startSeq,first.seq);assert.equal(replacement.operation.endSeq,first.seq);
+        assert.equal(replacement.messageId,first.messageId);assert.equal(replacement.toolCallId,first.toolCallId);assert.ok(replacement.seq>latest.seq);
+        assert.deepEqual(replacement.sourceEventSeqs,[first.seq]);
+      }
+      investigationEvidence={...investigationEvidence,surfaceEvidence,readerCalls:reads,modelCalls:reservations,ledgers,rootLedgerRefunded:false};
+    }
+    assert.equal(calls.size,2);assert.ok([...calls.values()].every(n=>n===(investigationMode?3:2)));
+    }
   } finally { await Promise.all(children.map(child=>child.dispose())); }
   for(const child of children) assert.equal(ctx.agents.get(child.childId),undefined);
   }
-  const evidence = {status:'passed',realProviderCalls:0,realHostLoop:true,realNativeExecutor:true,realPresetRegistry:true,isolatedResolver:true,offlineCwdSeam:true,groupMode,serviceMode,capacityMode,serviceEvidence,overlap,...(serviceMode&&!capacityMode&&!hostOverheadMode&&!followupAdmissionMode&&!capacityCompletionMode?{reads:serviceEvidence.batches.reduce((sum,batch)=>sum+batch.retrievalReads,0),reservations:serviceEvidence.modelCalls}:{reads,reservations}),observations};
+  const evidence = {status:'passed',investigationMode,investigationEvidence,realProviderCalls:0,realHostLoop:true,realNativeExecutor:true,realPresetRegistry:true,isolatedResolver:true,offlineCwdSeam:true,cwdGuardMode,parentGuardChecks,groupMode,serviceMode,capacityMode,serviceEvidence,overlap,...(serviceMode&&!capacityMode&&!hostOverheadMode&&!followupAdmissionMode&&!capacityCompletionMode?{reads:serviceEvidence.batches.reduce((sum,batch)=>sum+batch.retrievalReads,0),reservations:serviceEvidence.modelCalls}:{reads,reservations}),observations};
   if(process.argv[3]) await writeFile(process.argv[3],JSON.stringify(evidence,null,2)+String.fromCharCode(10));
   console.log(JSON.stringify(evidence,null,2));
 } catch (error) {

@@ -7,7 +7,8 @@ import { prepareMigrationRegression, migrationRegressionMetadata } from './migra
 import { VERIFICATION_INSTRUCTIONS, MIGRATION_VERIFICATION_INSTRUCTIONS } from './prompts.mjs';
 import { CONTEXT_SIDE_NOTICE } from './context-identity.mjs';
 import { defectGuidance } from './defect-guidance.mjs';
-import { modelWireBudget } from './model-wire-budget.mjs';
+import { modelWireBudget, configureWireBudget } from './model-wire-budget.mjs';
+import { createReviewReaderAllocation } from './review-reader-allocation.mjs';
 import { createVerificationReceiptPolicy, transferReceiptPolicy } from './verification-receipt-policy.mjs';
 import { createEvidenceReceipts } from './evidence-receipts.mjs';
 import { retrievalLoop, retrievalRequest } from './retrieval-loop.mjs';
@@ -73,50 +74,63 @@ export async function verificationLoop(model, request, candidates, scope, option
   verificationRequest.instructions += counterFocus;
   // Explicit final-only mode has extra finalization metadata/instructions and
   // permits no retrieval rounds. Do not spend its budget on optional prefetch.
-  const initialRetrieved = options.maxRounds === 0 ? [] : verificationSeeds(candidates, scope, {
-    signal: request.signal,
-    migrationContext,
-    onMigrationSeeds: options.onMigrationSeeds,
-    onReceipt: (id, resolve) => seedReceipts.set(id, resolve),
-    fits: seeds => {
-      const next = retrievalRequest(verificationRequest, scope, seeds, {max:options.maxRounds??Number.MAX_SAFE_INTEGER,remaining:options.maxRounds??Number.MAX_SAFE_INTEGER});
-      return request.nativeOutputTools === true ? modelWireBudget(next, options.maxInputBytes ?? 96 * 1024).fits : Buffer.byteLength(next.input) + Buffer.byteLength(next.instructions) <= (options.maxInputBytes ?? 96 * 1024);
-    },
-  });
-  receipts = createEvidenceReceipts(scope.read, { limit: 50 - seedReceipts.size });
-  const retrievalScope = { ...scope, read: receipts.read };
-  const resolveEvidence = value => (seedReceipts.get(value?.receiptId) ?? receipts.resolve)(value);
-  // No caller/model-supplied seed inputs: every initial result above was freshly
-  // read under this invocation's receipt table and the shared approved budget.
-  let lastRequest;
-  const response = await retrievalLoop(value => { lastRequest = value; return model(value); }, verificationRequest, retrievalScope, { ...options, initialRetrieved });
-  let accepted = response;
-  try { validateCandidateVerificationEnvelope(response, ids); } catch (error) {
+  // Opt-in host allocation: retain one third of this invocation's existing
+  // allowance for strict source re-reads, not new calls or reusable receipts.
+  const allocation = options.reserveFinalEvidence === true ? createReviewReaderAllocation(scope, [
+    { id: 'retrieval', weight: 2 }, { id: 'validation', weight: 1 },
+  ]) : undefined;
+  const validationScope = allocation ? configureWireBudget(allocation.scope('validation'), { nativeOutputTools: request.nativeOutputTools === true }) : scope;
+  if (allocation) scope = configureWireBudget(allocation.scope('retrieval'), { nativeOutputTools: request.nativeOutputTools === true });
+  try {
+    const initialRetrieved = options.maxRounds === 0 ? [] : verificationSeeds(candidates, scope, {
+      signal: request.signal,
+      migrationContext,
+      onMigrationSeeds: options.onMigrationSeeds,
+      onReceipt: (id, resolve) => seedReceipts.set(id, resolve),
+      fits: seeds => {
+        const next = retrievalRequest(verificationRequest, scope, seeds, {max:options.maxRounds??Number.MAX_SAFE_INTEGER,remaining:options.maxRounds??Number.MAX_SAFE_INTEGER});
+        return request.nativeOutputTools === true ? modelWireBudget(next, options.maxInputBytes ?? 96 * 1024).fits : Buffer.byteLength(next.input) + Buffer.byteLength(next.instructions) <= (options.maxInputBytes ?? 96 * 1024);
+      },
+    });
+    receipts = createEvidenceReceipts(scope.read, { limit: 50 - seedReceipts.size });
+    const retrievalScope = { ...scope, read: receipts.read };
+    const resolveEvidence = value => (seedReceipts.get(value?.receiptId) ?? receipts.resolve)(value);
+    // No caller/model-supplied seed inputs: every initial result above was freshly
+    // read under this invocation's receipt table and the shared approved budget.
+    let lastRequest;
+    const response = await retrievalLoop(value => { lastRequest = value; return model(value); }, verificationRequest, retrievalScope, { ...options, initialRetrieved });
+    let accepted = response;
+    try { validateCandidateVerificationEnvelope(response, ids); } catch (error) {
+      request.signal?.throwIfAborted();
+      // Correct only a structurally incomplete batch, before any final evidence
+      // reads. Never retry bad identities, invented receipts or regression failures.
+      if (options.correctProtocol !== true || error.code !== 'MODEL_INCOMPLETE_VERIFICATION' || JSON.parse(lastRequest.input).retrievalFinalization) throw error;
+      // Admit only an otherwise valid subset of evidence-free uncertain entries.
+      // Do not let a missing member hide an invalid identity, receipt or regression.
+      if (!response || Object.keys(response).length !== 1 || !Array.isArray(response.verdicts) || response.verdicts.length >= ids.length) throw error;
+      const subset = response.verdicts.map(item => item?.candidateId);
+      validateCandidateVerificationEnvelope(response, subset);
+      if (subset.some(id => !ids.includes(id)) || response.verdicts.some(item => item.verdict !== 'uncertain' || item.evidence.length || Object.hasOwn(item, 'regression'))) throw error;
+      const correction = { ...lastRequest, callPurpose: 'verification-correction', instructions: lastRequest.instructions + '\n本次仅纠正不完整的候选复核批次。必须为本次 candidates 每个 candidateId 恰好返回一个 verdict；不可漏项、重复或添加身份。仅返回完整 verdicts，不得 requests，不得再次检索。沿用已提供的原文回执；缺证据的候选明确 uncertain 并说明缺失条件，不得编造支持或删除候选。全部结果仍须通过原校验。' };
+      transferReceiptPolicy(lastRequest, correction);
+      const max = options.maxInputBytes ?? 96 * 1024;
+      if (!(request.nativeOutputTools === true ? modelWireBudget(correction, max).fits : Buffer.byteLength(correction.input) + Buffer.byteLength(correction.instructions) <= max)) throw error;
+      options.beforeCall?.();
+      request.signal?.throwIfAborted();
+      await request.onProtocolEvent?.({ action: 'verification-response-correction', code: error.code });
+      request.signal?.throwIfAborted();
+      const next = await model(correction);
+      request.signal?.throwIfAborted();
+      const serialized = typeof next === 'string' ? next : JSON.stringify(next);
+      if (typeof serialized !== 'string' || Buffer.byteLength(serialized) > 128 * 1024) throw new Error('Verification response too large');
+      accepted = JSON.parse(serialized);
+      validateCandidateVerificationEnvelope(accepted, ids);
+    }
     request.signal?.throwIfAborted();
-    // Correct only a structurally incomplete batch, before any final evidence
-    // reads. Never retry bad identities, invented receipts or regression failures.
-    if (options.correctProtocol !== true || error.code !== 'MODEL_INCOMPLETE_VERIFICATION' || JSON.parse(lastRequest.input).retrievalFinalization) throw error;
-    // Admit only an otherwise valid subset of evidence-free uncertain entries.
-    // Do not let a missing member hide an invalid identity, receipt or regression.
-    if (!response || Object.keys(response).length !== 1 || !Array.isArray(response.verdicts) || response.verdicts.length >= ids.length) throw error;
-    const subset = response.verdicts.map(item => item?.candidateId);
-    validateCandidateVerificationEnvelope(response, subset);
-    if (subset.some(id => !ids.includes(id)) || response.verdicts.some(item => item.verdict !== 'uncertain' || item.evidence.length || Object.hasOwn(item, 'regression'))) throw error;
-    const correction = { ...lastRequest, callPurpose: 'verification-correction', instructions: lastRequest.instructions + '\n本次仅纠正不完整的候选复核批次。必须为本次 candidates 每个 candidateId 恰好返回一个 verdict；不可漏项、重复或添加身份。仅返回完整 verdicts，不得 requests，不得再次检索。沿用已提供的原文回执；缺证据的候选明确 uncertain 并说明缺失条件，不得编造支持或删除候选。全部结果仍须通过原校验。' };
-    transferReceiptPolicy(lastRequest, correction);
-    const max = options.maxInputBytes ?? 96 * 1024;
-    if (!(request.nativeOutputTools === true ? modelWireBudget(correction, max).fits : Buffer.byteLength(correction.input) + Buffer.byteLength(correction.instructions) <= max)) throw error;
-    options.beforeCall?.();
-    request.signal?.throwIfAborted();
-    await request.onProtocolEvent?.({ action: 'verification-response-correction', code: error.code });
-    request.signal?.throwIfAborted();
-    const next = await model(correction);
-    request.signal?.throwIfAborted();
-    const serialized = typeof next === 'string' ? next : JSON.stringify(next);
-    if (typeof serialized !== 'string' || Buffer.byteLength(serialized) > 128 * 1024) throw new Error('Verification response too large');
-    accepted = JSON.parse(serialized);
-    validateCandidateVerificationEnvelope(accepted, ids);
+    allocation?.release('retrieval');
+    return validateCandidateVerification(accepted, ids, validationScope.read, resolveEvidence, { enableModelComparison: options.enableModelComparison === true, snapshotId: envelope.snapshotId, modelComparisonCandidates, modelComparisonChanges, modelComparisonContext, enableMigrationRegression: options.enableMigrationRegression === true && !project, migrationContext, catalog: validationScope.catalog(), fileIds: Object.fromEntries(ids.map((id, i) => [id, candidates[i].fileId])) });
+  } finally {
+    allocation?.release('retrieval');
+    allocation?.release('validation');
   }
-  request.signal?.throwIfAborted();
-  return validateCandidateVerification(accepted, ids, scope.read, resolveEvidence, { enableModelComparison: options.enableModelComparison === true, snapshotId: envelope.snapshotId, modelComparisonCandidates, modelComparisonChanges, modelComparisonContext, enableMigrationRegression: options.enableMigrationRegression === true && !project, migrationContext, catalog: scope.catalog(), fileIds: Object.fromEntries(ids.map((id, i) => [id, candidates[i].fileId])) });
 }

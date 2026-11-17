@@ -1,6 +1,7 @@
 import { approvedRetrievalSnapshot } from './approved-retrieval.mjs';
 import { REVIEW_INSTRUCTIONS, PROJECT_REVIEW_INSTRUCTIONS } from './prompts.mjs';
 import { reviewWholeScope } from './whole-scope-review.mjs';
+import { reviewSinglePass } from './single-pass-review.mjs';
 import { reviewRounds } from './review-rounds.mjs';
 import { correctAnchor } from './anchor-correction.mjs';
 import { correctedResponse } from './response-correction.mjs';
@@ -109,6 +110,7 @@ async function invoke(model, request, timeoutMs, parentSignal) {
 }
 
 export async function reviewSnapshot(snapshot, model, options = {}) {
+  if (options.executionStrategy === 'single-pass') return reviewSinglePass(snapshot, model, { ...options, validateFindingResponse: validateResponse });
   if (options.executionStrategy === 'whole-scope') return reviewWholeScope(snapshot, model, { ...options, instructions: options.instructions ?? REVIEW_INSTRUCTIONS, validateFindingResponse: validateResponse });
   if (options.executionStrategy !== undefined && options.executionStrategy !== 'staged') throw new Error('Invalid review execution strategy');
   const startedAt = performance.now();

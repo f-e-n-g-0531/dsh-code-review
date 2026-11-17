@@ -204,7 +204,7 @@ test('source freshness checkpoint cancellation prevents final recapture', async 
 test('changes preview describes configured bounded concurrency and retrieval rounds', async () => {
   const service = createReviewService(llm, { capture: async () => snapshot(), changesConcurrency: 4, maxRetrievalRounds: 7 });
   const preview = await service.preview({}, exec());
-  assert.deepEqual(preview.execution, { executionStrategy: 'staged', counterVerification: false, nativeOutputTools: false, enableGroupPrimary: false, enableEvidenceContext: false, inlineInteractionRisks: false, enableMigrationContracts: false, enableMigrationRegression: false, enableModelComparison: false, enableGroupInteractions: false, enableStageContinuation: false, fileConcurrency: 4, maxRetrievalRounds: 7, maxVerificationRetrievalRounds: 7 });
+  assert.deepEqual(preview.execution, { enableMemberIsolation: false, relationAwareGrouping: false, primaryInputMode: 'full', enableInvestigationState: false, enableAsyncVerification: false, verificationConcurrency: 2, executionStrategy: 'staged', counterVerification: false, nativeOutputTools: false, enableGroupPrimary: false, enableEvidenceContext: false, inlineInteractionRisks: false, enableMigrationContracts: false, enableMigrationRegression: false, enableModelComparison: false, enableGroupInteractions: false, enableStageContinuation: false, fileConcurrency: 4, maxRetrievalRounds: 7, maxVerificationRetrievalRounds: 7 });
   assert.match(preview.notice, /主审最多7轮、候选复核最多7轮检索/);
   assert.match(preview.notice, /最多4条并发/);
   service.dispose();

@@ -153,7 +153,7 @@ for (const [label, options, args] of [
 });
 test('whole-scope explicitly refuses project mode instead of silently using staged execution', async t => {
   const f = fixture(); t.after(() => f.service.dispose());
-  await assert.rejects(f.service.preview({ reviewMode: 'project' }, execution()), /Whole-scope currently supports fresh single-round changes only/);
+  await assert.rejects(f.service.preview({ reviewMode: 'project' }, execution()), /Whole-scope currently supports fresh single-round changes only|project-requires-staged/);
   assert.equal(f.calls.length, 0);
 });
 test('explicit capacity is previewed and used by the same complete-file batch planner during execution', async t => {

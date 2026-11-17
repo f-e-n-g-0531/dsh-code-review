@@ -14,6 +14,8 @@ const finding = { type: 'object', properties: { fileId: text, severity: { enum: 
   attribution: { type: 'object' }, interaction: { type: 'object' } },
   required: ['fileId', 'severity', 'title', 'evidence', 'trigger', 'impact', 'suggestion', 'anchor'] };
 const findings = array(finding); // Existing validators still enforce exact evidence and identities.
+const completion = object({ status: { enum: ['completed', 'incomplete'] }, gaps: strings });
+const singlePassReview = object({ fileId: text, findings, limitations: strings, completion, assuranceNotes: strings });
 const risk = object({ id: { type: 'string' }, fileIds: strings,
   editRefs: array(object({ fileId: { type: 'string' }, editId: { type: 'string' } })),
   question: { type: 'string' }, trigger: { type: 'string' }, impact: { type: 'string' }, checks: strings, sourceIds: strings });
@@ -29,7 +31,7 @@ export function modelResultStage(input, instructions = '') {
   if (Array.isArray(p.candidates)) return 'verdicts';
   if (/返回\{groups:/.test(instructions)) return 'groups';
   if (/仅制定审查计划/.test(instructions)) return 'risks';
-  if (p.sourceMode === 'group-primary') return 'reviews';
+  if (p.sourceMode === 'group-primary' || p.sourceMode === 'single-pass') return 'reviews';
   if (p.file || p.sourceMode === 'file-interaction') return 'findings';
   return undefined;
 }
@@ -40,7 +42,7 @@ export function modelResultTools(input, instructions = '', receiptProof) {
   const migrationIds = Array.isArray(p.migrationContracts) ? p.migrationContracts.map(contract => contract?.id).filter(id => typeof id === 'string' && id.length > 0 && id.length <= 200).slice(0, 128) : [];
   const regression = migrationIds.length ? object({ classification: { enum: ['introduced', 'preexisting', 'uncertain'] }, reason: text, oldEvidence: array({ type: 'integer', minimum: 0 }), newEvidence: array({ type: 'integer', minimum: 0 }), migrationContractId: { type: 'string', maxLength: 200, enum: [...new Set(migrationIds)] } }, ['classification', 'reason', 'oldEvidence', 'newEvidence']) : object({ classification: { enum: ['introduced', 'preexisting', 'uncertain'] }, reason: text, oldEvidence: array({ type: 'integer', minimum: 0 }), newEvidence: array({ type: 'integer', minimum: 0 }) });
   const issued = trustedReceiptIds(receiptProof);
-  const final = stage === 'findings' ? review : stage === 'risks' ? object({ risks: array(risk) }) :
+  const final = p.sourceMode === 'single-pass' ? object({ reviews: array(singlePassReview), limitations: strings, completion, assuranceNotes: strings }) : stage === 'findings' ? review : stage === 'risks' ? object({ risks: array(risk) }) :
     stage === 'groups' ? object({ groups: array(object({ fileIds: strings, reason: { type: 'string' } })) }) :
     stage === 'reviews' ? object({ reviews: array(object({ fileId: { type: 'string' }, findings, limitations: strings, risks: array(risk) }, ['fileId', 'findings', 'limitations'])), limitations: strings, ...(p.groupInteraction ? { interactions: object({ groupId: { const: p.groupInteraction.groupId }, findings, limitations: strings }) } : {}) }, ['reviews', 'limitations']) :
     object({ verdicts: array(object({ candidateId: text, verdict: { enum: ['supported', 'refuted', 'uncertain'] }, reason: text, evidence: array({ oneOf: [{ ...object({ receiptId: {type:'string',description:'Copy exactly one receiptId actually returned by a read in this verification invocation. This object contains ONLY receiptId; never add sourceId, text, range or other fields. Unknown or earlier-review IDs are rejected.'} }), description:'Receipt-only reference. Exactly one key: receiptId. Mutually exclusive with the complete six-field reference. Do not invent or repair an ID.' }, { ...object({ snapshotId: text, sourceId: text, hash: text, start: { type: 'integer', minimum: 1 }, count: { type: 'integer', minimum: 1, maximum: 200 }, text }), description:'Complete reference: copy exactly snapshotId, sourceId, hash, start, count, text from one actual read result. Do not include receiptId or endOfSource; never combine this form with a receipt-only reference.' }] }), regression }, ['candidateId', 'verdict', 'reason', 'evidence'])) });
@@ -58,7 +60,7 @@ export function modelResultTools(input, instructions = '', receiptProof) {
     if (issued.length) branches[0].properties.receiptId.enum = issued;
     else branches.shift(); // Never emit invalid enum:[] or an unrestricted fallback.
   }
-  const parameters = p.retrievalFinalization || stage === 'risks' || stage === 'groups' ? final : { type: 'object', oneOf: [final, requests] };
+  const parameters = p.sourceMode === 'single-pass' || p.retrievalFinalization || stage === 'risks' || stage === 'groups' ? final : { type: 'object', oneOf: [final, requests] };
   return [{ name: RESULT_TOOL_NAME, description: 'Submit only the current approved review stage result or approved retrieval requests as JSON data. Does not execute actions.', parameters }];
 }
 // Additional wire bytes beyond the ordinary text contract/input. No token estimate.
@@ -70,8 +72,13 @@ export function validateNativeResult(text, input, instructions) {
   const value = JSON.parse(text), stage = modelResultStage(input, instructions);
   const p = JSON.parse(input);
   if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  if (Object.hasOwn(value, 'requests')) return !p.retrievalFinalization && !['risks', 'groups'].includes(stage) && Object.keys(value).length === 1 && Array.isArray(value.requests);
-  const allowed = stage === 'findings' ? ['findings', 'limitations', 'risks'] : stage === 'reviews' ? ['reviews', 'limitations', ...(p.groupInteraction ? ['interactions'] : [])] : [stage];
+  if (Object.hasOwn(value, 'requests')) return p.sourceMode !== 'single-pass' && !p.retrievalFinalization && !['risks', 'groups'].includes(stage) && Object.keys(value).length === 1 && Array.isArray(value.requests);
+  const allowed = p.sourceMode === 'single-pass' ? ['reviews', 'limitations', 'completion', 'assuranceNotes'] : stage === 'findings' ? ['findings', 'limitations', 'risks'] : stage === 'reviews' ? ['reviews', 'limitations', ...(p.groupInteraction ? ['interactions'] : [])] : [stage];
+  if (p.sourceMode === 'single-pass') {
+    const validCompletion = item => item && typeof item === 'object' && !Array.isArray(item) && Object.keys(item).length === 2 && ['completed', 'incomplete'].includes(item.status) && Array.isArray(item.gaps) && item.gaps.every(gap => typeof gap === 'string') && (item.status !== 'completed' || item.gaps.length === 0);
+    if (!Object.keys(value).every(key => allowed.includes(key)) || !Array.isArray(value.reviews) || !Array.isArray(value.limitations) || !Array.isArray(value.assuranceNotes) || !validCompletion(value.completion)) return false;
+    return value.reviews.every(row => row && typeof row.fileId === 'string' && Array.isArray(row.findings) && Array.isArray(row.limitations) && Array.isArray(row.assuranceNotes) && validCompletion(row.completion));
+  }
   const required = stage === 'findings' ? ['findings', 'limitations'] : stage === 'reviews' ? ['reviews', 'limitations'] : [stage];
   return !!stage && Object.keys(value).every(k => allowed.includes(k)) && required.every(k => Array.isArray(value[k]));
 }

@@ -1,4 +1,4 @@
-import { reportSummaryData, verificationPresentation, modelComparisonValidated } from './report-summary.mjs';
+import { reportSummaryData, verificationPresentation, modelComparisonValidated, singlePassCompletionData, singlePassCompletionMarkdown } from './report-summary.mjs';
 
 const rows = value => Array.isArray(value) ? value : [];
 const count = n => Number.isSafeInteger(n) && n >= 0;
@@ -7,9 +7,9 @@ const safe = (value, limit = 160) => {
   return Array.from(text.length > limit ? text.slice(0, Math.ceil(limit / 2)) + '…（中段已省略，完整内容见技术报告）…' + text.slice(-Math.floor(limit / 2)) : text).map(c =>
     c === '&' ? '&amp;' : c === '<' ? '&lt;' : c === '>' ? '&gt;' : '*_[]#|!()'.includes(c) || c.charCodeAt(0) === 96 || c.charCodeAt(0) === 92 ? String.fromCharCode(92) + c : c).join('');
 };
-const labels = { introduced: '本次新增（复核支持）', current: '当前源码问题（复核支持）', preexisting: '原有问题（非本次新增）', uncertain: '尚不能确认', incomplete: '尚未完成复核', refuted: '复核已反驳' };
+const labels = { 'single-model': '单模型候选（未独立复核）', introduced: '本次新增（复核支持）', current: '当前源码问题（复核支持）', preexisting: '原有问题（非本次新增）', uncertain: '尚不能确认', incomplete: '尚未完成复核', refuted: '复核已反驳' };
 const levels = { critical: 0, high: 1, medium: 2, low: 3 };
-const order = { introduced: 0, current: 1, uncertain: 2, incomplete: 3, preexisting: 4, refuted: 5 };
+const order = { 'single-model': 0, introduced: 0, current: 1, uncertain: 2, incomplete: 3, preexisting: 4, refuted: 5 };
 const executionCauses = {
   WHOLE_SCOPE_INPUT_BUDGET: '子会话输入超过批准容量',
   WHOLE_SCOPE_MODEL_CALL_LIMIT: '子会话达到模型调用次数限制',
@@ -37,7 +37,8 @@ export function renderUserReport(report = {}, { maxFindings = 5 } = {}) {
   if (!Number.isSafeInteger(maxFindings) || maxFindings < 1 || maxFindings > 20) throw new TypeError('Invalid user report finding limit');
   const data = reportSummaryData(report), c = data.counts, coverage = data.coverage;
   const states = { cancelled: '审核已取消', failed: '审核失败', interrupted: '审核已中断' };
-  const status = data.emptySelection ? '未选择审核条目' : data.complete ? '所选范围处理完成' : Object.hasOwn(states, data.status) ? states[data.status] : '审核尚未完成';
+  const completion = singlePassCompletionData(report);
+  const status = data.emptySelection ? '未选择审核条目' : data.complete ? (completion ? '约定静态审核完成' : '所选范围处理完成') : (Object.hasOwn(states, data.status) ? states[data.status] : '审核尚未完成') + (completion ? '；不完整验收失败' : '');
   const failures = executionFailures(report), executionBlocked = failures.length > 0 || coverage.failed > 0;
   const output = ['# 代码审核简报', '', '## 结论'];
   if (executionBlocked) {
@@ -46,8 +47,13 @@ export function renderUserReport(report = {}, { maxFindings = 5 } = {}) {
     if (!coverage.detailsComplete) output.push('- 原因计数仅覆盖已加载 ' + coverage.loaded + '/' + coverage.total + ' 项；未加载条目的具体原因尚未核实。');
     else if (!failures.length) output.push('- 尚无可识别的执行原因代码，请查技术报告；不从模型描述推断原因。');
   }
-  output.push('- ' + (data.currentSourceOnly ? '当前源码复核支持 ' + c.current + ' 项' : '本次新增复核支持 ' + c.introduced + ' 项') + '；原有问题 ' + c.preexisting + ' 项；尚不能确认 ' + data.verification.uncertain + ' 项；未完成复核 ' + data.verification.incomplete + ' 项。',
+  if (data.singlePass) output.push('- 保证等级：单模型候选（未独立复核）；仅宿主响应格式、文件身份与锚点校验，不是独立证据确认或因果证明，不可当放行。',
+    '- 候选总数 ' + c.total + ' 项；单模型候选 ' + data.singlePass.candidates + ' 项；未完成有效处理 ' + data.verification.incomplete + ' 项。');
+  else output.push('- ' + (data.currentSourceOnly ? '当前源码复核支持 ' + c.current + ' 项' : '本次新增复核支持 ' + c.introduced + ' 项') + '；原有问题 ' + c.preexisting + ' 项；尚不能确认 ' + data.verification.uncertain + ' 项；未完成复核 ' + data.verification.incomplete + ' 项。',
     '- ' + status + (data.outdated ? '；报告已过期，仅对应原快照' : '') + '。未发现获支持的问题也不等于审核通过。');
+  if (data.singlePass) output.push('- ' + status + (data.outdated ? '；报告已过期，仅对应原快照' : '') + '；完成仅指主审处理进度，不代表独立复核或审核通过。');
+  if (completion && !data.singlePass) output.push('- ' + status + '；宿主未完成验收，模型声明不能代替实际执行结果。');
+  output.push(...singlePassCompletionMarkdown(report));
   const modelAssessed=rows(report.findings).filter(modelComparisonValidated);
   if(modelAssessed.length)output.push('- 另有模型跨文件比较支持 '+modelAssessed.length+' 项（关系由模型判断，未证明因果）；不计入上述严格新增支持统计。');
   if (c.refuted) output.push('- 另有 ' + c.refuted + ' 项候选已被复核反驳，不计为待修问题。');
@@ -58,12 +64,16 @@ export function renderUserReport(report = {}, { maxFindings = 5 } = {}) {
   if (!findings.length) output.push('本轮未记录候选问题；仍需结合下方未完成范围判断。');
   for (const { finding: f, index, state } of findings.slice(0, maxFindings)) {
     output.push('', '### 候选 ' + (index + 1) + ' · ' + (modelComparisonValidated(f)?'模型跨文件比较支持（关系由模型判断，未证明因果）':labels[state]) + '：' + (safe(f?.title, 100) || '未提供标题'));
-    output.push('- 复核判断：' + (safe(f?.verification?.reason, 420) || (state === 'incomplete' ? '尚无有效复核结论。' : '未记录判断理由；请查完整技术报告。')));
+    if (state === 'single-model') output.push('- 判断来源：一次主审模型评估；未请求独立复核，不是复核支持／反驳或已复核不确定。');
+    else output.push('- 复核判断：' + (safe(f?.verification?.reason, 420) || (state === 'incomplete' ? '尚无有效复核结论。' : '未记录判断理由；请查完整技术报告。')));
     output.push('- 位置：' + location(f, report));
     if (f?.trigger) output.push('- 触发条件（候选描述）：' + safe(f.trigger, 150));
     if (['introduced', 'current', 'preexisting'].includes(state)) {
       if (f?.impact) output.push('- 可能影响：' + safe(f.impact, 150));
       output.push('- 下一步：' + (safe(f?.suggestion, 150) || '结合触发条件核对修复必要性和回归测试。'));
+    } else if (state === 'single-model') {
+      if (f?.impact) output.push('- 可能影响（模型评估）：' + safe(f.impact, 150));
+      output.push('- 最小建议（模型建议，非必改项）：' + (safe(f?.suggestion, 150) || '结合触发条件判断修复必要性。'));
     } else if (state === 'refuted') output.push('- 下一步：不按此候选直接安排修复；如有新证据再核对。');
     else output.push('- 下一步：补齐相关契约、调用路径和旧实现对照，再决定是否修复；原始假说与证据见技术报告。');
   }
@@ -74,7 +84,7 @@ export function renderUserReport(report = {}, { maxFindings = 5 } = {}) {
   if (data.crossFile.total) output.push('- 跨文件综合完成 ' + data.crossFile.completed + '/' + data.crossFile.total + ' 项' + (data.crossFile.pending ? '；其余关系尚未核查。' : '。'));
   if (Object.values(data.stages).some(Boolean)) output.push('- 后续阶段：待执行 ' + data.stages.pending + '，执行中 ' + data.stages.running + '，已停止 ' + data.stages.stopped + '。');
   if (data.limitations) output.push('- 已记录 ' + data.limitations + ' 条限制；完整原因与对应范围见技术报告。');
-  output.push('- 建议顺序：' + (data.outdated ? '先对当前源码重新预览审核。' : executionBlocked ? '先排查审核执行容量或调用限制，再重新预览补审；不要按空发现放行业务代码。' : !data.complete ? '先补齐未审范围和未完成阶段，再处理缺少证据的候选。' : '结合上述复核判断决定修复与测试；处理完成不是放行批准。'));
+  output.push('- 建议顺序：' + (data.outdated ? '先对当前源码重新预览审核。' : executionBlocked ? '先排查审核执行容量或调用限制，再重新预览补审；不要按空发现放行业务代码。' : !data.complete ? '先补齐未审范围和未完成阶段，再处理缺少证据的候选。' : data.singlePass ? '结合模型候选的触发条件与影响判断修复和测试必要性；本轮未请求独立复核，不需为结束本轮另起验证，处理完成不是放行批准。' : '结合上述复核判断决定修复与测试；处理完成不是放行批准。'));
   const metrics = [], calls = report.modelCalls ?? report.diagnostics?.modelCalls, wall = report.diagnostics?.executionWallMs;
   if (count(calls)) metrics.push('模型调用 ' + calls + ' 次');
   if (typeof wall === 'number' && Number.isFinite(wall) && wall >= 0) metrics.push('执行耗时 ' + (wall / 1000).toFixed(1) + ' 秒');

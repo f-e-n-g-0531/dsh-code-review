@@ -17,7 +17,7 @@ const isToolCall = chunk =>
 /** Isolated host calls. Only completed, locally rejected JSON can trigger bounded correction. */
 export function createDshModel(llm, route, {
   maxTokens = 4096, maxOutputBytes = 128 * 1024, correctJson = false,
-  maxJsonCorrections = MAX_JSON_CORRECTIONS, useNativeTools = false,
+  maxJsonCorrections = MAX_JSON_CORRECTIONS, useNativeTools = false, strictSingleCall = false,
 } = {}) {
   if (!llm || typeof llm.stream !== 'function' || !route?.provider || !route?.model) {
     throw new Error('DSH provider and model are required');
@@ -27,6 +27,8 @@ export function createDshModel(llm, route, {
       !Number.isSafeInteger(maxJsonCorrections) || maxJsonCorrections < 0 || maxJsonCorrections > MAX_JSON_CORRECTIONS) {
     throw new Error('Invalid model output or JSON correction limit');
   }
+  if (typeof strictSingleCall !== 'boolean') throw new TypeError('Invalid strict single-call policy');
+  let singleCallSent = false;
   const identity = {
     provider: route.provider,
     model: route.model,
@@ -53,7 +55,7 @@ export function createDshModel(llm, route, {
     }
   }
 
-  async function once({ instructions, input, signal, onModelEvent, onModelArtifact, reviewPhase, attempt, callPurpose }, contract, tools) {
+  async function once({ instructions, input, signal, onModelEvent, onModelArtifact, reviewPhase, attempt, callPurpose, beforeSend }, contract, tools) {
     signal?.throwIfAborted();
     let output = '';
     let size = 0;
@@ -80,11 +82,19 @@ export function createDshModel(llm, route, {
       try {
         let stream;
         try {
+          await beforeSend?.();
+          signal?.throwIfAborted();
+          if (strictSingleCall) {
+            if (singleCallSent) throw Object.assign(new Error('Single-pass additional model call denied'), { code: 'SINGLE_PASS_EXTRA_CALL' });
+            signal?.throwIfAborted();
+            singleCallSent = true;
+          }
           stream = llm.stream({
             ...identity,
             system: instructions + '\n' + contract,
             messages: [{ role: 'user', content: [{ type: 'text', text: input }] }],
             tools, maxTokens, signal,
+            ...(strictSingleCall ? { retryPolicy: { mode: 'normal', maxRetries: 0 } } : {}),
           });
         } finally {
           await notify(onModelEvent, { ...event, action: 'model-start' });
@@ -227,14 +237,14 @@ export function createDshModel(llm, route, {
 
   return async function invoke(request) {
     // Snapshot these before an async budget/progress hook can mutate the request.
-    const original = { instructions: request.instructions, input: request.input, signal: request.signal, onModelEvent: request.onModelEvent, onModelArtifact: request.onModelArtifact, reviewPhase: request.reviewPhase, callPurpose: request.callPurpose, maxInputBytes: request.maxInputBytes };
+    const original = { instructions: request.instructions, input: request.input, signal: request.signal, onModelEvent: request.onModelEvent, onModelArtifact: request.onModelArtifact, reviewPhase: request.reviewPhase, callPurpose: request.callPurpose, beforeSend: request.beforeSend, maxInputBytes: request.maxInputBytes };
     const onProtocolCorrection = request.onProtocolCorrection, onProtocolEvent = request.onProtocolEvent;
-    const native = request.nativeOutputTools ?? useNativeTools;
+    const native = strictSingleCall ? false : request.nativeOutputTools ?? useNativeTools;
     if (typeof native !== 'boolean') throw new Error('nativeOutputTools must be boolean');
     const receiptProof = receiptSchemaProof(request); // Freeze issued/delivered IDs before any await.
     const tools = native ? modelResultTools(original.input, original.instructions, receiptProof) : [];
     const contract = modelContract(original.input, original.instructions) + (tools.length ? NATIVE_RESULT_INSTRUCTIONS : '');
-    const correctionLimit = correctJson ? maxJsonCorrections : 0;
+    const correctionLimit = !strictSingleCall && correctJson ? maxJsonCorrections : 0;
     const attempts = [];
     const prepared = attempt => ({ ...original, attempt, instructions: original.instructions +
       (attempt > 1 ? JSON_CORRECTION_SUFFIX + jsonCorrectionHint(attempts.at(-1)?.diagnostic) + ' 纠正次数：' + (attempt - 1) + '/' + correctionLimit + '。' : '') });

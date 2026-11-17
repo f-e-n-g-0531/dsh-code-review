@@ -15,14 +15,14 @@ function fixture(t, size, options = {}) {
   t.after(() => service.dispose());
   return { service, exec: execution(), get directCalls() { return directCalls; }, get children() { return children; }, get disposed() { return disposed; } };
 }
-test('auto fresh small scope previews whole direct without creating children', async t => {
+test('auto fresh small scope previews single pass without creating children', async t => {
   const f = fixture(t, 10), preview = await f.service.preview({}, f.exec);
-  assert.equal(preview.execution.executionStrategy, 'whole-scope'); assert.equal(preview.dispatch.requested, 'auto');
-  assert.equal(preview.dispatch.childMode, 'direct'); assert.equal(preview.dispatch.plannedChildCount, 0);
-  assert.equal(preview.execution.maxInputBytes, 262144); assert.equal(f.children, 0); assert.equal(f.directCalls, 0);
+  assert.equal(preview.execution.executionStrategy, 'single-pass'); assert.equal(preview.dispatch.requested, 'auto');
+  assert.equal(preview.dispatch.childMode, 'none'); assert.equal(preview.dispatch.plannedChildCount, 0);
+  assert.equal(preview.execution.singlePassMaxInputBytes, 4194304); assert.equal(f.children, 0); assert.equal(f.directCalls, 0);
 });
-test('auto capacity split executes fixed child factory plan, not direct primary fallback', async t => {
-  const f = fixture(t, 130000), preview = await f.service.preview({}, f.exec);
+test('explicit whole scope split executes fixed child factory plan, not direct primary fallback', async t => {
+  const f = fixture(t, 130000), preview = await f.service.preview({ executionStrategy: 'whole-scope' }, f.exec);
   assert.equal(preview.dispatch.childMode, 'host-subagents'); assert.equal(preview.dispatch.plannedChildCount, 2);
   assert.equal(preview.dispatch.oversizedCount, 0); assert.equal(preview.execution.batchConcurrency, 2);
   const result = await f.service.execute({ previewId: preview.previewId, confirmed: true }, f.exec);
@@ -30,10 +30,10 @@ test('auto capacity split executes fixed child factory plan, not direct primary 
   assert.equal(result.report.coverage.completed, 2); assert.equal(result.report.coverage.blocked, 0);
   assert.deepEqual(result.report.dispatch, preview.dispatch);
 });
-test('auto oversized source falls back visibly to staged while preserving both primary files', async t => {
-  const f = fixture(t, 300000), preview = await f.service.preview({}, f.exec);
-  assert.equal(preview.execution.executionStrategy, 'staged'); assert.equal(preview.dispatch.reason, 'complete-files-exceed-capacity');
-  assert.equal(preview.dispatch.oversizedCount, 2); assert.equal(preview.dispatch.eligibleCount, 2);
+test('auto oversized source blocks instead of falling back while preserving scope', async t => {
+  const f = fixture(t, 300000, { singlePassMaxInputBytes: 100000 }), preview = await f.service.preview({}, f.exec);
+  assert.equal(preview.execution.executionStrategy, 'single-pass'); assert.equal(preview.dispatch.reason, 'fresh-changes-default-single-pass');
+  assert.equal(preview.plan.status, 'input-blocked'); assert.equal(preview.plan.minimumCalls, 0);
   assert.equal(preview.dispatch.childMode, 'none'); assert.equal(preview.files.length, 2);
   assert.ok(preview.files.every(file => file.eligibility === 'reviewable')); assert.equal(f.children, 0);
 });
@@ -58,7 +58,7 @@ test('production index default contract is auto/512KiB with nullish overrides, n
   assert.ok(source.includes("executionStrategy: config.executionStrategy ?? 'auto'"));
   assert.ok(source.includes('maxInputBytes: config.maxInputBytes ?? 512 * 1024'));
   const p = plugin({});
-  try { assert.deepEqual(p.preview.parameters.properties.executionStrategy.enum, ['auto', 'staged', 'whole-scope']); }
+  try { assert.deepEqual(p.preview.parameters.properties.executionStrategy.enum, ['auto', 'single-pass', 'staged', 'whole-scope']); }
   finally { await p.dispose(); }
 });
 test('explicit zero configured capacity is not replaced by the production default', async () => {

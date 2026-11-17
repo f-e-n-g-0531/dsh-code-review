@@ -34,6 +34,10 @@ assert.equal(typeof Tools, 'function');
 ctx.provide('systemPrompt');
 ctx.provide('llm');
 ctx.provide('approval');
+ctx.provide('workingDirectory');
+// Explicit offline trusted host-service seam; cwd is not sourced from tool args/header.
+const hostCwds = new WeakMap();
+ctx.set('workingDirectory', { async ensure(agent, signal) { signal?.throwIfAborted(); assert.ok(hostCwds.has(agent)); await Promise.resolve(); return hostCwds.get(agent); } });
 ctx.set('systemPrompt', { tools() {}, section() {}, getSectionOrder() { return 0; } });
 const tools = new Tools(ctx, { mode: 'native' });
 let allowed = false, modelCalls = 0, approvalCalls = 0, responseMode = 'normal';
@@ -65,7 +69,8 @@ ctx.set('approval', { request: async request => {
   assert.match(request.reason, /offline-test\/none/);
   return allowed ? 'allowed-once' : 'rejected';
 } });
-plugin.apply(ctx, { allowModelSending: true });
+// This fixture asserts staged risk-plan/round contracts; production auto has separate child smoke coverage.
+plugin.apply(ctx, { allowModelSending: true, executionStrategy: 'staged' });
 console.log('Real ToolRuntime accepted synchronous and background review tools.');
 const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-review-host-'));
 try {
@@ -73,6 +78,7 @@ try {
   await writeFile(path.join(root, 'sample.js'), 'const value = 1;');
   await checked('git', ['add', 'sample.js'], { cwd: root });
   const exec = { agent: { session: { header: { id:'host-smoke-session', cwd: root } }, options: { provider: 'offline-test', model: 'none' } }, signal: new AbortController().signal };
+  hostCwds.set(exec.agent, root);
   const previewTool = tools.get('code_review_preview');
   assert.ok(previewTool);
   const preview = JSON.parse((await previewTool.execute({}, exec)).json);
@@ -96,7 +102,7 @@ try {
   assert.equal(report.coverage.completed, 1);
   assert.equal(report.outdated, false);
   assert.equal(report.model.provider, 'offline-test');
-  assert.match(output.markdown, /Code Review/);
+  assert.match(output.markdown, /代码审核简报/);
   assert.deepEqual(await checked('git', ['status', '--porcelain=v1'], { cwd: root }), statusBefore);
   assert.equal(await readFile(path.join(root, 'sample.js'), 'utf8'), 'const value = 1;');
   const roundsPreview=JSON.parse((await previewTool.execute({reviewRounds:2},exec)).json);

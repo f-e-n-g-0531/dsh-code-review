@@ -38,16 +38,18 @@ for (const enabled of [false, true]) test('service preview exposes all four expl
   assert.equal(sends, 1);
 });
 
-test('actual plugin production defaults enable all policies and explicit config false reaches preview without model sends', async t => {
+test('explicit deep strategy exposes configured policies while production auto defaults single-pass without model sends', async t => {
   const cwd = await mkdtemp(join(tmpdir(), 'ocr-policy-')); t.after(() => rm(cwd, { recursive: true, force: true }));
   const git = (...args) => execFileSync('git', args, { cwd, stdio: 'ignore' });
   git('init'); git('config', 'user.email', 'offline@example.invalid'); git('config', 'user.name', 'Offline fixture');
   await writeFile(join(cwd, 'a.js'), 'guard();\n'); git('add', 'a.js'); git('commit', '-m', 'fixture'); await writeFile(join(cwd, 'a.js'), 'unsafe();\n');
   for (const enabled of [true, false]) {
     const definitions = []; let dispose, sends = 0;
-    apply({ tools: { register: value => definitions.push(value) }, llm: { stream() { sends++; throw new Error('preview must not send'); } }, on(event, fn) { assert.ok(['dispose','llm/stream'].includes(event)); if (event === 'dispose') dispose = fn; } }, enabled ? {} : policies(false));
+    apply({ workingDirectory: { async ensure(_agent, signal) { signal?.throwIfAborted(); return cwd; } }, tools: { register: value => definitions.push(value) }, llm: { stream() { sends++; throw new Error('preview must not send'); } }, on(event, fn) { assert.ok(['dispose','llm/stream'].includes(event)); if (event === 'dispose') dispose = fn; } }, enabled ? {} : policies(false));
     try {
-      const output = await definitions.find(tool => tool.name === 'code_review_preview').execute({}, exec(cwd));
+      const previewTool = definitions.find(tool => tool.name === 'code_review_preview');
+      const defaults = JSON.parse((await previewTool.execute({}, exec(cwd))).json); assert.equal(defaults.execution.executionStrategy, 'single-pass'); assert.equal(defaults.execution.verification, 'not-requested');
+      const output = await previewTool.execute({ executionStrategy: 'staged' }, exec(cwd));
       const preview = JSON.parse(output.json); for (const flag of flags) assert.equal(preview.execution[flag], enabled);
       assert.equal(sends, 0); assert.equal(preview.modelSendingEnabled, true);
     } finally { dispose(); }
