@@ -11,7 +11,7 @@ for (const fail of [false, true]) test('terminal-save timeout never exposes unco
   const gate = deferred(), workEntered = deferred(), entered = deferred(), release = deferred(), definitions = [];
   let block = false;
   const exec = { agent: { session: { header: { id: 's', cwd: path.join(root, 'workspace') } }, options: { provider: 'offline', model: 'fake' } } };
-  const jobs = registerBackgroundReview({ tools: { register: d => definitions.push(d) }, on() {} }, { execute: async () => { workEntered.resolve(); await gate.promise; return { report: { status: 'partial', files: [], findings: [] }, markdown: '# Final partial' }; } }, { directory: path.join(root, 'reports') });
+  const jobs = registerBackgroundReview({ tools: { register: d => definitions.push(d) }, on() {} }, { execute: async (_args, exec) => { await exec.reviewCheckpoint({stage: 'approved-manifest', files: [{path: 'a.js', status: 'pending'}]}); workEntered.resolve(); await gate.promise; return { report: { status: 'partial', files: [{path: 'a.js', status: 'completed'}], findings: [] }, markdown: '# Final partial' }; } }, { directory: path.join(root, 'reports') });
   const tool = suffix => definitions.find(d => d.name === 'code_review_' + suffix);
   const start = JSON.parse((await tool('start').execute({ phase: 'execute', previewId: 'p', confirmed: true }, exec)).json);
   await workEntered.promise;
@@ -30,5 +30,9 @@ for (const fail of [false, true]) test('terminal-save timeout never exposes unco
   assert.equal(terminal.persistence, fail ? 'failed' : 'saved');
   assert.equal(terminal.executionStatus, 'completed');
   assert.equal(terminal.persistenceError, undefined);
+  assert.equal(terminal.waitRevision, 2);
+  assert.equal(terminal.recovery.files[0].status, fail ? 'pending' : 'completed');
+  assert.equal(terminal.progress.counts.completed, fail ? 0 : 1);
+  assert.deepEqual(await fs.readdir(path.join(root, 'reports')), [start.jobId + '.json']);
   assert.doesNotMatch(JSON.stringify(terminal), /final-save-test/);
 });

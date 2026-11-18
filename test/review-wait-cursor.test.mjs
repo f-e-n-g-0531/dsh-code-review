@@ -98,12 +98,24 @@ test('progress cursor cannot advance or wake before the checkpoint rename commit
  const f=await fixture(t),entered=deferred(),release=deferred();let block=true;
  intercept(t,'rename',async(original,...args)=>{if(block){block=false;entered.resolve();await release.promise;}return original(...args);});
  let settled=false;const waiting=f.jobs.wait(f.start.jobId,f.exec,{after:0,timeoutMs:1000}).then(value=>{settled=true;return value;});
- const saving=f.context.checkpoint({stage:'not-yet-durable'});await entered.promise;
+ const id=f.start.jobId;
+ const saving=f.context.checkpoint({stage:'approved-manifest',files:[{path:'a.js',status:'pending'}]});await entered.promise;
  try{
-  assert.equal((await f.jobs.status(f.start.jobId,f.exec)).waitRevision,0);assert.equal(settled,false);
-  assert.equal(JSON.parse(await fs.readFile(f.destination,'utf8')).checkpoints.length,0);
+  const live=await f.jobs.status(id,f.exec,{offset:0,limit:20});
+  const disk=JSON.parse(await fs.readFile(f.destination,'utf8'));
+  assert.equal(live.waitRevision,0);assert.equal(settled,false);
+  assert.equal(live.stage,disk.stage);assert.equal(live.progress.stage,disk.stage);
+  assert.deepEqual(live.checkpoints,disk.checkpoints);assert.equal(live.checkpointPage.total,0);
+  assert.equal(live.progress.total,null);assert.equal(live.recovery.manifestSaved,false);assert.deepEqual(live.recovery.files,[]);
+  await assert.rejects(f.jobs.status(id,f.exec,{checkpointIndex:0}),/Invalid checkpoint index/);
  }finally{release.resolve();}
- await saving;assert.equal((await waiting).changed,true);assert.equal((await f.jobs.status(f.start.jobId,f.exec)).waitRevision,1);
+ await saving;assert.equal((await waiting).changed,true);
+ const live=await f.jobs.status(id,f.exec),fresh=createReviewJobs({directory:f.directory});
+ const reopened=await fresh.status(id,f.exec);
+ assert.equal(live.waitRevision,1);assert.equal(live.waitRevision,reopened.waitRevision);
+ assert.deepEqual(live.checkpoints,reopened.checkpoints);assert.deepEqual(live.recovery,reopened.recovery);
+ assert.equal(live.progress.total,1);assert.equal(live.progress.counts.pending,1);
+ await fresh.dispose();
 });
 
 test('aborting a terminal wait never cancels background work and later wait still wakes',async t=>{
@@ -160,11 +172,12 @@ test('checkpoint save failure reaches caller and terminal waiter observes failed
  const root=await fs.mkdtemp(path.join(os.tmpdir(),'review-wait-failure-'));t.after(()=>fs.rm(root,{recursive:true,force:true}));
  const directory=path.join(root,'reports'),jobs=createReviewJobs({directory}),exec={agent:{session:{header:{id:'failure',cwd:path.join(root,'workspace')}},options:{provider:'p',model:'m'}}};
  const entered=deferred(),gate=deferred();let fail=false;
- intercept(t,'writeFile',async(original,...args)=>{if(fail){fail=false;throw new Error('checkpoint write failed');}return original(...args);});
+ intercept(t,'writeFile',async(original,fd,contents)=>{if(fail){fail=false;await original(fd,contents.slice(0,20));throw new Error('checkpoint write failed');}return original(fd,contents);});
  const started=await jobs.start(exec,async({checkpoint})=>{entered.resolve();await gate.promise;fail=true;await checkpoint({stage:'failing'});});await entered.promise;
  const waiting=jobs.wait(started.jobId,exec,{after:0,waitFor:'terminal',timeoutMs:1000});gate.resolve();assert.equal((await waiting).changed,true);
  const status=await jobs.status(started.jobId,exec);assert.equal(status.status,'failed');assert.match(status.error,/checkpoint write failed/);assert.equal(status.waitRevision,1);
- const disk=JSON.parse(await fs.readFile(path.join(directory,started.jobId+'.json'),'utf8'));assert.equal(disk.status,'failed');assert.equal(disk.checkpoints.length,1);await jobs.dispose();
+ const disk=JSON.parse(await fs.readFile(path.join(directory,started.jobId+'.json'),'utf8'));assert.equal(disk.status,'failed');assert.equal(disk.checkpoints.length,1);
+ assert.deepEqual(await fs.readdir(directory),[started.jobId+'.json']);await jobs.dispose();
 });
 
 test('concurrent progress and terminal listeners survive checkpoint notifications independently',async t=>{

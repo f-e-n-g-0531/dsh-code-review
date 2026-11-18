@@ -4,11 +4,38 @@ import { captureSnapshot } from '../src/snapshot.mjs';
 import { reviewSnapshot } from '../src/review.mjs';
 import { modelJson } from '../src/model-json.mjs';
 import { singleModelCandidate } from '../src/report-summary.mjs';
-import { writeFile } from 'node:fs/promises';
+import { link, lstat, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const RESPONSE_BYTES = 1024 * 1024;
+const MAX_RESPONSE_BYTES = 1024 * 1024;
+const MAX_OUTPUT_TOKENS = 4096;
+const RUN_TIMEOUT_MS = 14 * 60 * 1000;
+
+function reviewBudget(executionStrategy) {
+  if (!['staged', 'single-pass'].includes(executionStrategy)) throw new Error('Invalid benchmark execution strategy');
+  return { executionStrategy, reviewRounds: 1, maxCalls: executionStrategy === 'single-pass' ? 1 : 100,
+    maxInputBytes: 96 * 1024, timeoutMs: 120_000,
+    enableRetrieval: false, enableVerification: false, enableBusinessGrouping: false };
+}
+
+function json(value) { return JSON.stringify(value, null, 2) + '\n'; }
+
+async function requireFreshOutputs(paths) {
+  for (const file of paths) {
+    try { await lstat(file); }
+    catch (error) { if (error.code === 'ENOENT') continue; throw error; }
+    throw Object.assign(new Error('Benchmark output already exists; choose a new RB_OUT'), { code: 'EEXIST' });
+  }
+}
+
+// Publish only complete JSON and never replace an existing destination.
+async function publishJson(claim, name, target, value) {
+  const staged = path.join(claim, name);
+  await writeFile(staged, json(value), { flag: 'wx', mode: 0o600 });
+  try { await link(staged, target); }
+  finally { await unlink(staged); }
+}
 
 export function benchmarkConfig(env) {
   const base = env.RB_BASE, head = env.RB_HEAD;
@@ -16,6 +43,8 @@ export function benchmarkConfig(env) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(env.RB_NWO ?? '') || env.RB_NWO.split('/').some(part => part === '.' || part === '..')) throw new Error('Invalid RB_NWO');
   if (!/^[1-9][0-9]*$/.test(env.RB_PR_NUMBER ?? '') || !Number.isSafeInteger(Number(env.RB_PR_NUMBER))) throw new Error('Invalid RB_PR_NUMBER');
   if (!env.RB_REPO_DIR || !env.RB_OUT) throw new Error('Set RB_REPO_DIR and RB_OUT for local evaluation');
+  const out = path.resolve(env.RB_OUT);
+  if (/\.(?:claim|report\.json|smoke\.json)$/i.test(out)) throw new Error('RB_OUT uses a reserved adapter suffix');
   const profile = env.RB_PROFILE ?? 'staged-direct';
   if (!['staged-direct', 'single-pass-direct'].includes(profile)) throw new Error('Invalid RB_PROFILE');
   const executionStrategy = profile === 'single-pass-direct' ? 'single-pass' : 'staged';
@@ -29,7 +58,7 @@ export function benchmarkConfig(env) {
     endpoint = url.href.replace(/\/+$/, '') + '/chat/completions';
   }
   return {
-    repo: path.resolve(env.RB_REPO_DIR), out: path.resolve(env.RB_OUT), base, head,
+    repo: path.resolve(env.RB_REPO_DIR), out, base, head,
     nwo: env.RB_NWO, prNumber: Number(env.RB_PR_NUMBER),
     agent: env.RB_AGENT || 'dsh-code-review', profile, executionStrategy, mock, endpoint,
     model: env.RB_CONFIG_MODEL,
@@ -46,7 +75,7 @@ async function responseJson(response) {
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      if (size > RESPONSE_BYTES) throw new Error('Model response exceeds byte limit');
+      if (size > MAX_RESPONSE_BYTES) throw new Error('Model response exceeds byte limit');
       chunks.push(Buffer.from(value));
     }
     return JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -65,7 +94,7 @@ export function benchmarkExecutor(config, fetchImpl = fetch) {
       body: JSON.stringify({ model: config.model, messages: [
         { role: 'system', content: request.instructions },
         { role: 'user', content: request.input },
-      ], temperature: 0, max_tokens: 4096 }),
+      ], temperature: 0, max_tokens: MAX_OUTPUT_TOKENS }),
     });
     // Error bodies can contain credentials or source; never echo them.
     if (!response.ok) {
@@ -111,38 +140,54 @@ function benchmarkMock(request) {
 }
 
 export function reviewBenchmarkSnapshot(snapshot, executor, executionStrategy, signal) {
-  if (!['staged', 'single-pass'].includes(executionStrategy)) throw new Error('Invalid benchmark execution strategy');
-  return reviewSnapshot(snapshot, executor, {
-    signal, executionStrategy, reviewRounds: 1, maxCalls: executionStrategy === 'single-pass' ? 1 : 100, timeoutMs: 120_000,
-    enableRetrieval: false, enableVerification: false, enableBusinessGrouping: false,
-  });
+  return reviewSnapshot(snapshot, executor, { ...reviewBudget(executionStrategy), signal });
 }
 
-export async function runBenchmark(env = process.env) {
+export async function runBenchmark(env = process.env, fetchImpl = fetch) {
   const config = benchmarkConfig(env);
-  const signal = AbortSignal.timeout(14 * 60 * 1000), started = Date.now();
+  const budget = reviewBudget(config.executionStrategy);
+  const signal = AbortSignal.timeout(RUN_TIMEOUT_MS), started = Date.now();
+  const reportPath = config.out + '.report.json', smokePath = config.out + '.smoke.json';
+  const outputs = [config.out, reportPath, smokePath];
+  const claim = config.out + '.claim';
+  await requireFreshOutputs(outputs); // Legacy outputs can predate the claim protocol.
+  await mkdir(claim, { mode: 0o700 }); // The atomic same-output admission gate for both profiles and modes.
+  await requireFreshOutputs(outputs);
+
   const bases = (await checked('git', ['merge-base', '--all', config.base, config.head], { cwd: config.repo, signal })).toString('utf8').trim().split(/\r?\n/);
   if (bases.length !== 1 || !/^[0-9a-f]{40}$/.test(bases[0])) throw new Error('Expected a unique merge base; no arbitrary base selected');
-  const snapshot = await captureSnapshot(config.repo, { baseRevision: bases[0], targetRevision: config.head, signal });
-  const executor = config.mock ? benchmarkMock : benchmarkExecutor(config);
-  console.log('profile=' + config.profile + ' mock=' + config.mock + ' model=' + (config.model || 'none'));
-  const report = await reviewBenchmarkSnapshot(snapshot, executor, config.executionStrategy, signal);
+  const mergeBase = bases[0];
+  const snapshot = await captureSnapshot(config.repo, { baseRevision: mergeBase, targetRevision: config.head, signal });
+  const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  const { executionStrategy, ...reviewLimits } = budget;
+  const metadata = {
+    schemaVersion: 1, base: config.base, head: config.head, mergeBase, version,
+    profile: config.profile, executionStrategy, mock: config.mock, model: config.mock ? null : config.model,
+    budget: { ...reviewLimits, runTimeoutMs: RUN_TIMEOUT_MS,
+      maxOutputTokensPerCall: config.mock ? null : MAX_OUTPUT_TOKENS,
+      maxResponseBytesPerCall: config.mock ? null : MAX_RESPONSE_BYTES },
+  };
+  await writeFile(path.join(claim, 'run.json'), json(metadata), { flag: 'wx', mode: 0o600 });
+  await requireFreshOutputs(outputs);
   signal.throwIfAborted();
-  // Each run owns fresh output paths; never mix attempts or overwrite prior results.
-  await writeFile(config.out + '.report.json', JSON.stringify({ mock: config.mock, profile: config.profile, executionStrategy: config.executionStrategy, mergeBase: bases[0], report }, null, 2) + '\n', { flag: 'wx' });
+  const executor = config.mock ? benchmarkMock : benchmarkExecutor(config, fetchImpl);
+  console.log('profile=' + config.profile + ' mock=' + config.mock + ' model=' + (metadata.model ?? 'none'));
+  const report = await reviewSnapshot(snapshot, executor, { ...budget, signal });
+  await publishJson(claim, 'report.json', reportPath, { ...metadata, report });
+  signal.throwIfAborted();
   const findings = benchmarkFindings(snapshot, report, config.agent);
   const output = {
     pr: { repo: 'https://github.com/' + config.nwo, pr_number: config.prNumber, base: config.base, head: config.head },
     agent: config.agent, findings, usage: { time_in_ms: Date.now() - started },
   };
   // Smoke output is intentionally not a scoreable candidate file.
-  await writeFile(config.mock ? config.out + '.smoke.json' : config.out, JSON.stringify(output, null, 2) + '\n', { flag: 'wx' });
+  await publishJson(claim, config.mock ? 'result.smoke.json' : 'result.json', config.mock ? smokePath : config.out, output);
   return output;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
-  runBenchmark().catch(() => {
-    console.error('Benchmark adapter failed; no successful result implied. Check configuration and any saved report.');
+  runBenchmark().catch(error => {
+    console.error(error?.code === 'EEXIST' ? 'Benchmark output already exists; choose a new RB_OUT.' : 'Benchmark adapter failed; no successful result implied. Check configuration and any saved report.');
     process.exitCode = 1;
   });
 }

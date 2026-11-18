@@ -35,3 +35,42 @@ test('auto resume keeps staged reuse without invoking throwing single-pass capac
 });
 test('single-pass checks capacity at preview execute and final physical send',async t=>{let queries=0;const f=fixture(t,{resolveModelCapacity:async()=>{queries++;return {contextWindowTokens:1000000};}}),p=await f.service.preview({},f.exec);assert.equal(queries,1);await f.service.execute({previewId:p.previewId,confirmed:true},f.exec);assert.equal(queries,3);assert.equal(f.calls,1);});
 test('full 1.9MB source fits independent 4MiB policy without focused slicing',async t=>{const source=snapshot();source.files[0].right.text='x'.repeat(1900000);const f=fixture(t,{capture:async()=>source,maxInputBytes:512*1024,primaryInputMode:'focused'}),p=await f.service.preview({},f.exec);assert.equal(p.plan.status,'ready');const {report}=await f.service.execute({previewId:p.previewId,confirmed:true},f.exec);assert.equal(f.calls,1);assert.equal(report.status,'completed');const payload=JSON.parse(f.request.messages[0].content[0].text);assert.equal(payload.contents[payload.reviews[0].file.right.textRef].length,1900000);});
+
+test('trusted count reserves output, blocks above the limit and matches the real request at the boundary', async t => {
+ for (const [inputTokens, expectedCalls] of [[700, 1], [701, 0]]) {
+  const counted = [];
+  const f = fixture(t, {
+   resolveModelCapacity: async () => ({ contextWindowTokens: 1000, maxOutputTokens: 800, defaultOutputTokens: 300 }),
+   countSinglePassInputTokens: request => { counted.push(request); return { inputTokens, counterId: 'exact-v1' }; },
+  });
+  const p = await f.service.preview({}, f.exec);
+  assert.equal(p.plan.minimumCalls, expectedCalls);
+  assert.equal(p.plan.tokenFits, expectedCalls ? 'fits' : 'blocked');
+  assert.equal(p.plan.capacity.output.requestedTokens, 300);
+  const { report, markdown } = await f.service.execute({ previewId: p.previewId, confirmed: true }, f.exec);
+  assert.equal(f.calls, expectedCalls);
+  if (!expectedCalls) {
+   assert.equal(report.coverage.blocked, 1);
+   assert.match(markdown, /超出模型窗口/);
+  } else {
+   assert.equal(report.status, 'completed');
+   assert.equal(counted.length, 3);
+   assert.ok(counted.every(x => x.system === f.request.system));
+   assert.ok(counted.every(x => x.messages[0].content[0].text === f.request.messages[0].content[0].text));
+  }
+ }
+});
+
+test('trusted counter identity change during approval rejects the physical send', async t => {
+ let counterId = 'exact-v1';
+ const f = fixture(t, {
+  resolveModelCapacity: async () => ({ contextWindowTokens: 9000 }),
+  countSinglePassInputTokens: () => ({ inputTokens: 20, counterId }),
+  authorize: async () => { counterId = 'exact-v2'; return true; },
+ });
+ const p = await f.service.preview({}, f.exec);
+ const { report, markdown } = await f.service.execute({ previewId: p.previewId, confirmed: true }, f.exec);
+ assert.equal(f.calls, 0);
+ assert.notEqual(report.status, 'completed');
+ assert.match(markdown, /须重新预览/);
+});

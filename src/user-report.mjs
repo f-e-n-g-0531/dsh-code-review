@@ -11,6 +11,15 @@ const labels = { 'single-model': '单模型候选（未独立复核）', introdu
 const levels = { critical: 0, high: 1, medium: 2, low: 3 };
 const order = { 'single-model': 0, introduced: 0, current: 1, uncertain: 2, incomplete: 3, preexisting: 4, refuted: 5 };
 const executionCauses = {
+  SINGLE_PASS_INPUT_BUDGET: '完整单次材料超过输入字节限制',
+  SINGLE_PASS_CONTEXT_LIMIT: '完整请求超过模型上下文窗口',
+  SINGLE_PASS_OUTPUT_LIMIT: '模型输出达到上限，结果不完整',
+  SINGLE_PASS_MODEL_JSON_INVALID: '模型响应不是完整有效的 JSON',
+  SINGLE_PASS_PROTOCOL_FAILED: '单次审核响应未通过协议验收',
+  SINGLE_PASS_MODEL_INCOMPLETE: '模型未正常结束，结果不完整',
+  SINGLE_PASS_MODEL_CAPACITY_CHANGED: '模型容量或计数策略变化，须重新预览',
+  SINGLE_PASS_CALL_LIMIT: '没有可用的单次模型调用额度',
+  PROJECT_INPUT_BUDGET: '超过项目审核的输入预算',
   WHOLE_SCOPE_INPUT_BUDGET: '子会话输入超过批准容量',
   WHOLE_SCOPE_MODEL_CALL_LIMIT: '子会话达到模型调用次数限制',
   MODEL_CALL_LIMIT: '达到模型调用次数限制',

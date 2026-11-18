@@ -1,6 +1,7 @@
 import test from 'node:test';import assert from 'node:assert/strict';
 import {mkdtemp,writeFile,rm} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
 import {createReviewService} from '../src/service.mjs';
+import {measureSnapshotCapture,snapshotCapturePhase} from '../src/snapshot-capture-metrics.mjs';
 import {checked} from '../src/process.mjs';import {captureSnapshot} from '../src/snapshot.mjs';import {captureHistoryDependencyChain} from '../src/history-dependency-chain.mjs';import {createRetrievalScope} from '../src/retrieval-scope.mjs';
 async function fixture(fn){const root=await mkdtemp(path.join(os.tmpdir(),'dsh-history-chain-'));try{const git=(...a)=>checked('git',a,{cwd:root}),put=(n,t)=>writeFile(path.join(root,n),t);await git('init','-q');await git('config','user.email','test@example.invalid');await git('config','user.name','Test');
  for(const [n,v] of [['main.ts','import x from "./oldbarrel";'],['oldbarrel.ts','export {x} from "./oldimpl";'],['oldimpl.ts','export {x} from "./oldend";'],['oldend.ts','export {x} from "./oldbeyond";'],['oldbeyond.ts','export const x=1;'],['newbarrel.ts','export {x} from "./newimpl";'],['newimpl.ts','export {x} from "./newend";'],['newend.ts','export {x} from "./newbeyond";'],['newbeyond.ts','export const x=2;']])await put(n,v);
@@ -25,4 +26,31 @@ test('historical approved chain reaches model but moving HEAD refuses before sub
 test('historical chain shares probe and two-side source limits and refuses cancellation',()=>fixture(async({root,git})=>{
  const target=(await git('rev-parse','HEAD')).toString().trim(),base=(await git('rev-parse','HEAD~1')).toString().trim(),files=[{path:'main.ts',eligibility:'reviewable',right:{text:Array.from({length:40},(_,i)=>'import x from "./dep'+i+'";').join(String.fromCharCode(10))}}];await assert.rejects(captureHistoryDependencyChain(root,files,{base,target},[]),/lookup limit/);
  const context=Array.from({length:3},(_,i)=>({path:'seed'+i+'.ts',text:'x'.repeat(200*1024),oldText:'x'.repeat(200*1024)}));await assert.rejects(captureHistoryDependencyChain(root,[],{base,target},context),/source byte limit/);await assert.rejects(captureHistoryDependencyChain(root,[],{base,target},[],{signal:AbortSignal.abort()}));
+}));
+
+test('historical dependency frontier batches both sides and caches absent candidates',()=>fixture(async({root,git,put})=>{
+ const names=Array.from({length:12},(_,i)=>'dep-'+String(i).padStart(2,'0')+'.ts');
+ for(const [i,name]of names.entries())await put(name,JSON.stringify('old '+i));
+ await git('add','--all');await git('commit','-qm','deps');
+ const base=(await git('rev-parse','HEAD')).toString().trim();
+ await git('rm',names[0]);await put(names[1],JSON.stringify('new 1'));
+ await git('commit','-qam','new deps');
+ const target=(await git('rev-parse','HEAD')).toString().trim();
+ for(const name of names.slice(1))await put(name,'DIRTY');
+ const text=names.map(name=>'import "./'+name+'";').concat('import "./missing.ts";').join('\n');
+ const files=[{path:'entry.ts',eligibility:'reviewable',left:{text},right:{text}}];
+ const context=[];
+ const {snapshot:chain,metrics}=await measureSnapshotCapture(()=>snapshotCapturePhase('dependencies',()=>captureHistoryDependencyChain(root,files,{base,target},context)));
+ assert.deepEqual(chain.capturedPaths,names);
+ assert.equal(chain.probeCount,13);
+ // Eleven old counterparts retain candidate-local failure isolation.
+ assert.equal(metrics.phases.dependencies.treeQueries,13);
+ for(const [i,name]of names.entries()){
+  const value=context.find(entry=>entry.path===name);
+  assert.equal(value.oldText,JSON.stringify('old '+i));assert.equal(value.oldRevision,base);
+  assert.equal(value.text,i===0?undefined:JSON.stringify(i===1?'new 1':'old '+i));
+  assert.equal(value.revision,i===0?undefined:target);
+ }
+ assert.equal(context.find(entry=>entry.path===names[0]).oldOnly,true);
+ assert.equal(JSON.stringify(context).includes('DIRTY'),false);
 }));

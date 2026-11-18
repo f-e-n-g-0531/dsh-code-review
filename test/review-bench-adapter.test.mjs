@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { benchmarkConfig, benchmarkExecutor, benchmarkFindings, reviewBenchmarkSnapshot, runBenchmark } from '../scripts/review-bench-adapter.mjs';
-import { mkdtemp, writeFile, readFile, access, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, readFile, access, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { checked } from '../src/process.mjs';
@@ -12,7 +12,7 @@ const snapshot = { files: [{ id: 'f', path: 'src/a.js' }] };
 const finding = { fileId: 'f', title: 'Bug', evidence: 'Evidence', trigger: 'Trigger', impact: 'Impact', suggestion: 'Fix', anchor: { kind: 'line', side: 'new', start: 1, end: 1 } };
 const report = findings => ({ status: 'completed', files: [{ fileId: 'f', status: 'completed' }], findings });
 
-test('benchmark local smoke captures fixed Git objects without producing a scoreable result', async t => {
+async function fixture(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-benchmark-local-'));
   t.after(() => rm(root, { recursive:true, force:true }));
   const git = (...args) => checked('git', args, { cwd: root });
@@ -27,6 +27,11 @@ test('benchmark local smoke captures fixed Git objects without producing a score
   await writeFile(path.join(root, 'other.js'), 'const other = 2;\n');
   await git('commit', '-qam', 'head');
   const head = (await git('rev-parse', 'HEAD')).toString('utf8').trim();
+  return { root, base, head, git };
+}
+
+test('benchmark local smoke captures fixed Git objects without producing a scoreable result', async t => {
+  const { root, base, head, git } = await fixture(t);
   const before = await git('status', '--porcelain');
   const out = path.join(root, 'candidate.json');
   await runBenchmark({ ...environment, RB_REPO_DIR: root, RB_BASE: base, RB_HEAD: head, RB_OUT: out });
@@ -35,12 +40,16 @@ test('benchmark local smoke captures fixed Git objects without producing a score
   assert.equal(saved.mock, true); assert.equal(saved.report.status, 'completed');
   assert.equal(saved.profile, 'staged-direct'); assert.equal(saved.executionStrategy, 'staged');
   assert.equal(saved.report.modelCalls, 2);
+  assert.equal(saved.base, base); assert.equal(saved.head, head); assert.equal(saved.mergeBase, base);
+  assert.equal(saved.model, null); assert.equal(saved.budget.maxCalls, 100);
+  assert.equal(saved.budget.maxOutputTokensPerCall, null); assert.equal(saved.budget.maxResponseBytesPerCall, null);
   const singleOut = path.join(root, 'single.json');
   await runBenchmark({ ...environment, RB_PROFILE: 'single-pass-direct', RB_REPO_DIR: root, RB_BASE: base, RB_HEAD: head, RB_OUT: singleOut });
   await assert.rejects(access(singleOut), { code: 'ENOENT' });
   const single = JSON.parse(await readFile(singleOut + '.report.json', 'utf8'));
   assert.equal(single.profile, 'single-pass-direct'); assert.equal(single.report.orchestration.strategy, 'single-pass');
   assert.equal(single.report.modelCalls, 1); assert.equal(single.report.coverage.completed, 2);
+  assert.equal(single.budget.maxCalls, 1);
   const captured = await captureSnapshot(root, { baseRevision: base, targetRevision: head });
   const primary = captured.files.find(f => f.path === 'sample.js');
   const makeFinding = (side = 'new') => ({ ...finding, fileId: primary.id, severity: 'high',
@@ -76,9 +85,84 @@ test('benchmark local smoke captures fixed Git objects without producing a score
   await assert.rejects(runBenchmark({ ...environment, RB_REPO_DIR: root, RB_BASE: base, RB_HEAD: head, RB_OUT: out }), { code: 'EEXIST' });
 });
 
+const liveConfig = { ...environment, RB_MOCK: '0', RB_PROFILE: 'single-pass-direct', RB_CONFIG_MODEL: 'fixture-model', RB_MODEL_BASE_URL: 'https://example.test/v1', RB_CONFIG_API_KEY: 'fixture-key' };
+
+test('benchmark pre-existing output, report, smoke, claim or unavailable parent sends nothing', async t => {
+  const { root, base, head } = await fixture(t);
+  let calls = 0;
+  const fetchStub = async () => { calls++; throw new Error('Unexpected model send'); };
+  for (const suffix of ['', '.report.json', '.smoke.json', '.claim']) {
+    const out = path.join(root, 'conflict-' + (suffix || 'result') + '-candidate.json');
+    const existing = out + suffix;
+    if (suffix === '.claim') await mkdir(existing);
+    else await writeFile(existing, 'prior attempt');
+    await assert.rejects(runBenchmark({ ...liveConfig, RB_REPO_DIR: root, RB_BASE: base, RB_HEAD: head, RB_OUT: out }, fetchStub), { code: 'EEXIST' });
+    if (suffix !== '.claim') assert.equal(await readFile(existing, 'utf8'), 'prior attempt');
+  }
+  await assert.rejects(runBenchmark({ ...liveConfig, RB_REPO_DIR: root, RB_BASE: base, RB_HEAD: head, RB_OUT: path.join(root, 'missing', 'output.json') }, fetchStub), { code: 'ENOENT' });
+  assert.equal(calls, 0);
+});
+
+test('concurrent runs admit one requester and record frozen identities before model send without changing scoring JSON', async t => {
+  const { root, base: mergeBase, head, git } = await fixture(t);
+  await git('checkout', '--detach', mergeBase);
+  await git('commit', '--allow-empty', '-qm', 'advanced upstream');
+  const base = (await git('rev-parse', 'HEAD')).toString('utf8').trim();
+  assert.notEqual(base, mergeBase);
+  const out = path.join(root, 'live.json');
+  const env = { ...liveConfig, RB_REPO_DIR: root, RB_BASE: base, RB_HEAD: head, RB_OUT: out };
+  const { version } = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
+  const expected = {
+    schemaVersion: 1, base, head, mergeBase, version, profile: 'single-pass-direct',
+    executionStrategy: 'single-pass', mock: false, model: 'fixture-model',
+    budget: { reviewRounds: 1, maxCalls: 1, maxInputBytes: 96 * 1024, timeoutMs: 120_000,
+      enableRetrieval: false, enableVerification: false, enableBusinessGrouping: false,
+      runTimeoutMs: 840_000, maxOutputTokensPerCall: 4096, maxResponseBytesPerCall: 1024 * 1024 },
+  };
+  let calls = 0, observed, sent;
+  const fetchStub = async (url, options) => {
+    calls++;
+    observed = JSON.parse(await readFile(path.join(out + '.claim', 'run.json'), 'utf8'));
+    sent = JSON.parse(options.body);
+    const completion = { status: 'completed', gaps: [] };
+    const reviews = JSON.parse(sent.messages[1].content).reviews.map(({ fileId }) => ({ fileId, findings: [], limitations: [], completion, assuranceNotes: [] }));
+    return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: JSON.stringify({ reviews, limitations: [], completion, assuranceNotes: [] }) } }] }));
+  };
+  const results = await Promise.allSettled([runBenchmark(env, fetchStub), runBenchmark(env, fetchStub)]);
+  const failed = results.filter(result => result.status === 'rejected');
+  assert.equal(failed.length, 1, JSON.stringify(results));
+  assert.equal(failed[0].reason.code, 'EEXIST');
+  assert.equal(calls, 1);
+  assert.deepEqual(observed, expected);
+  assert.equal(sent.model, expected.model); assert.equal(sent.max_tokens, expected.budget.maxOutputTokensPerCall);
+  const { report: savedReport, ...savedMetadata } = JSON.parse(await readFile(out + '.report.json', 'utf8'));
+  assert.equal(savedReport.status, 'completed'); assert.equal(savedReport.modelCalls, 1); assert.deepEqual(savedMetadata, expected);
+  const candidate = JSON.parse(await readFile(out, 'utf8'));
+  assert.deepEqual(candidate, { pr: { repo: 'https://github.com/owner/repo', pr_number: 1, base, head }, agent: 'dsh-code-review', findings: [], usage: { time_in_ms: candidate.usage.time_in_ms } });
+  await assert.rejects(access(out + '.smoke.json'), { code: 'ENOENT' });
+  await assert.rejects(runBenchmark({ ...env, RB_MOCK: '1' }, fetchStub), { code: 'EEXIST' });
+  assert.equal(calls, 1);
+});
+
+test('failed model call leaves diagnostics and a durable claim, but no scoreable candidate', async t => {
+  const { root, base, head } = await fixture(t);
+  const out = path.join(root, 'failed.json');
+  const env = { ...liveConfig, RB_REPO_DIR: root, RB_BASE: base, RB_HEAD: head, RB_OUT: out };
+  let calls = 0;
+  const fetchStub = async () => { calls++; return new Response('fixture response', { status: 401 }); };
+  await assert.rejects(runBenchmark(env, fetchStub), /incomplete/);
+  await assert.rejects(access(out), { code: 'ENOENT' });
+  await assert.rejects(access(out + '.smoke.json'), { code: 'ENOENT' });
+  const saved = JSON.parse(await readFile(out + '.report.json', 'utf8'));
+  assert.notEqual(saved.report.status, 'completed');
+  assert.equal(saved.report.modelCalls, 1);
+  await assert.rejects(runBenchmark(env, fetchStub), { code: 'EEXIST' });
+  assert.equal(calls, 1);
+});
+
 test('benchmark configuration requires explicit local scope and model destination', () => {
   assert.equal(benchmarkConfig(environment).mock, true);
-  for (const override of [{ RB_BASE: '--option' }, { RB_NWO: '../repo' }, { RB_PR_NUMBER: '1x' }, { RB_REPO_DIR: '' }, { RB_MOCK: 'maybe' }, { RB_PROFILE: 'unknown' }]) assert.throws(() => benchmarkConfig({ ...environment, ...override }));
+  for (const override of [{ RB_BASE: '--option' }, { RB_NWO: '../repo' }, { RB_PR_NUMBER: '1x' }, { RB_REPO_DIR: '' }, { RB_MOCK: 'maybe' }, { RB_PROFILE: 'unknown' }, { RB_OUT: 'another.report.json' }, { RB_OUT: 'another.smoke.json' }, { RB_OUT: 'another.claim' }]) assert.throws(() => benchmarkConfig({ ...environment, ...override }));
   assert.throws(() => benchmarkConfig({ ...environment, RB_MOCK: '0' }), /explicit/);
   const live = { ...environment, RB_MOCK: '0', RB_CONFIG_MODEL: 'test', RB_MODEL_BASE_URL: 'https://example.test/v1' };
   assert.equal(benchmarkConfig(live).endpoint, 'https://example.test/v1/chat/completions');

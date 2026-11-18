@@ -1,7 +1,9 @@
 import {captureSignal} from './capture-signal.mjs';
 import {contextCandidates} from './context-candidates.mjs';
 import {checked} from './process.mjs';
-import {decode,hash,relativePath} from './content.mjs';
+import {decode,hash} from './content.mjs';
+import {lookupGitTreePaths} from './git-tree-lookup.mjs';
+import {measureSnapshotCommand} from './snapshot-capture-metrics.mjs';
 import {assertNonSecretPath} from './secret-path.mjs';
 // Immutable object reads only. Both version sides share every navigation budget.
 export async function captureHistoryDependencyChain(root,files,history,context,options={}){
@@ -9,11 +11,18 @@ export async function captureHistoryDependencyChain(root,files,history,context,o
  const bounded={...options,cwd:root,signal},probes=new Set(),visited={old:new Set(files.map(f=>f.path)),new:new Set(files.map(f=>f.path))};
  const maps={old:new Map(),new:new Map()},candidates=new Map(),reserved=new Set([...(options.rulePaths??[]),...(options.oldContextPaths??[]),...(options.contextPaths??[])]);let bytes=0,truncated=false;
  const regular=e=>e?.type==='blob'&&['100644','100755'].includes(e.mode);
- const git=(args,maxBytes=1024*1024)=>checked('git',['--no-optional-locks','--literal-pathspecs',...args],{...bounded,maxBytes});
- const lookup=async(side,paths)=>{const revision=side==='old'?history.base:history.target;if(!revision)return;for(const name of paths){relativePath(name);if(maps[side].has(name))continue;
-  const records=new TextDecoder('utf-8',{fatal:true}).decode(await git(['ls-tree','-z','--full-tree',revision,'--',name])).split(String.fromCharCode(0)).filter(Boolean);let entry=null;
-  for(const record of records){const m=/^(\d{6}) (blob|commit|tree) ([a-f0-9]+)\t([\s\S]+)$/.exec(record);if(!m||m[4]!==name)throw new Error('Invalid historical path lookup');entry={mode:m[1],type:m[2],oid:m[3]};}maps[side].set(name,entry);
- }};
+ const git=(args,maxBytes=1024*1024)=>measureSnapshotCommand(
+   () => checked('git',['--no-optional-locks',...args],{...bounded,maxBytes}),args[0]==='cat-file'?'source':'tree');
+ const lookup=async(side,paths)=>{
+  const revision=side==='old'?history.base:history.target;
+  if(!revision)return;
+  const pending=[...new Set(paths)].filter(name=>!maps[side].has(name));
+  if(!pending.length)return;
+  const entries=new Map();
+  await lookupGitTreePaths(revision,entries,pending,git,{signal,maxBytes:1024*1024,errorMessage:'Invalid historical path lookup'});
+  // Cache misses too, independently for each fixed side.
+  for(const name of pending)maps[side].set(name,entries.get(name)??null);
+ };
  const read=async(side,name)=>{assertNonSecretPath(name);const entry=maps[side].get(name);if(!regular(entry))throw new Error('Historical dependency not a regular blob');const value=decode(await git(['cat-file','blob',entry.oid],Math.min(options.maxFileBytes??256*1024,256*1024)));bytes+=value.bytes;if(bytes>1024*1024)throw new Error('Historical dependency source byte limit exceeded');return value;};
  let frontier={old:files.map(f=>({...f,right:f.left,rightExists:!!f.left})),new:[...files]};
  for(const item of context){for(const side of ['old','new']){const text=side==='old'?item.oldText:item.text;if(text===undefined)continue;visited[side].add(item.path);frontier[side].push({path:item.path,eligibility:'reviewable',right:{text}});bytes+=Buffer.byteLength(text);}}
@@ -34,7 +43,9 @@ export async function captureHistoryDependencyChain(root,files,history,context,o
     try{
      if(changed){if(changed.eligibility!=='reviewable'||!changed.left)throw new Error('Old dependency conflicts with excluded blocked or absent old change');c.status='reused-changed-old';continue;}
      let item=context.find(v=>v.path===entry.path);if(!item&&context.length>=Math.min(options.maxContextFiles??20,20))throw new Error('Context file limit exceeded');
-     await lookup('new',[entry.path]);await lookup('old',[entry.path]);
+     // Keep candidate-local failure handling for the opposite side. The current
+     // side is already populated by the batched discovery above.
+     await lookup(side==='old'?'new':'old',[entry.path]);
      // Preserve direct-context compatibility: regular target and baseline bodies are approved together.
      if(!item){item={path:entry.path};if(regular(maps.new.get(entry.path))){const value=await read('new',entry.path);Object.assign(item,value,{revision:history.target});}
       if(regular(maps.old.get(entry.path))){const value=await read('old',entry.path);Object.assign(item,{oldText:value.text,oldHash:hash(value.text),oldBlobOid:maps.old.get(entry.path).oid,oldRevision:history.base});}

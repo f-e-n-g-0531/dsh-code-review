@@ -90,6 +90,12 @@ export async function reviewSinglePass(snapshot, model, options = {}) {
       report.limitations.push({ text: '完整单次材料超过输入上限；未调用、未拆分或缩减范围。' });
       return finish();
     }
+    if (options.singlePassContext?.status === 'blocked') {
+      for (const id of prepared.fileIds) Object.assign(states.get(id), { status: 'blocked', failureCode: 'SINGLE_PASS_CONTEXT_LIMIT' });
+      batch.status = 'blocked';
+      report.limitations.push({ code: 'SINGLE_PASS_CONTEXT_LIMIT', text: '可信计量显示完整请求及输出预留超出模型窗口，未发送。可缩小范围或显式选择深审后重新预览。' });
+      return finish();
+    }
     phase = 'admission';
     gate();
     if (await options.beforeCall?.() === false) throw failure('SINGLE_PASS_CALL_LIMIT', 'Single-pass invocation vetoed');

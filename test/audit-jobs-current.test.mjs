@@ -15,8 +15,8 @@ async function fixture(t){
  return {root,cwd,directory:path.join(root,'reports')};
 }
 function interceptWrites(t,implementation){
- const original=fs.writeFile;
- t.mock.method(fs,'writeFile',(...args)=>implementation(original,...args));syncBuiltinESMExports();
+ const original=fs.open;
+ t.mock.method(fs,'open',(name,...args)=>implementation(original,name,...args));syncBuiltinESMExports();
  t.after(()=>{t.mock.restoreAll();syncBuiltinESMExports();});
 }
 

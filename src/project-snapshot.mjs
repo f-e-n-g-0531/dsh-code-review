@@ -138,3 +138,25 @@ export async function captureProjectBatch(inventory, paths, options = {}) {
   const snapshot = { schemaVersion: 1, vcs: inventory.vcs, root: inventory.root, files, context: [], projectScope: scope };
   return { ...snapshot, id: hash(JSON.stringify(snapshot)) };
 }
+
+// Each pass independently checks exactly the approved inventory and batch
+// identities. Never retain the re-read project or proceed past a mismatch.
+export async function projectSnapshotIsCurrent(approved, root, vcs, options, {
+  inventory: readInventory = projectInventory, batch: readBatch = captureProjectBatch,
+} = {}) {
+  const { signal } = options;
+  signal?.throwIfAborted();
+  if (root !== approved.root || vcs !== approved.vcs) return false;
+  const expected = approved.batches.map(batch => ({ id: batch.id, paths: batch.files.map(file => file.path) }));
+  for (let pass = 0; pass < 2; pass++) {
+    const inventory = await readInventory(root, vcs, options);
+    signal?.throwIfAborted();
+    if (inventory.id !== approved.inventoryId) return false;
+    for (const { id, paths } of expected) {
+      const observedId = (await readBatch(inventory, paths, options)).id;
+      signal?.throwIfAborted();
+      if (observedId !== id) return false;
+    }
+  }
+  return true;
+}

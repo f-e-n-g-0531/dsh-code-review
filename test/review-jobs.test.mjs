@@ -1,4 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm,mkdir,readFile,writeFile} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {createReviewJobs} from '../src/review-jobs.mjs';
+import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm,mkdir,readFile,writeFile,readdir} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';import {createReviewJobs} from '../src/review-jobs.mjs';
 const exec=id=>({agent:{session:{header:{id,cwd:'/repo'}},options:{provider:'x',model:'m'}}});
 test('job returns promptly saves checkpoint and survives start signal cancellation',async t=>{const dir=await mkdtemp(path.join(os.tmpdir(),'review-job-test-'));t.after(()=>rm(dir,{recursive:true,force:true}));const a=exec('a'),b=exec('b'),c=new AbortController();a.signal=c.signal;const jobs=createReviewJobs({directory:dir});let entered,release;const ready=new Promise(r=>entered=r),gate=new Promise(r=>release=r);const start=await jobs.start(a,async({checkpoint})=>{await checkpoint({stage:'file-complete',path:'a.js',status:'completed'});entered();await gate;return {status:'partial'};});c.abort();await ready;assert.equal((await jobs.status(start.jobId,a)).checkpoints.length,1);await assert.rejects(jobs.status(start.jobId,b),/Foreign/);const fresh=createReviewJobs({directory:dir});assert.equal((await fresh.status(start.jobId,a)).status,'interrupted');release();await jobs.dispose();assert.equal((await fresh.status(start.jobId,a)).checkpoints.length,1);await fresh.dispose();});
 
@@ -8,7 +8,7 @@ test('durable job rejects storing reports inside the reviewed workspace',async()
 
 test('wait wakes on saved checkpoint and does not cancel work when caller stops waiting',async t=>{const dir=await mkdtemp(path.join(os.tmpdir(),'review-wait-'));t.after(()=>rm(dir,{recursive:true,force:true}));const jobs=createReviewJobs({directory:dir}),a=exec('a');let release,entered;const gate=new Promise(r=>release=r),ready=new Promise(r=>entered=r);const j=await jobs.start(a,async({checkpoint})=>{entered();await gate;await checkpoint({stage:'done'});return {};});await ready;const r=await jobs.status(j.jobId,a),wait=jobs.wait(j.jobId,a,{after:r.checkpoints.length,timeoutMs:1000});release();await wait;await jobs.dispose();assert.ok((await jobs.status(j.jobId,a)).checkpoints.some(c=>c.stage==='done'));});
 
-test('wait abort leaves background running and timeout is not task completion',async t=>{const dir=await mkdtemp(path.join(os.tmpdir(),'review-wait-abort-'));t.after(()=>rm(dir,{recursive:true,force:true}));const jobs=createReviewJobs({directory:dir}),a=exec('a');let release;const gate=new Promise(r=>release=r);const j=await jobs.start(a,async()=>{await gate;return {};});const c=new AbortController();const w=jobs.wait(j.jobId,a,{signal:c.signal,timeoutMs:1000});c.abort(new Error('stop waiting'));await assert.rejects(w,/stop waiting/);await jobs.wait(j.jobId,a,{timeoutMs:10});assert.equal((await jobs.status(j.jobId,a)).status,'running');await assert.rejects(jobs.wait(j.jobId,exec('foreign'),{timeoutMs:10}),/Foreign/);release();await jobs.dispose();});
+test('wait abort leaves background running and timeout is not task completion',async t=>{const dir=await mkdtemp(path.join(os.tmpdir(),'review-wait-abort-'));t.after(()=>rm(dir,{recursive:true,force:true}));const jobs=createReviewJobs({directory:dir}),a=exec('a');const ready=deferred(),gate=deferred();const j=await jobs.start(a,async()=>{ready.resolve();await gate.promise;return {};});await ready.promise;const c=new AbortController();const w=jobs.wait(j.jobId,a,{signal:c.signal,timeoutMs:1000});c.abort(new Error('stop waiting'));await assert.rejects(w,/stop waiting/);await jobs.wait(j.jobId,a,{timeoutMs:10});assert.equal((await jobs.status(j.jobId,a)).status,'running');await assert.rejects(jobs.wait(j.jobId,exec('foreign'),{timeoutMs:10}),/Foreign/);gate.resolve();await jobs.dispose();});
 
 const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
 
@@ -22,6 +22,8 @@ test('checkpoint save rejection reaches caller but final failed record is durabl
   // Replacing the destination with a directory makes the atomic rename fail.
   await rm(destination);await mkdir(destination);
   await assert.rejects(checkpoint({stage:'file-complete',path:'a.js',status:'completed'}),error=>{checkpointError=error;return ['EPERM','EISDIR','EEXIST','ENOTEMPTY'].includes(error.code);});
+  const before=await jobs.status(j.jobId,a);
+  assert.equal(before.waitRevision,0);assert.deepEqual(before.checkpoints,[]);
   await rm(destination,{recursive:true});throw checkpointError;
  });
  destination=path.join(dir,j.jobId+'.json');await ready.promise;
@@ -30,7 +32,8 @@ test('checkpoint save rejection reaches caller but final failed record is durabl
  assert.ok(checkpointError?.code,'original filesystem failure must reach the checkpoint caller');
  const disk=JSON.parse(await readFile(destination,'utf8'));
  assert.equal(disk.status,'failed');assert.equal(disk.error,checkpointError.message);
- assert.equal(disk.checkpoints.length,1);assert.ok(disk.finishedAt);assert.equal(disk.persistenceError,undefined);
+ assert.equal(disk.checkpoints.length,1);assert.equal(disk.stage,'file-complete');assert.ok(disk.finishedAt);
+ assert.deepEqual(await readdir(dir),[path.basename(destination)]);assert.equal(disk.persistenceError,undefined);
  assert.equal((await jobs.cancel(j.jobId,a)).cancelRequested,false,'durably settled job is not retained');
  assert.deepEqual((await jobs.status(j.jobId,a)).checkpoints,disk.checkpoints);
 });
@@ -60,7 +63,7 @@ test('terminal persistence failure retains diagnostics and wakes waiters without
 test('completed reports are read from disk after eviction and ownership is still enforced',async t=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'review-job-evict-'));
  t.after(()=>rm(dir,{recursive:true,force:true}));
- const jobs=createReviewJobs({directory:dir}),a=exec('evict'),ready=deferred(),release=deferred();
+ const jobs=createReviewJobs({directory:dir,previewAvailability:()=> 'available'}),a=exec('evict'),ready=deferred(),release=deferred();
  const j=await jobs.start(a,async({checkpoint})=>{await checkpoint({stage:'file-complete',path:'a.js',status:'completed'});ready.resolve();await release.promise;return {previewId:'saved-preview'};});
  await ready.promise;
  const waiting=jobs.wait(j.jobId,a,{after:1,timeoutMs:1000});release.resolve();await waiting;await jobs.dispose();
@@ -84,6 +87,9 @@ test('a handled checkpoint failure does not poison subsequent checkpoint persist
   ready.resolve();await release.promise;
   await rm(destination);await mkdir(destination);
   await assert.rejects(checkpoint({stage:'first'}),error=>['EPERM','EISDIR','EEXIST','ENOTEMPTY'].includes(error.code));
+  const before=await jobs.status(j.jobId,a);
+  assert.equal(before.waitRevision,0);assert.deepEqual(before.checkpoints,[]);
+  assert.equal((await jobs.wait(j.jobId,a,{after:0,timeoutMs:5})).changed,false);
   await rm(destination,{recursive:true});
   await checkpoint({stage:'second'});
   // checkpoint must not resolve before its complete record reaches disk.

@@ -94,14 +94,15 @@ export async function captureGitHistory(cwd, options = {}) {
   if (selectedPaths?.some(p => !names.includes(p))) throw new Error('Selected path is not a historical change');
 
   const files = [];
+  let filesBytes = 2; // JSON array brackets.
   for (const name of names) {
     signal?.throwIfAborted();
     const l = left.get(name), r = right.get(name);
     const item = { id: hash(name), path: name, rawStatus: !l ? 'A' : !r ? 'D' : 'M', eligibility: 'reviewable', properties: [] };
-    files.push(item);
-    if (isSecretPath(name)) { item.eligibility = 'excluded'; item.reason = 'Credential path excluded'; continue; }
-    if (selectedPaths && !selectedPaths.includes(name)) { item.eligibility = 'excluded'; item.reason = 'Not explicitly selected'; continue; }
-    try {
+    const exclusion = isSecretPath(name) ? 'Credential path excluded'
+      : selectedPaths && !selectedPaths.includes(name) ? 'Not explicitly selected' : undefined;
+    if (exclusion) { item.eligibility = 'excluded'; item.reason = exclusion; }
+    else try {
       for (const e of [l, r].filter(Boolean)) if (e.type !== 'blob' || !['100644', '100755'].includes(e.mode)) throw new Error('Historical link or submodule excluded');
       const read = async e => decode(e ? await gitAt(root, ['cat-file', 'blob', e.oid], options, maxFileBytes) : Buffer.alloc(0));
       item.left = await read(l);
@@ -113,7 +114,9 @@ export async function captureGitHistory(cwd, options = {}) {
       item.eligibility = 'blocked'; item.reason = error.message;
       delete item.left; delete item.right;
     }
-    if (Buffer.byteLength(JSON.stringify(files)) > maxSnapshotBytes) throw new Error('Historical snapshot limit exceeded');
+    filesBytes += (files.length ? 1 : 0) + Buffer.byteLength(JSON.stringify(item));
+    if (!exclusion && filesBytes > maxSnapshotBytes) throw new Error('Historical snapshot limit exceeded');
+    files.push(item);
   }
 
   const rulePaths = options.rulePaths ?? [];

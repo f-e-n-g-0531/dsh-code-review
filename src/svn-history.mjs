@@ -128,13 +128,13 @@ export async function captureSvnHistory(cwd,options={}) {
     return {content,props,...(special?{special}:{}),kind:node['@_kind'],source:{repositoryUuid:local.repository.uuid,url:at(name,rev,side).slice(0,-rev.length-1),pegRevision:rev,operativeRevision:rev,kind:node['@_kind'],hash:content.hash,textHash:hash(content.text),...(node['@_kind']==='file'&&Object.hasOwn(props,'svn:eol-style')?{eolMapping:svnEolMapping(content.text,props['svn:eol-style'])}:{})}};
   };
   const files=[];
+  let filesBytes=2; // JSON array brackets.
   for(const [name,record]of [...records].sort(([a],[b])=>a<b?-1:a>b?1:0)){
     signal.throwIfAborted();
     const status=record['@_item'],item={id:hash(name),path:name,kind:record['@_kind'],oldKind:status==='added'?null:record.oldKind??record['@_kind'],newKind:status==='deleted'?null:record.newKind??record['@_kind'],rawStatus:status,eligibility:'reviewable',properties:[],rightExists:status!=='deleted'};
-    files.push(item);
-    if(isSecretPath(name)){item.eligibility='excluded';item.reason='Credential path excluded';continue;}
-    if(selectedPaths&&!selectedPaths.includes(name)){item.eligibility='excluded';item.reason='Not explicitly selected';continue;}
-    try{
+    if(isSecretPath(name)){item.eligibility='excluded';item.reason='Credential path excluded';}
+    else if(selectedPaths&&!selectedPaths.includes(name)){item.eligibility='excluded';item.reason='Not explicitly selected';}
+    else try{
       const readSide=async(rev,exists,kind,side)=>{
         if(!exists)return {content:decode(Buffer.alloc(0)),props:{}};
         const result=await readSource(name,rev,true,side);
@@ -155,7 +155,9 @@ export async function captureSvnHistory(cwd,options={}) {
         item.textNotice+=' EOL metadata describes each existing file side only; null means absent or directory, not an empty file. Original fixed source bytes and LF evidence lines remain authoritative; lone CR has no normalized LF line identity.';
       }
     }catch(error){signal.throwIfAborted();if(error.code==='SVN_HISTORY_BUDGET')throw error;item.eligibility='blocked';item.reason=error.message;delete item.left;delete item.right;}
-    if(Buffer.byteLength(JSON.stringify(files))>maxSnapshotBytes)throw new Error('SVN historical snapshot limit exceeded');
+    filesBytes+=(files.length?1:0)+Buffer.byteLength(JSON.stringify(item));
+    if(item.eligibility!=='excluded'&&filesBytes>maxSnapshotBytes)throw new Error('SVN historical snapshot limit exceeded');
+    files.push(item);
   }
   for(const item of files.filter(f=>(f.oldKind==='dir'||f.newKind==='dir')&&['added','deleted','replaced'].includes(f.rawStatus)&&f.eligibility==='reviewable').sort((a,b)=>b.path.length-a.path.length)){
     if(files.some(child=>child.path.startsWith(item.path==='.'?'':item.path+'/')&&child!==item&&child.eligibility!=='reviewable')){item.eligibility='blocked';item.reason='Historical directory descendant coverage incomplete';delete item.left;delete item.right;}

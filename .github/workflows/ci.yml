@@ -19,6 +19,8 @@ jobs:
   test:
     if: github.event_name != 'workflow_dispatch' || !inputs.publish
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -30,6 +32,7 @@ jobs:
           # Pin every job to the commit resolved from the triggering ref.
           ref: ${{ github.sha }}
           fetch-depth: 0
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
@@ -54,6 +57,20 @@ jobs:
       - run: svnadmin --version --quiet
       - run: npm ci --include=dev --ignore-scripts
       - run: npm test
+      - name: Verify frozen-tag package install
+        if: startsWith(github.ref, 'refs/tags/') && matrix.os == 'ubuntu-latest' && matrix.node == 24
+        shell: bash
+        run: |
+          set -euo pipefail
+          checkdir=$(mktemp -d)
+          mkdir "$checkdir/pack" "$checkdir/install"
+          npm pack --ignore-scripts --pack-destination "$checkdir/pack"
+          packages=("$checkdir"/pack/*.tgz)
+          test "${#packages[@]}" -eq 1 && test -f "${packages[0]}" || exit 1
+          cd "$checkdir/install"
+          npm init -y >/dev/null
+          npm install --ignore-scripts "${packages[0]}"
+          node "$GITHUB_WORKSPACE/scripts/verify-installed.mjs" "$checkdir/install"
   release:
     if: github.event_name == 'workflow_dispatch' && inputs.publish && startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
@@ -118,3 +135,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: gh release create "$GITHUB_REF_NAME" release/*.tgz release/SHA256SUMS.txt --verify-tag --title "$GITHUB_REF_NAME" --notes-file RELEASE-NOTES.md
+      - name: Verify published GitHub Release artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          package=$(basename release/*.tgz)
+          checkdir=$(mktemp -d)
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --dir "$checkdir" --pattern "$package" --pattern SHA256SUMS.txt
+          cmp "release/$package" "$checkdir/$package"
+          cmp release/SHA256SUMS.txt "$checkdir/SHA256SUMS.txt"
+          cd "$checkdir"
+          sha256sum --check SHA256SUMS.txt

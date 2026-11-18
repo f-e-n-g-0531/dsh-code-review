@@ -1,12 +1,18 @@
 export const SINGLE_PASS_MAX_OUTPUT_TOKENS = 4096;
 
-export function singlePassCapacity(budget, modelCapacity) {
+export function singlePassRequestedOutput(modelCapacity) {
+  return Math.min(SINGLE_PASS_MAX_OUTPUT_TOKENS, modelCapacity?.maxOutputTokens ?? SINGLE_PASS_MAX_OUTPUT_TOKENS, modelCapacity?.defaultOutputTokens ?? SINGLE_PASS_MAX_OUTPUT_TOKENS, modelCapacity?.contextWindowTokens ?? SINGLE_PASS_MAX_OUTPUT_TOKENS);
+}
+
+export function singlePassCapacity(budget, modelCapacity, tokenCount) {
   const contextWindowTokens = modelCapacity?.contextWindowTokens ?? null;
-  const requestedOutputTokens = Math.min(SINGLE_PASS_MAX_OUTPUT_TOKENS, modelCapacity?.maxOutputTokens ?? SINGLE_PASS_MAX_OUTPUT_TOKENS);
+  const requestedOutputTokens = singlePassRequestedOutput(modelCapacity);
+  const inputTokens = tokenCount?.inputTokens ?? null;
+  const status = contextWindowTokens === null || inputTokens === null ? 'unknown' : inputTokens > contextWindowTokens - requestedOutputTokens ? 'blocked' : 'fits';
   return {
     logicalBytes: budget.fits ? 'fits' : 'blocked',
-    modelContext: { status: 'unknown', contextWindowTokens, inputTokens: null },
-    output: { requestedTokens: requestedOutputTokens, modelLimitTokens: modelCapacity?.maxOutputTokens ?? null, responseFits: 'unknown' },
+    modelContext: { status, contextWindowTokens, inputTokens, ...(tokenCount ? { counterId: tokenCount.counterId } : {}) },
+    output: { requestedTokens: requestedOutputTokens, modelLimitTokens: modelCapacity?.maxOutputTokens ?? null, ...(modelCapacity?.defaultOutputTokens != null ? { defaultOutputTokens: modelCapacity.defaultOutputTokens } : {}), responseFits: 'unknown' },
     independentVerification: 'not-requested',
   };
 }

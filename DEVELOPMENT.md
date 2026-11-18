@@ -136,8 +136,8 @@ Git 路径和索引、SVN XML、规则文件与 SVN 链接记录仍按各自 UTF
 
 1. 修改版本号与锁文件；更新 [变更记录](CHANGELOG.md) 和 [发布说明](RELEASE-NOTES.md)。
 2. 完成测试、差异检查和独立安装验证后，提交、推送，并创建对应 vX.Y.Z 标签。标签一旦进入发布流程就不再移动。
-3. 等待标签 CI 的 Ubuntu/Windows × Node.js 22/24 四组测试全部成功。
-4. 在 Actions 的 CI 工作流选择该标签，设置 publish: true，并将 ci_run_id 填为第3步成功的push标签CI运行ID，仅触发一次正式发布。发布不再重复四矩阵；先核验同仓库/工作流/标签/提交/当前attempt及四组npm test成功证据，缺失或变化直接失败。
+3. 等待标签 CI 的 Ubuntu/Windows × Node.js 22/24 四组测试全部成功，并确认 Ubuntu / Node.js 24 的隔离安装包检查通过。
+4. 在 Actions 的 CI 工作流选择该标签，设置 publish: true，并将 ci_run_id 填为第3步成功的push标签CI运行ID，仅触发一次正式发布。发布不再重复四矩阵；先核验同仓库/工作流/标签/提交/当前attempt、四组npm test及标签安装包检查的成功证据，缺失或变化直接失败。
 5. 发布任务打包一次、验证安装、保存安装包，再发布 npm。随后下载 npm 实际安装包，检查它与保存的原包是否一致。
 6. 核验通过后，把同一安装包与 SHA256SUMS.txt 附到 GitHub Release，并使用发布说明作为正文。
 7. 下载 Release 的实际附件，与原包逐字节比较，核验 SHA-256、SHA-512 及校验清单。

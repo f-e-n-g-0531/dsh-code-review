@@ -20,5 +20,5 @@ export function ownerGuard(exec, resolveCwd, expected, message = 'Agent/session/
 
 // Check every actual stream, including adapter JSON corrections, not just the first call.
 export function guardReviewLlm(llm, check) {
-  return { async *stream(...args) { await check(); yield* llm.stream(...args); } };
+  return { async *stream(...args) { await check(...args); yield* llm.stream(...args); } };
 }

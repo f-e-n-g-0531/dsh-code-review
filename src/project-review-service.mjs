@@ -1,7 +1,7 @@
-import { reviewOwner, ownerGuard, guardReviewLlm } from './review-owner.mjs';
+import { reviewOwner, ownerGuard } from './review-owner.mjs';
 import { renderUserReport } from './user-report.mjs';
-import { reviewEffortPolicy, reviewEffortMode } from './review-effort.mjs';
-import { consumeApprovedPreview, authorizeApprovedSnapshot } from './approved-execution.mjs';
+import { reviewEffortMode } from './review-effort.mjs';
+import { consumeApprovedPreview, authorizeApprovedSnapshot, checkPreviewAvailability } from './approved-execution.mjs';
 import { REVIEW_RUNTIME } from './runtime-identity.mjs';
 import { buildResumeState, validateResumeState } from './review-resume.mjs';
 import { renderProjectReport } from './project-report.mjs';
@@ -11,8 +11,8 @@ import { randomUUID } from 'node:crypto';
 import { hash } from './content.mjs';
 import { resolveWorkspaceRepository } from './workspace-repository.mjs';
 import { detectVcs } from './snapshot.mjs';
-import { projectInventory, captureProjectBatch } from './project-snapshot.mjs';
-import { reviewProjectBatches, projectConcurrency as validateProjectConcurrency, DEFAULT_PROJECT_CONCURRENCY } from './project-execution.mjs';
+import { projectInventory, captureProjectBatch, projectSnapshotIsCurrent } from './project-snapshot.mjs';
+import { reviewProjectBatches, projectConcurrency as validateProjectConcurrency, DEFAULT_PROJECT_CONCURRENCY, PROJECT_MAX_INPUT_BYTES, PROJECT_GROUP_PRIMARY, projectCoverage, projectInputLimit, projectPreviewFiles } from './project-execution.mjs';
 import { createDshModel } from './dsh-model.mjs';
 import { retrievalRounds, verificationRetrievalRounds } from './review-execution-policy.mjs';
 
@@ -21,10 +21,10 @@ const REPORT_NOTICE_SUFFIX = ' Coverage counts processing of selected tracked fi
 
 
 function makeCaptureBudget(signal) {
-  let commands = 0, metadataBytes = 0;
+  let metadataBytes = 0;
   return {
     signal,
-    reserve() { signal.throwIfAborted(); commands++; },
+    reserve() { signal.throwIfAborted(); },
     charge(size) {
       metadataBytes += size;
       if (metadataBytes > 8 * 1024 * 1024) throw Object.assign(new Error('Project shared metadata budget exceeded'), { code: 'PROJECT_CAPTURE_BUDGET' });
@@ -32,11 +32,15 @@ function makeCaptureBudget(signal) {
   };
 }
 
-async function captureProject(cwd, args, signal) {
-  const captureBudget = makeCaptureBudget(signal);
-  const captureOptions = { signal, svnCaptureBudget: captureBudget, selectedPaths: args.selectedPaths };
+async function projectCaptureLocation(cwd, args, signal) {
+  const captureOptions = { signal, svnCaptureBudget: makeCaptureBudget(signal), selectedPaths: args.selectedPaths };
   const root = await realpath(await resolveWorkspaceRepository(cwd, args.repositoryPath));
   const vcs = await detectVcs(root);
+  return { root, vcs, captureOptions };
+}
+
+async function captureProject(cwd, args, signal) {
+  const { root, vcs, captureOptions } = await projectCaptureLocation(cwd, args, signal);
   const inventory = await projectInventory(root, vcs, captureOptions);
 
   let paths = inventory.records.map(record => record.path);
@@ -70,7 +74,7 @@ async function captureProject(cwd, args, signal) {
   return { ...result, id: hash(JSON.stringify(result)) };
 }
 
-export function createProjectReviewService(llm, { resolveCwd, reviewEffort = 'auto', enableCounterVerification = false, executionStrategy = 'staged', allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = DEFAULT_PROJECT_CONCURRENCY, maxRetrievalRounds = 3, maxVerificationRetrievalRounds, nativeOutputTools = false, enableGroupPrimary = false } = {}) {
+export function createProjectReviewService(llm, { resolveCwd, reviewEffort = 'auto', enableCounterVerification = false, executionStrategy = 'staged', allowModelSending = false, authorize = async () => false, now = Date.now, ttlMs = 300000, maxPreviews = 8, projectMaxCalls = Number.MAX_SAFE_INTEGER, projectConcurrency = DEFAULT_PROJECT_CONCURRENCY, maxRetrievalRounds = 3, maxVerificationRetrievalRounds, nativeOutputTools = false, projectMaxInputBytes = PROJECT_MAX_INPUT_BYTES } = {}) {
   for (const n of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(n) || n < 1) throw new Error('Invalid project preview limit');
   if (!Number.isSafeInteger(projectMaxCalls) || projectMaxCalls < 1) throw new Error('Invalid project model call limit');
 
@@ -79,8 +83,10 @@ export function createProjectReviewService(llm, { resolveCwd, reviewEffort = 'au
   validateProjectConcurrency(projectConcurrency);
   retrievalRounds(maxRetrievalRounds);
   maxVerificationRetrievalRounds = verificationRetrievalRounds(maxVerificationRetrievalRounds, maxRetrievalRounds);
-  if (typeof nativeOutputTools !== 'boolean' || typeof enableGroupPrimary !== 'boolean') throw new Error('Invalid project execution options');
-  const resumeIdentity = (args, route) => ({ captureOptions: args, route, runtime: REVIEW_RUNTIME, execution: { projectMaxCalls, projectConcurrency, maxRetrievalRounds, maxVerificationRetrievalRounds, nativeOutputTools, enableGroupPrimary, enableVerification: true, enableAnchorCorrection: true, correctProtocol: true } });
+  if (typeof nativeOutputTools !== 'boolean') throw new Error('Invalid project execution options');
+  const maxInputBytes = projectInputLimit(projectMaxInputBytes);
+  const execution = { maxInputBytes, nativeOutputTools, enableGroupPrimary: PROJECT_GROUP_PRIMARY, batchConcurrency: projectConcurrency, maxRetrievalRounds, maxVerificationRetrievalRounds };
+  const resumeIdentity = (args, route) => ({ captureOptions: args, route, runtime: REVIEW_RUNTIME, execution: { projectMaxCalls, projectConcurrency, maxRetrievalRounds, maxVerificationRetrievalRounds, nativeOutputTools, maxInputBytes, enableGroupPrimary: PROJECT_GROUP_PRIMARY, enableVerification: true, enableAnchorCorrection: true, correctProtocol: true } });
   const projectBinding = snapshot => ({ ...snapshot, files: snapshot.batches.flatMap(batch => batch.files) });
   const previews = new Map();
   const lifetime = new AbortController();
@@ -90,6 +96,10 @@ export function createProjectReviewService(llm, { resolveCwd, reviewEffort = 'au
 
   return {
     owns: id => previews.has(id),
+
+    previewAvailability(previewId, exec) {
+      return checkPreviewAvailability(previewId, exec, { previews, resolveCwd, now });
+    },
 
     async preview(args, exec) {
       if (executionStrategy === 'whole-scope') throw new Error('Whole-scope currently supports fresh single-round changes only; project requires explicit staged configuration');
@@ -104,7 +114,8 @@ export function createProjectReviewService(llm, { resolveCwd, reviewEffort = 'au
         const sourceJobId = captureArgs.resumeFromJobId; delete captureArgs.resumeFromJobId;
         if (sourceJobId !== undefined && (typeof sourceJobId !== 'string' || !/^[a-f0-9-]{36}$/.test(sourceJobId) || typeof exec.resolveReviewResume !== 'function')) throw new Error('Invalid or unavailable resume job');
         const saved = sourceJobId === undefined ? undefined : await exec.resolveReviewResume(sourceJobId);
-        const s = await captureProject(current.cwd, captureArgs, signalFor(exec));
+        const signal = signalFor(exec);
+        const s = await captureProject(current.cwd, captureArgs, signal);
         await ownerGuard(exec, resolveCwd, current)();
         const identity = resumeIdentity({...captureArgs,reviewEffort:effortMode,enableCounterVerification}, current.route);
         let resumeStates;
@@ -118,6 +129,7 @@ export function createProjectReviewService(llm, { resolveCwd, reviewEffort = 'au
             return [batch.id, validateResumeState(item, batch, identity)];
           }));
         }
+        const files = s.batches.flatMap(batch => projectPreviewFiles(batch, { reviewEffortMode: effortMode, maxInputBytes, maxRetrievalRounds, nativeOutputTools, resumeState: resumeStates?.get(batch.id), signal }));
         for (const [id, p] of previews) if (p.expires <= now()) previews.delete(id);
         while (previews.size >= maxPreviews) previews.delete(previews.keys().next().value);
         const previewId = randomUUID();
@@ -130,10 +142,10 @@ export function createProjectReviewService(llm, { resolveCwd, reviewEffort = 'au
           totalTrackedNodes: s.totalTrackedNodes, selectedFiles: s.selectedFiles, selectionComplete: s.selectionComplete,
           inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes, batches: s.batches.length,
           privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 4096, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
-          execution: { nativeOutputTools, enableGroupPrimary, batchConcurrency: projectConcurrency, maxRetrievalRounds, maxVerificationRetrievalRounds },
+          execution: { ...execution },
           reviewEffort: {mode:effortMode,status:"planned-per-batch",counterVerification:enableCounterVerification},
-          files: s.batches.flatMap(b => b.files.map(f => ({ path: f.path, eligibility: f.eligibility, reason: f.reason }))),
-          notice: s.notice + PREVIEW_NOTICE_SUFFIX + ' Primary retrieval allows at most ' + maxRetrievalRounds + ' rounds; verification retrieval allows at most ' + maxVerificationRetrievalRounds + ' rounds. Both share the unchanged root reader and model-call budgets; additional model calls are billed. Exhaustion requires a final-only response and explicit unfinished coverage.',
+          files,
+          notice: s.notice + PREVIEW_NOTICE_SUFFIX + ' Per-file size measures the first primary envelope with a fresh batch reader; it is not a guarantee for follow-ups, correction, later reader balances, or provider context. Primary retrieval allows at most ' + maxRetrievalRounds + ' rounds; verification retrieval allows at most ' + maxVerificationRetrievalRounds + ' rounds. Both share the unchanged root reader and model-call budgets; additional model calls are billed. Exhaustion requires a final-only response and explicit unfinished coverage.',
         };
       } finally { busy = false; }
     },
@@ -167,31 +179,30 @@ export function createProjectReviewService(llm, { resolveCwd, reviewEffort = 'au
           await exec.reviewResumeCheckpoint({ schemaVersion: 1, mode: 'project', binding: buildResumeState(projectBinding(s), identity, { files: [], findings: [] }), batches: [...states.values()] });
         };
         let calls = 0;
-        const adapter = createDshModel(guardReviewLlm(llm, checkOwner), p.route, { correctJson: true, useNativeTools: nativeOutputTools });
-        const model = request => {
+        const assertCallsAvailable = () => {
           if (calls >= projectMaxCalls) throw Object.assign(new Error('Shared project model call limit exceeded'), { code: 'PROJECT_MODEL_CALL_LIMIT' });
-          calls++;
-          return adapter({ ...request, onProtocolCorrection: async info => {
-            if (calls >= projectMaxCalls) throw Object.assign(new Error('Shared project model call limit exceeded'), { code: 'PROJECT_MODEL_CALL_LIMIT' });
-            calls++;
-            await request.onProtocolCorrection?.(info);
-          }});
         };
+        const adapter = createDshModel({ async *stream(request) {
+          await checkOwner();
+          request.signal?.throwIfAborted();
+          assertCallsAvailable();
+          // Synchronous shared reservation at the actual send, after the
+          // adapter admitted wire bytes and ownership was rechecked.
+          calls++;
+          yield* llm.stream(request);
+        } }, p.route, { correctJson: true, useNativeTools: nativeOutputTools });
+        const model = request => adapter({ ...request, maxInputBytes, onProtocolCorrection: async info => {
+          assertCallsAvailable();
+          await request.onProtocolCorrection?.(info);
+        } });
 
         const results = await reviewProjectBatches(s.batches, model, {
-          concurrency: projectConcurrency, reviewEffortMode:p.effortMode, enableCounterVerification, maxRetrievalRounds, maxVerificationRetrievalRounds, enableGroupPrimary, nativeOutputTools, signal, remainingCalls: () => projectMaxCalls - calls,
+          concurrency: projectConcurrency, reviewEffortMode:p.effortMode, enableCounterVerification, maxRetrievalRounds, maxVerificationRetrievalRounds, maxInputBytes, nativeOutputTools, signal, remainingCalls: () => projectMaxCalls - calls,
           onProgress: exec.reviewCheckpoint, resumeStates: states, onResumeCheckpoint: persist, onModelArtifact: exec.onModelArtifact,
         });
 
-        for (let i = 0; i < results.length; i++) await persist(s.batches[i], results[i]);
         const files = results.flatMap(r => r.files.map(f => ({ ...f, batchSnapshotId: r.snapshotId })));
-        const coverage = {
-          total: s.selectedFiles,
-          completed: files.filter(f => f.status === 'completed').length,
-          excluded: files.filter(f => f.status === 'excluded').length,
-          blocked: files.filter(f => f.status === 'blocked').length,
-          pending: files.filter(f => !['completed', 'excluded', 'blocked'].includes(f.status)).length,
-        };
+        const coverage = projectCoverage(files);
         const findings = results.flatMap(r => r.findings.map(f => ({ ...f, batchSnapshotId: r.snapshotId })));
 
         const report = {
@@ -204,20 +215,22 @@ export function createProjectReviewService(llm, { resolveCwd, reviewEffort = 'au
           totalTrackedNodes: s.totalTrackedNodes, selectionComplete: s.selectionComplete, inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes,
           coverage, files, findings, scopeNotices: results.flatMap(result => result.scopeNotices ?? []), artifacts: results.flatMap(result => result.artifacts ?? []), batches: results, resume: { reusedFiles: files.filter(file => file.reused).length },
           privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 4096, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
-          execution: { nativeOutputTools, enableGroupPrimary, batchConcurrency: projectConcurrency, maxRetrievalRounds, maxVerificationRetrievalRounds },
+          execution: { ...execution },
           reviewEffort: {mode:p.effortMode,status:"planned-per-batch",counterVerification:enableCounterVerification},
           notice: s.notice + REPORT_NOTICE_SUFFIX,
         };
 
-        if (report.status === 'cancelled') report.outdated = true;
-        else {
+        if (!signal.aborted) {
           await exec.reviewCheckpoint?.({ stage: 'source-freshness', snapshotId: s.id });
-          signal.throwIfAborted();
-          try { report.outdated = (await captureProject(current.cwd, p.args, signal)).id !== s.id; }
-          catch { signal.throwIfAborted(); report.outdated = true; }
-          signal.throwIfAborted();
-          await checkOwner();
+          if (!signal.aborted) {
+            try {
+              const { root, vcs, captureOptions } = await projectCaptureLocation(current.cwd, p.args, signal);
+              report.outdated = !await projectSnapshotIsCurrent(s, root, vcs, captureOptions);
+            } catch { report.outdated = true; }
+            if (!signal.aborted) await checkOwner();
+          }
         }
+        if (signal.aborted) { report.status = 'cancelled'; report.outdated = true; }
         report.diagnostics = reviewDiagnostics(report);
         return { report, markdown:renderUserReport(report), technicalMarkdown:renderProjectReport(report) };
       } finally { busy = false; }

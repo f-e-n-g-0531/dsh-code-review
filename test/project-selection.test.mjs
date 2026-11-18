@@ -110,7 +110,7 @@ test('explicit five-file and empty selections bypass a real oversized Git index 
   selectedMetadata(report, 5);
   assert.equal(report.selectionComplete, false);
   selectedMetadata(report.batches[0].projectScope, 5);
-  assert.deepEqual(report.coverage, { total: 5, completed: 5, excluded: 0, blocked: 0, pending: 0 });
+  assert.deepEqual(report.coverage, { total: 5, completed: 5, excluded: 0, blocked: 0, failed: 0, cancelled: 0, pending: 0 });
   assert.equal(report.outdated, false);
   assert.deepEqual(sentPaths.sort(), selected);
   assert.equal(review.sends(), 5);
