@@ -34,17 +34,17 @@ test('real review yields early verifier until other file floors release, resumes
  assert.equal(attempts.length,2);assert.notEqual(attempts[0].receipt,attempts[1].receipt);
  assert.equal(report.findings.length,1);assert.equal(report.findings[0].verification.status,'completed');assert.equal(report.findings[0].verification.verdict,'supported');
  assert.equal(report.findings[0].verification.evidence[0].text,'unsafe();\n');
- assert.equal(report.readerBudget.maxCalls,50);assert.ok(report.readerBudget.calls>17&&report.readerBudget.calls<=50);
+ assert.equal(report.readerBudget.maxCalls,50);assert.ok(report.readerBudget.calls>=11&&report.readerBudget.calls<50);
  assert.equal(report.stageContinuation.completed,1);assert.equal(report.stageContinuation.pending,0);assert.equal(report.stageContinuation.attempts,1);
  assert.equal(calls.filter(c=>c.phase==='verification'&&c.purpose==='primary-initial').length,2);
  assert.ok(!report.files.some(f=>f.continuationPending));
  assert.equal(report.files.find(f=>f.fileId==='f1').resumeEligible,true);
 });
 
-test('root exhausted or no-progress verification remains bounded pending rather than successful',async()=>{
+test('retrieval allowance exhausted or no-progress verification remains bounded pending rather than successful',async()=>{
  const {report,primary,attempts,calls}=await run({mode:'root-exhaust'});
  assert.deepEqual([...primary.values()],[1,1,1]);assert.ok(attempts.length<=3);assert.ok(calls.length<=20);
- assert.equal(report.readerBudget.maxCalls,50);assert.equal(report.readerBudget.calls,50);
+ assert.equal(report.readerBudget.maxCalls,50);assert.equal(report.readerBudget.calls,34);
  assert.notEqual(report.findings[0].verification.status,'completed');assert.equal(report.status,'partial');
  assert.ok(report.stageContinuation.pending>0);assert.ok(report.stageContinuation.attempts<=2);assert.ok(report.files.some(f=>f.continuationPending));
 });
@@ -65,7 +65,7 @@ test('disabled continuation never retries a verifier or replays completed primar
 
 test('actual schema2 checkpoint resumes accepted primary without generation and verifies against a fresh reader',async()=>{
  const first=await run({mode:'root-exhaust'}),input=snapshot();
- assert.equal(first.report.readerBudget.calls,50);assert.equal(first.report.findings[0].verification.status,'incomplete');
+ assert.equal(first.report.readerBudget.calls,34);assert.equal(first.report.findings[0].verification.status,'incomplete');
  const checkpoint=buildResumeState(input,options,first.report);assert.equal(checkpoint.schemaVersion,2);assert.ok(checkpoint.stageGenerations.some(row=>row.fileId==='f1'));
  assert.ok(!JSON.stringify(checkpoint).includes('receiptId'));const state=validateResumeState(JSON.parse(JSON.stringify(checkpoint)),input,options);
  let primaryCalls=0,verificationCalls=0;const oldReceipts=new Set(first.attempts.map(item=>item.receipt));

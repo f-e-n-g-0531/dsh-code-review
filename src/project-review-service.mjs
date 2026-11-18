@@ -1,7 +1,7 @@
 import { reviewOwner, ownerGuard, guardReviewLlm } from './review-owner.mjs';
 import { renderUserReport } from './user-report.mjs';
 import { reviewEffortPolicy, reviewEffortMode } from './review-effort.mjs';
-import { previewValidity } from './preview-validity.mjs';
+import { consumeApprovedPreview, authorizeApprovedSnapshot } from './approved-execution.mjs';
 import { REVIEW_RUNTIME } from './runtime-identity.mjs';
 import { buildResumeState, validateResumeState } from './review-resume.mjs';
 import { renderProjectReport } from './project-report.mjs';
@@ -141,21 +141,13 @@ export function createProjectReviewService(llm, { resolveCwd, reviewEffort = 'au
     async execute(args, exec) {
       if (busy) throw new Error('Review service busy');
       if (!allowModelSending) throw new Error('Model sending disabled');
-      if (args.confirmed !== true || typeof args.previewId !== 'string' || Object.keys(args).some(k => !['previewId', 'confirmed'].includes(k))) throw new Error('Confirmed preview required');
-      const p = previews.get(args.previewId);
-      const current = await reviewOwner(exec, resolveCwd);
-      try { previewValidity(p, current, now()); }
-      catch (error) { if (error.code === 'PREVIEW_EXPIRED') previews.delete(args.previewId); throw error; }
-      previews.delete(args.previewId);
       busy = true;
-      const signal = signalFor(exec);
       try {
+        const signal = signalFor(exec);
+        const { current, preview: p } = await consumeApprovedPreview(args, exec, { previews, resolveCwd, now, signal });
         const s = await captureProject(current.cwd, p.args, signal);
         if (s.id !== p.snapshotId) throw new Error('Project changed since preview');
-        if (await authorize({ snapshot: s, route: p.route, exec }) !== true) throw new Error('Model sending denied');
-        const checkOwner = ownerGuard(exec, resolveCwd, p);
-        await ownerGuard(exec, resolveCwd, p, 'Agent changed during approval')();
-        signal.throwIfAborted();
+        const checkOwner = await authorizeApprovedSnapshot({ snapshot: s, preview: p, exec, authorize, resolveCwd, signal });
 
         await exec.reviewCheckpoint?.({
           stage: 'approved-manifest', snapshotId: s.id,

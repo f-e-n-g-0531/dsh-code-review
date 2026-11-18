@@ -17,6 +17,7 @@ import { captureSvn } from './svn.mjs';
 import { captureSvnHistory } from './svn-history.mjs';
 import { readLocal, relativePath, hash } from './content.mjs';
 import { CHANGE_SCOPES } from './git-change-scope.mjs';
+import { measureSnapshotCapture, measureSnapshotLocalSource, snapshotCapturePhase } from './snapshot-capture-metrics.mjs';
 
 export async function detectVcs(cwd) {
   let current = await realpath(cwd);
@@ -47,10 +48,15 @@ function validateSnapshotOptions(options) {
   return { rulePaths, contextPaths, maxContextFiles, maxSnapshotBytes };
 }
 
+// Separate internal entry; observation is not a public option or part of snapshot identity.
+export function captureSnapshotWithMetrics(cwd, options = {}) {
+  return measureSnapshotCapture(() => captureSnapshot(cwd, options));
+}
+
 export async function captureSnapshot(cwd, options = {}) {
   const { rulePaths, contextPaths, maxContextFiles, maxSnapshotBytes } = validateSnapshotOptions(options);
 
-  const type = await detectVcs(cwd);
+  const type = await snapshotCapturePhase('detect-vcs', () => detectVcs(cwd));
   if (options.changeScope !== undefined) {
     if (typeof options.changeScope !== 'string' || !CHANGE_SCOPES.includes(options.changeScope)) throw new Error('Invalid changeScope; expected worktree, staged or unstaged');
     if (['commit', 'baseRevision', 'targetRevision', 'svnRevision', 'svnBaseRevision', 'svnTargetRevision', 'svnBasePath', 'svnTargetPath'].some(key => options[key] !== undefined)) throw new Error('changeScope applies to Git working-copy comparison only');
@@ -65,12 +71,12 @@ export async function captureSnapshot(cwd, options = {}) {
   if (options.svnEffectiveMergeinfo !== undefined && type !== 'svn') throw new Error('Effective SVN mergeinfo requires SVN repository');
   if (['svnRevision', 'svnBaseRevision', 'svnTargetRevision', 'svnAllowNetwork', 'svnBasePath', 'svnTargetPath'].some(key => options[key] !== undefined)) {
     if (type !== 'svn') throw new Error('SVN revision parameters require SVN working copy');
-    return bindBusinessRequirement(await captureSvnHistory(cwd, options), options.businessRequirement);
+    return bindBusinessRequirement(await snapshotCapturePhase('svn-history', () => captureSvnHistory(cwd, options)), options.businessRequirement);
   }
   if (options.oldContextPaths !== undefined && (type !== 'git' || !['commit', 'baseRevision', 'targetRevision'].some(k => options[k] !== undefined))) throw new Error('Old context requires Git historical review');
   if (['commit', 'baseRevision', 'targetRevision'].some(k => options[k] !== undefined)) {
     if (type !== 'git') throw new Error('Git revision review is unsupported on SVN');
-    return bindBusinessRequirement(await captureGitHistory(cwd, options), options.businessRequirement);
+    return bindBusinessRequirement(await snapshotCapturePhase('git-history', () => captureGitHistory(cwd, options)), options.businessRequirement);
   }
 
   if (type === 'svn') {
@@ -78,88 +84,94 @@ export async function captureSnapshot(cwd, options = {}) {
     options = { ...options, signal: budget.signal, svnCaptureBudget: budget };
   }
   const capture = type === 'git' ? captureGit : captureSvn;
-  const snapshot = await capture(cwd, options);
-  if (!Array.isArray(rulePaths) || rulePaths.some(name => contextPaths.includes(name))) throw new Error('Rule paths must be separate from context paths');
-  const rules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
-  const navigationBudget = type === 'svn' ? createSvnNavigationBudget(options.signal) : undefined;
-  const navigationOptions = navigationBudget ? { ...options, signal: navigationBudget.signal, svnNavigationBudget: navigationBudget } : options;
+  const snapshot = await snapshotCapturePhase('working-capture', () => capture(cwd, options));
+  const captured = await snapshotCapturePhase('working-context', async () => {
+    if (!Array.isArray(rulePaths) || rulePaths.some(name => contextPaths.includes(name))) throw new Error('Rule paths must be separate from context paths');
+    const rules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
+    const navigationBudget = type === 'svn' ? createSvnNavigationBudget(options.signal) : undefined;
+    const navigationOptions = navigationBudget ? { ...options, signal: navigationBudget.signal, svnNavigationBudget: navigationBudget } : options;
 
-  const context = [];
-  let autoContext, index, verifyDependencies, explicitSeeds = [], indexOptions = options;
-  if (options.autoContext === true && type === 'git') {
-    const chain = await captureDependencyChain(snapshot.root, snapshot.files, options);
-    explicitSeeds = chain.explicitSeeds;
-    context.push(...chain.context);
-    autoContext = chain.autoContext;
-    index = chain.index;
-    indexOptions = chain.indexOptions;
-  } else if (options.autoContext === true) {
-    const chain = await captureSvnDependencyChain(snapshot.root, snapshot.files, navigationOptions);
-    explicitSeeds = chain.explicitSeeds;
-    context.push(...chain.context);
-    autoContext = chain.autoContext;
-    indexOptions = chain.indexOptions;
-    verifyDependencies = chain.verify;
-  }
-  let verifyExplicit;
-  if (type === 'svn' && options.autoContext !== true && contextPaths.length) {
-    const explicit = await captureSvnExplicitContext(snapshot.root, [...new Set(contextPaths)].filter(name => !snapshot.files.some(f => f.path === name)).sort(), navigationOptions);
-    explicitSeeds = explicit.context;
-    verifyExplicit = explicit.verify;
-    indexOptions = explicit.options;
-  }
-
-  for (const name of [...new Set(contextPaths)].sort()) {
-    const changed = snapshot.files.find(f => f.path === name);
-    if (changed) {
-      if (changed.eligibility !== 'reviewable') throw new Error('Context path is an excluded or blocked change');
-      if (changed.rightExists === false) throw new Error('Deleted path cannot be working context');
-      if (changed.specialData) throw new Error('SVN link records cannot be working source context');
-      context.push({ path: name, ...changed.right, ...(changed.eolMapping?.new ? { eolMapping: structuredClone(changed.eolMapping.new) } : {}) });
-    } else {
-      const seed = explicitSeeds.find(c => c.path === name);
-      const item = type === 'svn' && options.autoContext !== true && seed ? structuredClone(seed) : { path: name, ...await readLocal(snapshot.root, name, indexOptions) };
-      if (seed && seed.hash !== item.hash) throw new Error('Explicit dependency seed changed during capture');
-      if (seed?.eolMapping) item.eolMapping = structuredClone(seed.eolMapping);
-      if (seed?.keywordMapping) item.keywordMapping = structuredClone(seed.keywordMapping);
-      context.push(item);
+    const context = [];
+    let autoContext, index, verifyDependencies, explicitSeeds = [], indexOptions = options;
+    if (options.autoContext === true && type === 'git') {
+      const chain = await captureDependencyChain(snapshot.root, snapshot.files, options);
+      explicitSeeds = chain.explicitSeeds;
+      context.push(...chain.context);
+      autoContext = chain.autoContext;
+      index = chain.index;
+      indexOptions = chain.indexOptions;
+    } else if (options.autoContext === true) {
+      const chain = await captureSvnDependencyChain(snapshot.root, snapshot.files, navigationOptions);
+      explicitSeeds = chain.explicitSeeds;
+      context.push(...chain.context);
+      autoContext = chain.autoContext;
+      indexOptions = chain.indexOptions;
+      verifyDependencies = chain.verify;
     }
-  }
+    let verifyExplicit;
+    if (type === 'svn' && options.autoContext !== true && contextPaths.length) {
+      const explicit = await captureSvnExplicitContext(snapshot.root, [...new Set(contextPaths)].filter(name => !snapshot.files.some(f => f.path === name)).sort(), navigationOptions);
+      explicitSeeds = explicit.context;
+      verifyExplicit = explicit.verify;
+      indexOptions = explicit.options;
+    }
 
-  let callerDiscovery, verifyCallers;
-  if (options.callerScopePaths !== undefined) {
-    const callers = await (type === 'git' ? captureCallers : captureSvnCallers)(snapshot.root, snapshot.files, options.callerScopePaths, type === 'svn' ? navigationOptions : options);
-    verifyCallers = callers.verify;
-    callerDiscovery = { ...callers.discovery, capturedPaths: [] };
-    for (const item of callers.context) {
-      const present = context.find(c => c.path === item.path);
-      const matches = callerDiscovery.candidates.filter(c => c.fromPath === item.path);
-      if (present && present.hash !== item.hash) throw new Error('Caller context changed during capture');
-      if (!present && context.length >= Math.min(maxContextFiles, 20)) {
-        for (const candidate of matches) { candidate.status = 'blocked'; candidate.captureReason = 'Context file limit exceeded'; }
-        continue;
+    for (const name of [...new Set(contextPaths)].sort()) {
+      const changed = snapshot.files.find(f => f.path === name);
+      if (changed) {
+        if (changed.eligibility !== 'reviewable') throw new Error('Context path is an excluded or blocked change');
+        if (changed.rightExists === false) throw new Error('Deleted path cannot be working context');
+        if (changed.specialData) throw new Error('SVN link records cannot be working source context');
+        context.push({ path: name, ...changed.right, ...(changed.eolMapping?.new ? { eolMapping: structuredClone(changed.eolMapping.new) } : {}) });
+      } else {
+        const seed = explicitSeeds.find(c => c.path === name);
+        const item = type === 'svn' && options.autoContext !== true && seed ? structuredClone(seed) : { path: name, ...await measureSnapshotLocalSource(() => readLocal(snapshot.root, name, indexOptions)) };
+        if (seed && seed.hash !== item.hash) throw new Error('Explicit dependency seed changed during capture');
+        if (seed?.eolMapping) item.eolMapping = structuredClone(seed.eolMapping);
+        if (seed?.keywordMapping) item.keywordMapping = structuredClone(seed.keywordMapping);
+        context.push(item);
       }
-      if (!present) context.push(item);
-      callerDiscovery.capturedPaths.push(item.path);
-      for (const candidate of matches) candidate.status = 'captured';
     }
-  }
 
-  // Re-capture verifies both selected sides while collecting explicit context.
-  if ((await capture(cwd, indexOptions)).id !== snapshot.id) throw new Error('Snapshot changed while collecting context');
-  for (const item of context) {
-    // Overlapping staged context reuses the approved index side, not local bytes.
-    // The same-side re-capture above verifies its content and index identity,
-    // including when the working file differs or no longer exists.
-    if (type === 'git' && snapshot.changeScope === 'staged' && snapshot.files.some(file => file.path === item.path)) continue;
-    if ((await readLocal(snapshot.root, item.path, indexOptions)).hash !== item.hash) throw new Error('Context changed during capture');
-  }
-  if (index && (await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, indexOptions)).fingerprint !== index.fingerprint) throw new Error('Tracked context index changed during capture');
-  const verifiedRules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
-  if (JSON.stringify(verifiedRules) !== JSON.stringify(rules)) throw new Error('Rules changed during capture');
-  if (verifyExplicit) await verifyExplicit();
-  if (verifyDependencies) await verifyDependencies();
-  if (verifyCallers) await verifyCallers();
+    let callerDiscovery, verifyCallers;
+    if (options.callerScopePaths !== undefined) {
+      const callers = await (type === 'git' ? captureCallers : captureSvnCallers)(snapshot.root, snapshot.files, options.callerScopePaths, type === 'svn' ? navigationOptions : options);
+      verifyCallers = callers.verify;
+      callerDiscovery = { ...callers.discovery, capturedPaths: [] };
+      for (const item of callers.context) {
+        const present = context.find(c => c.path === item.path);
+        const matches = callerDiscovery.candidates.filter(c => c.fromPath === item.path);
+        if (present && present.hash !== item.hash) throw new Error('Caller context changed during capture');
+        if (!present && context.length >= Math.min(maxContextFiles, 20)) {
+          for (const candidate of matches) { candidate.status = 'blocked'; candidate.captureReason = 'Context file limit exceeded'; }
+          continue;
+        }
+        if (!present) context.push(item);
+        callerDiscovery.capturedPaths.push(item.path);
+        for (const candidate of matches) candidate.status = 'captured';
+      }
+    }
+
+    return { context, callerDiscovery, autoContext, rules, index, indexOptions, verifyExplicit, verifyDependencies, verifyCallers };
+  });
+  const { context, callerDiscovery, autoContext, rules, index, indexOptions, verifyExplicit, verifyDependencies, verifyCallers } = captured;
+  await snapshotCapturePhase('working-recheck', async () => {
+    // Re-capture verifies both selected sides while collecting explicit context.
+    if ((await capture(cwd, indexOptions)).id !== snapshot.id) throw new Error('Snapshot changed while collecting context');
+    for (const item of context) {
+      // Overlapping staged context reuses the approved index side, not local bytes.
+      // The same-side re-capture above verifies its content and index identity,
+      // including when the working file differs or no longer exists.
+      if (type === 'git' && snapshot.changeScope === 'staged' && snapshot.files.some(file => file.path === item.path)) continue;
+      if ((await measureSnapshotLocalSource(() => readLocal(snapshot.root, item.path, indexOptions))).hash !== item.hash) throw new Error('Context changed during capture');
+    }
+    if (index && (await (type === 'git' ? gitContextIndex : svnContextIndex)(snapshot.root, indexOptions)).fingerprint !== index.fingerprint) throw new Error('Tracked context index changed during capture');
+    const verifiedRules = await captureProjectRules(snapshot.root, rulePaths, { signal: options.signal, files: snapshot.files });
+    if (JSON.stringify(verifiedRules) !== JSON.stringify(rules)) throw new Error('Rules changed during capture');
+    if (verifyExplicit) await verifyExplicit();
+    if (verifyDependencies) await verifyDependencies();
+    if (verifyCallers) await verifyCallers();
+  });
 
   const result = { ...snapshot, context, ...(callerDiscovery ? { callerDiscovery } : {}), ...(autoContext ? { autoContext } : {}), ...(rules.length ? { rules } : {}) };
   delete result.id;

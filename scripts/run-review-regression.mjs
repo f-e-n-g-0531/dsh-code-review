@@ -3,7 +3,7 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {createHash} from 'node:crypto';
 import {runDriver as officialRunDriver,validateConfig} from './autonomous-review-sdk.mjs';
-import {collectReviewAcceptance,evaluateReviewAcceptance} from './collect-review-acceptance.mjs';
+import {collectReviewAcceptance,validateExpected} from './collect-review-acceptance.mjs';
 const fail=code=>Object.assign(new Error(code),{code});
 const sha=b=>createHash('sha256').update(b).digest('hex');
 const forbidden=p=>p.split(/[\\/]/).some(x=>x.toLowerCase()==='artifacts');
@@ -11,7 +11,7 @@ const sameOwner=(owner,e)=>['sessionId','cwd','provider','model'].every(k=>owner
 export async function runReviewRegression(config,{runDriver=officialRunDriver,collect=collectReviewAcceptance}={}){
  if(!config||Object.keys(config).some(k=>!['driverConfig','acceptanceOutputDir','expected'].includes(k))||!path.isAbsolute(config.driverConfig??'')||!path.isAbsolute(config.acceptanceOutputDir??'')||forbidden(config.acceptanceOutputDir))throw fail('INVALID_REGRESSION_CONFIG');
  try{await lstat(config.acceptanceOutputDir);throw fail('ACCEPTANCE_OUTPUT_EXISTS');}catch(error){if(error.code!=='ENOENT')throw error;}
- evaluateReviewAcceptance({},config.expected); // Validate the collector's exact fixed identity contract before dispatch.
+ validateExpected(config.expected); // Validate the collector's exact fixed identity contract before dispatch.
  const driverBytes=await readFile(config.driverConfig),driver=validateConfig(JSON.parse(driverBytes));
  if(driver.sessionId!==config.expected.sessionId||driver.cwd!==config.expected.cwd||driver.route.provider!==config.expected.provider||driver.route.model!==config.expected.model)throw fail('DRIVER_IDENTITY_MISMATCH');
  if(sha(await readFile(driver.candidatePath)).toLowerCase()!==driver.candidateSha256.toLowerCase())throw fail('CANDIDATE_HASH_MISMATCH');

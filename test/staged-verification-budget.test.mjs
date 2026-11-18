@@ -21,3 +21,22 @@ test('staged primary0 defaults verification0 final-only and invalid override ref
  const r=await run({maxRetrievalRounds:0});assert.equal(r.primary,1);assert.equal(r.report.readerLimits.maxVerificationRounds,0);assert.equal(r.report.findings[0].verification.status,'incomplete');
  let calls=0;await assert.rejects(reviewSnapshot(snap,()=>{calls++;},{maxVerificationRetrievalRounds:51}));assert.equal(calls,0);
 });
+
+test('staged optimized verifier and counter-verifier reserve final evidence within the same root caps', async () => {
+  const observed = [];
+  const report = await reviewSnapshot(snap, request => {
+    const input = JSON.parse(request.input);
+    if (!input.candidates) return { findings: [finding], limitations: [] };
+    observed.push(input.retrievalBudget.remainingCalls);
+    const seed = input.retrieved.find(item => item.result.receiptId);
+    assert.ok(seed);
+    return { verdicts: [{ candidateId: 'c1', verdict: 'supported', reason: 'Source only', evidence: [{ receiptId: seed.result.receiptId }] }] };
+  }, { enableRetrieval: true, enableVerification: true, enableCounterVerification: true, optimizeReviewCalls: true });
+  assert.equal(observed.length, 2);
+  const retrievalCeiling = 50 - Math.floor(50 / 3);
+  assert.ok(observed.every(calls => calls <= retrievalCeiling));
+  assert.equal(report.readerBudget.maxCalls, 50);
+  assert.equal(report.readerBudget.maxOutputBytes, 256 * 1024);
+  assert.equal(report.findings[0].verification.counterVerification.status, 'completed');
+  assert.equal(report.findings[0].verification.verdict, 'uncertain');
+});

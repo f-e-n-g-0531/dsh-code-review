@@ -5,13 +5,15 @@ import { captureHistoryDependencyChain } from './history-dependency-chain.mjs';
 import { realpath } from 'node:fs/promises';
 import { checked } from './process.mjs';
 import { hash, decode, relativePath } from './content.mjs';
+import { lookupGitTreePaths } from './git-tree-lookup.mjs';
+import { measureSnapshotCommand } from './snapshot-capture-metrics.mjs';
 
 const utf8 = b => new TextDecoder('utf-8', { fatal: true }).decode(b);
 const SHA = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
 const REGULAR_BLOB = e => e?.type === 'blob' && ['100644', '100755'].includes(e.mode);
 
 const gitAt = (root, args, options, limit = 1024 * 1024) =>
-  checked('git', ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', ...args], { ...options, cwd: root, maxBytes: limit });
+  measureSnapshotCommand(() => checked('git', ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', ...args], { ...options, cwd: root, maxBytes: limit }), args[0] === 'cat-file' && args[1] === 'blob' ? 'source' : args[1] === 'ls-tree' ? 'tree' : 'metadata');
 
 async function resolveCommit(root, ref, options) {
   if (typeof ref !== 'string' || !ref || ref.length > 256 || ref.startsWith('-') || /[\s\0]/.test(ref)) throw new Error('Invalid revision');
@@ -57,17 +59,9 @@ function parseDiffMeta(raw) {
 // Literal, nonrecursive lookups cannot enumerate a supplied directory or wildcard.
 async function lookupPaths(root, oid, map, requested, options) {
   if (!oid) return;
-  const pending = [...new Set(requested)].filter(p => !map.has(p));
-  for (let i = 0; i < pending.length; i++) {
-    const paths = pending.slice(i, i + 1);
-    paths.forEach(relativePath);
-    const records = utf8(await gitAt(root, ['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', oid, '--', ...paths], options)).split('\0').filter(Boolean);
-    for (const r of records) {
-      const m = /^(\d{6}) (blob|commit|tree) ([a-f0-9]+)\t([\s\S]+)$/.exec(r);
-      if (!m || !paths.includes(m[4])) throw new Error('Invalid historical path lookup');
-      map.set(m[4], { mode: m[1], type: m[2], oid: m[3] });
-    }
-  }
+  await lookupGitTreePaths(oid, map, requested, args => gitAt(root, args, options), {
+    signal: options.signal, maxBytes: 1024 * 1024, errorMessage: 'Invalid historical path lookup',
+  });
 }
 
 // Object-only capture: no checkout, worktree reads, external diff or fetch.

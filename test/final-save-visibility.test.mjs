@@ -27,5 +27,8 @@ for (const fail of [false, true]) test('terminal-save timeout never exposes unco
   release.resolve(); await jobs.dispose();
   const terminal = JSON.parse((await tool('wait').execute({ jobId: start.jobId, waitFor: 'terminal', timeoutMs: 1 }, exec)).json);
   assert.equal(terminal.status, fail ? 'failed' : 'completed'); assert.equal(terminal.resultSummary.status, 'partial');
-  if (fail) assert.match(terminal.persistenceError, /final-save-test/);
+  assert.equal(terminal.persistence, fail ? 'failed' : 'saved');
+  assert.equal(terminal.executionStatus, 'completed');
+  assert.equal(terminal.persistenceError, undefined);
+  assert.doesNotMatch(JSON.stringify(terminal), /final-save-test/);
 });

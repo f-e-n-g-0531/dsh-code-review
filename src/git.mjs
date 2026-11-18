@@ -3,10 +3,14 @@ import { realpath } from 'node:fs/promises';
 import { run, checked } from './process.mjs';
 import { hash, decode, readLocal, relativePath } from './content.mjs';
 import { changeScope } from './git-change-scope.mjs';
+import { lookupGitTreePaths } from './git-tree-lookup.mjs';
+import { measureSnapshotCommand, measureSnapshotLocalSource } from './snapshot-capture-metrics.mjs';
 
 const flags = ['--no-optional-locks', '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false'];
 const STATUS_ARGS = ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--ignore-submodules=none'];
-const git = (cwd, args, options) => checked('git', [...flags, ...args], { ...options, cwd });
+const git = (cwd, args, options) => measureSnapshotCommand(() => checked('git', [...flags, ...args], { ...options, cwd }), args[0] === 'cat-file' ? 'source' : args[1] === 'ls-tree' ? 'tree' : 'metadata');
+const gitStatus = (cwd, args, options) => measureSnapshotCommand(() => run('git', [...flags, ...args], { ...options, cwd }), 'metadata');
+const readWorktree = (root, name, options) => measureSnapshotLocalSource(() => readLocal(root, name, options));
 const text = bytes => new TextDecoder('utf-8', { fatal: true }).decode(bytes);
 
 async function resolveRoot(cwd, options) {
@@ -16,11 +20,11 @@ async function resolveRoot(cwd, options) {
 
 /** HEAD commit sha, or null only for a genuinely unborn branch. */
 async function resolveHead(root, options) {
-  const headResult = await run('git', [...flags, 'rev-parse', '--verify', 'HEAD'], { ...options, cwd: root });
+  const headResult = await gitStatus(root, ['rev-parse', '--verify', 'HEAD'], options);
   const head = headResult.code === 0 ? text(headResult.stdout).trim() : null;
   if (head) return head;
   const branch = text(await git(root, ['symbolic-ref', 'HEAD'], options)).trim();
-  const ref = await run('git', [...flags, 'show-ref', '--verify', '--quiet', branch], { ...options, cwd: root });
+  const ref = await gitStatus(root, ['show-ref', '--verify', '--quiet', branch], options);
   if (ref.code !== 1) throw new Error('Cannot resolve Git HEAD');
   return null;
 }
@@ -85,15 +89,9 @@ async function resolveBaselines(root, head, changes, selectedPaths, options, sig
       (!selectedPaths || selectedPaths.includes(change.path)) &&
       (change.rawStatus !== '??' || selectedPaths?.includes(change.path)))
     .map(change => relativePath(change.oldPath ?? change.path)))];
-  for (const name of requested) {
-    signal?.throwIfAborted();
-    const records = text(await git(root, ['--literal-pathspecs', 'ls-tree', '-z', '--full-tree', head, '--', name], options)).split('\0').filter(Boolean);
-    for (const record of records) {
-      const m = /^(\d{6}) (blob|tree|commit) ([a-f0-9]{40}|[a-f0-9]{64})\t([\s\S]+)$/.exec(record);
-      if (!m || m[4] !== name || base.has(name)) throw new Error('Invalid changed baseline lookup');
-      base.set(name, { mode: m[1], type: m[2], oid: m[3] });
-    }
-  }
+  await lookupGitTreePaths(head, base, requested, args => git(root, args, options), {
+    signal, maxBytes: options.maxBytes ?? 8 * 1024 * 1024, errorMessage: 'Invalid changed baseline lookup',
+  });
   return base;
 }
 
@@ -166,7 +164,7 @@ async function readHeadLeft(root, change, baselines, options, maxFileBytes) {
 
 async function readWorktreeRight(root, change, options) {
   try {
-    return { right: await readLocal(root, change.path, options), rightExists: true };
+    return { right: await readWorktree(root, change.path, options), rightExists: true };
   } catch (error) {
     if (error.code === 'ENOENT' && change.rawStatus.includes('D')) return { right: decode(Buffer.alloc(0)), rightExists: false };
     throw error;
@@ -226,7 +224,7 @@ export async function captureGit(cwd, options = {}) {
     ? after.equals(before)
     : JSON.stringify(changesInScope(parseChanges(after), scope).map(change => scopeEntry(change, scope))) === projectedBefore;
   if (!scopeUnchanged) throw new Error('Repository changed during capture');
-  const finalHead = await run('git', [...flags, 'rev-parse', '--verify', 'HEAD'], { ...options, cwd: root });
+  const finalHead = await gitStatus(root, ['rev-parse', '--verify', 'HEAD'], options);
   if ((finalHead.code === 0 ? text(finalHead.stdout).trim() : null) !== head) throw new Error('HEAD changed during capture');
   if (scope !== 'worktree') {
     const entriesAfter = await resolveIndexEntries(root, indexNames, options);
@@ -235,9 +233,9 @@ export async function captureGit(cwd, options = {}) {
   if (scope !== 'staged') {
     for (const file of files.filter(f => f.right)) {
       if (file.rightExists) {
-        if ((await readLocal(root, file.path, options)).hash !== file.right.hash) throw new Error('Content changed during capture');
+        if ((await readWorktree(root, file.path, options)).hash !== file.right.hash) throw new Error('Content changed during capture');
       } else {
-        try { await readLocal(root, file.path, options); }
+        try { await readWorktree(root, file.path, options); }
         catch (error) { if (error.code === 'ENOENT') continue; throw error; }
         throw new Error('Deleted path reappeared during capture');
       }

@@ -52,7 +52,9 @@ test('terminal persistence failure retains diagnostics and wakes waiters without
  assert.equal(result.status,'failed');assert.ok(result.persistenceError);assert.ok(result.finishedAt);
  assert.equal(result.result.report.status,'completed');
  await assert.rejects(jobs.status(j.jobId,exec('foreign')),/Foreign/);
- assert.equal((await jobs.cancel(j.jobId,a)).cancelRequested,true,'failed final persistence must not evict diagnostics');
+ assert.equal(result.executionStatus,'completed');
+ assert.equal(result.persistence,'failed');
+ assert.equal((await jobs.cancel(j.jobId,a)).cancelRequested,false,'settled failure does not accept cancellation');
 });
 
 test('completed reports are read from disk after eviction and ownership is still enforced',async t=>{
@@ -92,4 +94,34 @@ test('a handled checkpoint failure does not poison subsequent checkpoint persist
  await retried.promise;const waiting=jobs.wait(j.jobId,a,{after:2,timeoutMs:1000});finish.resolve();await waiting;await jobs.dispose();
  assert.equal((await jobs.status(j.jobId,a)).status,'completed');
  assert.equal((await jobs.cancel(j.jobId,a)).cancelRequested,false);
+});
+test('identical committed resume state skips writes, but a failed write does not establish the baseline',async t=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'review-resume-dedupe-'));
+ t.after(()=>rm(dir,{recursive:true,force:true}));
+ const jobs=createReviewJobs({directory:dir}),a=exec('resume-dedupe'),gate=deferred();
+ let id;
+ const j=await jobs.start(a,async({saveResumeState,checkpoint})=>{
+  await gate.promise;
+  const state={schemaVersion:2,completed:[{fileId:'a'}]},next={...state,completed:[{fileId:'b'}]};
+  await saveResumeState(state);
+  const f=path.join(dir,id+'.json');
+  const first=JSON.parse(await readFile(f,'utf8'));
+  await saveResumeState(structuredClone(state));
+  assert.deepEqual(JSON.parse(await readFile(f,'utf8')),first,'skip does not rewrite record or advance disk revision');
+  await rm(f);await mkdir(f);
+  await assert.rejects(saveResumeState(next));
+  await rm(f,{recursive:true});
+  await saveResumeState(next);
+  await saveResumeState(next);
+  await checkpoint({stage:'completed'});
+  return {ok:true};
+ });
+ id=j.jobId;gate.resolve();await jobs.wait(id,a,{waitFor:'terminal'});
+ const row=await jobs.status(id,a);
+ assert.equal(row.status,'completed',row.error);
+ assert.equal(row.waitRevision,1);
+ assert.deepEqual(row.writeStats,{committedWrites:6,resumeWritesSkipped:2});
+ assert.deepEqual((await jobs.resume(id,a)).completed,[{fileId:'b'}]);
+ const reopened=createReviewJobs({directory:dir});
+ assert.deepEqual((await reopened.status(id,a)).writeStats,row.writeStats);
 });

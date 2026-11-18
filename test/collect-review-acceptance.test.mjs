@@ -4,6 +4,7 @@ import { mkdtemp, writeFile, readFile, mkdir, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { evaluateReviewAcceptance, collectReviewAcceptance } from '../scripts/collect-review-acceptance.mjs';
+import { createReviewService } from '../src/service.mjs';
 const expected = {sessionId:'s',cwd:'/fixed',provider:'p',model:'m',repositoryUuid:'uuid',url:'https://example.invalid/repo',baseRevision:'1',targetRevision:'2',eligibleCount:2,totalCount:3,expectedBlockedPaths:['directory']};
 function fixture() {
  return {jobId:'j',owner:{sessionId:'s',cwd:'/fixed',provider:'p',model:'m'},status:'completed',checkpoints:[],result:{markdown:'BRIEF',technicalMarkdown:'TECHNICAL',report:{snapshotId:'snap',status:'partial',model:{provider:'p',model:'m'},history:{repositoryUuid:'uuid',url:expected.url,base:'1',target:'2'},files:[{fileId:'a',path:'a',status:'completed'},{fileId:'b',path:'b',status:'completed'},{fileId:'d',path:'directory',status:'blocked'}],findings:[],coverage:{total:3,completed:2,blocked:1,failed:0,pending:0},orchestration:{strategy:'whole-scope',batches:[{id:'batch',fileIds:['a','b'],status:'completed'}]},modelCalls:0,diagnostics:{retrievalInvalidReport:0,retrievalProtocolTelemetry:{scope:'all-child-tool-generations',complete:true,invalidRequests:0},executionWallMs:12}}}};
@@ -75,4 +76,45 @@ test('collector refuses exact artifacts path without reading its contents',async
  const dir=await mkdtemp(path.join(os.tmpdir(),'acceptance-'));
  try{await mkdir(path.join(dir,'artifacts'));const jobFile=path.join(dir,'artifacts','private.json');await writeFile(jobFile,'NOT PUBLIC');await assert.rejects(collectReviewAcceptance({jobFile,outputDir:path.join(dir,'out'),expected}),/artifacts path/);}
  finally {await rm(dir,{recursive:true,force:true});}
+});
+
+test('single-pass engineering uses real service report and public adapter checkpoints', async t => {
+ const snapshot = { id:'fixed', root:expected.cwd, vcs:'git', context:[], rules:[], files:[
+   { id:'a', path:'a.js', eligibility:'reviewable', left:{ text:'old();' }, right:{ text:'new();' }, properties:[] },
+   { id:'b', path:'b.js', eligibility:'reviewable', left:{ text:'old();' }, right:{ text:'new();' }, properties:[] },
+   { id:'c', path:'folder', eligibility:'excluded' },
+ ] };
+ const checkpoints = [], completion = { status:'completed', gaps:[] };
+ const anchored = { fileId:'a', severity:'high', title:'Changed behavior', evidence:'new call', trigger:'execution reaches call', impact:'behavior changes', suggestion:'retain guard',
+   anchor:{ kind:'line', side:'new', start:1, end:1, snippet:'new();' }, attribution:{ editIds:['e1'], properties:[], beforeBehavior:'old call', afterBehavior:'new call', reason:'changed call' } };
+ const service = createReviewService({ async *stream(request) {
+   const { reviews } = JSON.parse(request.messages[0].content[0].text);
+   yield { type:'text-delta', text:JSON.stringify({ reviews:reviews.map(({fileId}) => ({ fileId, findings:fileId==='a'?[anchored]:[], limitations:[], completion })), limitations:[], completion }) };
+   yield { type:'finish', reason:{kind:'stop'} };
+ } }, { executionStrategy:'auto', capture:async()=>snapshot, allowModelSending:true, authorize:async()=>true });
+ t.after(()=>service.dispose());
+ const fixed = { sessionId:'s', cwd:expected.cwd, provider:'p', model:'m' };
+ const exec = { agent:{ session:{ header:{ id:fixed.sessionId,cwd:fixed.cwd } }, options:{ provider:fixed.provider,model:fixed.model } }, signal:new AbortController().signal, reviewCheckpoint:async c=>checkpoints.push(c) };
+ const preview = await service.preview({},exec);
+ const result = await service.execute({ previewId:preview.previewId,confirmed:true },exec);
+ const gate = { ...fixed, strategy:'single-pass', snapshotId:preview.snapshotId, requestHash:preview.plan.requestHash, completedPaths:['a.js','b.js'], excludedPaths:['folder'] };
+ const job = { jobId:'single-pass-test', owner:fixed, status:'completed', checkpoints, result };
+ const scored = evaluateReviewAcceptance(job,gate);
+ assert.equal(scored.engineeringResult,'passed',JSON.stringify(scored));
+ assert.equal(scored.coverage.completed,2); assert.equal(scored.coverage.excluded,1);
+ assert.equal(scored.retrievalInvalidReport,'not-applicable'); assert.equal(scored.operations.physicalProviderCalls,null);
+ assert.equal(scored.quality.qualityPassed,null); assert.equal(scored.overallReviewPassed,false);
+ assert.equal(evaluateReviewAcceptance(job,expected).engineeringResult,'failed');
+ for (const mutate of [
+   j=>j.result.report.orchestration.requestHash='0'.repeat(64), j=>j.result.report.outdated=true,
+   j=>j.result.report.status='partial', j=>j.result.report.files[0].path='wrong.js',
+   j=>j.result.report.orchestration.batches[0].fileIds=['a','a'], j=>j.result.report.findings[0].validation.anchor='unchecked',
+   j=>j.result.report.modelCalls=2, j=>j.checkpoints.push(j.checkpoints.find(c=>c.stage==='model-start')),
+   j=>j.checkpoints.find(c=>c.stage==='model-end').callPurpose='json-correction',
+   j=>j.checkpoints.find(c=>c.stage==='approved-manifest').files[0].fileId='different',
+ ]) { const j=structuredClone(job); mutate(j); assert.equal(evaluateReviewAcceptance(j,gate).engineeringResult,'failed'); }
+ for (const stage of ['model-start','model-end','approved-manifest']) {
+   const j={ ...job, checkpoints:checkpoints.filter(c=>c.stage!==stage) };
+   assert.equal(evaluateReviewAcceptance(j,gate).engineeringResult,'incomplete');
+ }
 });

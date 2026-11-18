@@ -48,17 +48,19 @@ export function renderUserReport(report = {}, { maxFindings = 5 } = {}) {
   if (!coverage.detailsComplete) output.push('- 文件明细未齐，以上仅为已加载内容。');
   output.push('', '## 2. 报告', '');
   const states = { cancelled: '审核已取消', failed: '审核失败', interrupted: '审核已中断' };
+  if (data.outdated) output.push('报告已过期，仅对应原快照；请先对当前源码重新预览审核。');
   if (data.emptySelection) output.push('未选择审核条目。');
   else if (!data.complete) output.push((Object.hasOwn(states, data.status) ? states[data.status] : '审核尚未完成') + '，不能据此判断全部改动是否有问题。');
+  else if (data.outdated) output.push(rows(report.findings).length ? '以下候选来自原快照，不能作为当前源码结论。' : '原快照未记录候选；这不是当前源码无问题的结论。');
   else if (!rows(report.findings).length) output.push('代码检查已完成，未发现明确问题。');
   else output.push('代码检查已完成，发现以下需要关注的问题。');
-  if (data.outdated) output.push('报告已过期，仅对应原快照；请先对当前源码重新预览审核。');
   const failures = executionFailures(report);
   for (const [code, total] of failures.slice(0, 3)) output.push('- ' + (coverage.detailsComplete ? '未完成原因' : '已加载明细中的原因') + '：' + executionCauses[code] + '，' + total + ' 项。');
   if (coverage.failed && !failures.length) output.push('- 部分文件检查失败，具体原因未记录。');
   if (data.unfinished.length) output.push('- 尚未查完：' + data.unfinished.slice(0, 5).map(item => safe(item.path, 100)).join('；') + (data.unfinished.length > 5 ? '；另 ' + (data.unfinished.length - 5) + ' 项未展开' : '') + '。');
   if (!coverage.detailsComplete || coverage.unaccounted) output.push('- 文件明细未齐或仍有状态未记账，不能判断全范围完成。');
-  if (data.crossFile.pending) output.push('- 部分跨文件调用关系尚未查完。');
+  if (data.crossFile.pending) output.push(data.crossBatchUnassessed ? '- 部分批内跨文件关系尚未查完。' : '- 部分跨文件关系尚未查完。');
+  if (data.crossBatchUnassessed) output.push('- 未核查跨批次关系；各批次的完成状态不代表已核查这些关系。');
   if (completion) {
     for (const [label, entries] of [['尚未核实', completion.gaps], ['需注意', completion.notes]]) {
       for (const item of entries.slice(0, 5)) output.push('- ' + label + '：' + safe(item.path, 160) + '：' + safe(item.text, 400));

@@ -54,3 +54,8 @@ test('bounded expansion retains original finding numbers and long judgement ends
  assert.equal(text.split('### 候选').length-1,2);assert.match(text,/另有 7 项候选/);assert.match(text,/起因。.*中段已省略.*但不能证明新增/);assert.deepEqual(report,before);
  for(const maxFindings of [0,-1,1.5,21,'5'])assert.throws(()=>renderUserReport(report,{maxFindings}));
 });
+test('stale clean historical report cannot present a clean current verdict',()=>{
+ const text=renderUserReport({...base([]),outdated:true});
+ assert.match(text,/报告已过期.*原快照/);
+ assert.doesNotMatch(text,/代码检查已完成，未发现明确问题/);
+});

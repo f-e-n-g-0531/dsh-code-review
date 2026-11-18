@@ -1,5 +1,5 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,rm} from 'node:fs/promises';import path from 'node:path';import os from 'node:os';import {registerBackgroundReview} from '../src/background-review.mjs';
-test('background preview returns job before capture finishes and preserves result',async t=>{const directory=await mkdtemp(path.join(os.tmpdir(),'review-bg-'));t.after(()=>rm(directory,{recursive:true,force:true}));const tools=[],disposes=[];let release,entered;const ready=new Promise(r=>entered=r),gate=new Promise(r=>release=r);const jobs=registerBackgroundReview({tools:{register:d=>tools.push(d)},on:(_e,f)=>disposes.push(f)},{preview:async()=>{entered();await gate;return {previewId:'approved',model:'test'};}},{directory});const exec={agent:{session:{header:{id:'session-a',cwd:'/repo'}},options:{provider:'p',model:'m'}}};const start=JSON.parse((await tools[0].execute({phase:'preview'},exec)).json);await ready;assert.equal((await jobs.status(start.jobId,exec)).status,'running');release();await jobs.dispose();const result=await jobs.status(start.jobId,exec);assert.equal(result.result.previewId,'approved');assert.match(result.nextAction,/without asking again/);assert.match(result.nextAction,/explicit wait-for-confirmation/);assert.doesNotMatch(result.nextAction,/Show preview and request user confirmation/);assert.equal(tools.length,5);});
+import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,mkdir,rm} from 'node:fs/promises';import path from 'node:path';import os from 'node:os';import {registerBackgroundReview} from '../src/background-review.mjs';
+test('background preview returns job before capture finishes and preserves result',async t=>{const directory=await mkdtemp(path.join(os.tmpdir(),'review-bg-'));t.after(()=>rm(directory,{recursive:true,force:true}));const tools=[],disposes=[];let release,entered;const ready=new Promise(r=>entered=r),gate=new Promise(r=>release=r);const jobs=registerBackgroundReview({tools:{register:d=>tools.push(d)},on:(_e,f)=>disposes.push(f)},{preview:async()=>{entered();await gate;return {previewId:'approved',model:'test'};}},{directory});const exec={agent:{session:{header:{id:'session-a',cwd:'/repo'}},options:{provider:'p',model:'m'}}};const start=JSON.parse((await tools[0].execute({phase:'preview'},exec)).json);await ready;assert.equal((await jobs.status(start.jobId,exec)).status,'running');release();await jobs.wait(start.jobId,exec,{waitFor:'terminal'});await jobs.dispose();const result=await jobs.status(start.jobId,exec);assert.equal(result.status,'completed');assert.equal(result.result.previewId,'approved');assert.match(result.nextAction,/without asking again/);assert.match(result.nextAction,/explicit wait-for-confirmation/);assert.doesNotMatch(result.nextAction,/Show preview and request user confirmation/);assert.equal(tools.length,5);});
 
 test('private artifact retrieval requires explicit consent and retains exact owner boundary',async t=>{const directory=await mkdtemp(path.join(os.tmpdir(),'review-private-tool-'));t.after(()=>rm(directory,{recursive:true,force:true}));const defs=[];const jobs=registerBackgroundReview({tools:{register:d=>defs.push(d)},on(){}},{},{directory});const exec={agent:{session:{header:{id:'private-tool',cwd:path.join(os.tmpdir(),'approved-repo')}},options:{provider:'p',model:'m'}}};const started=await jobs.start(exec,async({artifact})=>{await artifact({blocks:[{text:'SOURCE_SECRET'}]});return{ok:true};});let status=await jobs.status(started.jobId,exec);while(['queued','running'].includes(status.status)){await jobs.wait(started.jobId,exec,{after:status.waitRevision,waitFor:'terminal',timeoutMs:1000});status=await jobs.status(started.jobId,exec);}const read=defs.find(d=>d.name==='code_review_artifacts');await assert.rejects(read.execute({jobId:started.jobId},exec),/consent/);assert.ok(!JSON.stringify(status).includes('SOURCE_SECRET'));const raw=await read.execute({jobId:started.jobId,confirmed:true},exec);assert.ok(raw.json.includes('SOURCE_SECRET'));assert.equal(JSON.parse(raw.json).sourceBearing,true);await assert.rejects(read.execute({jobId:started.jobId,confirmed:true},{agent:{...exec.agent,options:{provider:'other',model:'m'}}}),/Foreign review job/);await jobs.dispose();});
 
@@ -35,5 +35,55 @@ test('terminal preview status continues explicit matching review without duplica
 
 test('terminal failure status does not print raw error or advise infinite waiting',async t=>{
  const f=await terminalFixture(t,null,{failed:true});const output=await f.tool('status').execute({jobId:f.id},f.exec);
- assert.match(output.markdown,/已结束：failed/);assert.match(output.markdown,/未完成范围/);assert.doesNotMatch(output.markdown,/PRIVATE_|继续调用|正在准备|尚未完成/);
+ assert.match(output.markdown,/已结束：failed/);assert.match(output.markdown,/未完成范围/);assert.doesNotMatch(output.markdown,/PRIVATE_|继续调用|正在准备|尚未完成/);assert.doesNotMatch(output.json,/PRIVATE_FAILURE_BODY/);
+});
+test('final save failure and cancelled work are visible even when wait delivers report Markdown',async t=>{
+ for(const fail of [false,true]){
+  const directory=await mkdtemp(path.join(os.tmpdir(),'review-terminal-save-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+  const defs=[];const jobs=registerBackgroundReview({tools:{register:d=>defs.push(d)},on(){}},{},{directory});
+  const tool=name=>defs.find(d=>d.name==='code_review_'+name);
+  const exec={agent:{session:{header:{id:'save-boundary',cwd:path.join(os.tmpdir(),'review-summary-workspace')}},options:{provider:'offline',model:'fake'}}};
+  let ready,release;const entered=new Promise(r=>ready=r),gate=new Promise(r=>release=r);
+  const {jobId}=await jobs.start(exec,async()=>{ready();await gate;return {report:{status:'completed',outdated:true,files:[],findings:[]},markdown:'## 1. 改动内容\n\n示例\n\n## 2. 报告\n\n报告正文',technicalMarkdown:'技术报告'};});
+  await entered;
+  if(fail){const pathname=path.join(directory,jobId+'.json');await rm(pathname);await mkdir(pathname);}
+  else {
+    assert.equal(JSON.parse((await tool('cancel').execute({jobId},exec)).json).cancelRequested,true);
+    assert.equal(JSON.parse((await tool('cancel').execute({jobId},exec)).json).cancelRequested,false);
+  }
+  release();
+  const result=await tool('wait').execute({jobId,waitFor:'terminal'},exec);
+  const value=JSON.parse(result.json);
+  assert.equal(value.status,fail?'failed':'cancelled');
+  assert.equal(value.resultSummary.status,'completed');
+  assert.equal(value.resultSummary.outdated,true);
+  assert.equal(value.executionStatus,fail?'completed':'cancelled');
+  assert.equal(value.persistence,fail?'failed':'saved');
+  assert.match(result.markdown,fail?/未能持久保存/:/后台任务已取消/);
+  assert.match(result.markdown,/报告正文/);
+  assert.equal(result.markdown.match(/^## [12]\./gm).length,2);
+  assert.doesNotMatch(result.json,/persistenceError|EPERM|EISDIR|ENOTEMPTY/);
+  const technical=await tool('status').execute({jobId,detail:'technical'},exec);
+  assert.match(technical.markdown,fail?/未能持久保存/:/后台任务已取消/);
+  assert.equal(JSON.parse((await tool('cancel').execute({jobId},exec)).json).cancelRequested,false);
+  await jobs.dispose();
+ }
+});
+
+
+test('cancelled preview does not tell the caller to execute an approved snapshot',async t=>{
+ const directory=await mkdtemp(path.join(os.tmpdir(),'review-cancel-preview-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ const defs=[];const jobs=registerBackgroundReview({tools:{register:d=>defs.push(d)},on(){}},{},{directory});
+ const exec={agent:{session:{header:{id:'cancel-preview',cwd:path.join(os.tmpdir(),'review-summary-workspace')}},options:{provider:'offline',model:'fake'}}};
+ let ready,release;const entered=new Promise(r=>ready=r),gate=new Promise(r=>release=r);
+ const {jobId}=await jobs.start(exec,async()=>{ready();await gate;return {previewId:'CANCELLED_PREVIEW'};});
+ await entered;
+ const cancel=await defs.find(d=>d.name==='code_review_cancel').execute({jobId},exec);
+ assert.match(cancel.markdown,/已请求取消/);
+ release();
+ const result=await defs.find(d=>d.name==='code_review_wait').execute({jobId,waitFor:'terminal'},exec);
+ assert.equal(JSON.parse(result.json).status,'cancelled');
+ assert.doesNotMatch(result.json,/CANCELLED_PREVIEW|confirmed=true/);
+ assert.doesNotMatch(result.markdown,/直接以 confirmed=true/);
+ await jobs.dispose();
 });

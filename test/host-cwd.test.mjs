@@ -73,7 +73,7 @@ test('background start/status/wait/artifacts share live host owner and reject cw
   await new Promise(resolve=>setImmediate(resolve));cwd=path.join(dir,'other-workspace');
   for(const name of ['code_review_status','code_review_wait','code_review_artifacts','code_review_cancel']) await assert.rejects(call(name,{jobId:id,confirmed:true,timeoutMs:1}),/Foreign/);
   gate.resolve();await assert.rejects(waiting,/Foreign/);cwd=workspace;
-  const final=await call('code_review_wait',{jobId:id,waitFor:'terminal',timeoutMs:2000});assert.equal(final.status,'failed');assert.match(final.error,/owner changed/);
+  const final=await call('code_review_wait',{jobId:id,waitFor:'terminal',timeoutMs:2000});assert.equal(final.status,'failed');assert.equal(final.failure.code,'REVIEW_JOB_OWNER_CHANGED');assert.equal(final.error,undefined);
   assert.equal(e.agent.session.header.cwd,'/stale');
 });
 

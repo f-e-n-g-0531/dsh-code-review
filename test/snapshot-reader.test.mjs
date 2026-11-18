@@ -74,3 +74,19 @@ test('reader rejects unknown sources malformed ranges duplicates and oversize ou
   const large = createSnapshotReader('s', [{ id: 'f', text: 'x'.repeat(65537) }]);
   assert.throws(() => large.read({ id: 'f', start: 1, count: 1 }), /output budget/);
 });
+
+test('sparse line index preserves CRLF and UTF-16 coordinates across blocks and EOF', () => {
+  const lines = Array.from({ length: 257 }, (_, i) => '行😀-' + i);
+  for (const tail of ['','\r\n']) {
+    const blocks = lines.map((line, i) => line + (i < 256 ? '\r\n' : tail));
+    const reader = createSnapshotReader('s', [{ id: 'f', text: blocks.join('') }]);
+    assert.throws(() => reader.preflight([{ kind: 'read', id: 'f', start: 258, count: 1 }]), /outside/);
+    assert.deepEqual(reader.usage(), { calls: 0, outputBytes: 0 });
+    for (const start of [257, 128, 129, 1, 256]) {
+      const r = reader.read({ id: 'f', start, count: 3 });
+      assert.equal(r.text, blocks.slice(start - 1, start + 2).join(''));
+      assert.equal(r.count, Math.min(3, 258 - start));
+      assert.equal(r.endOfSource, start >= 255);
+    }
+  }
+});

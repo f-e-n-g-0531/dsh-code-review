@@ -128,7 +128,17 @@ export async function verificationLoop(model, request, candidates, scope, option
     }
     request.signal?.throwIfAborted();
     allocation?.release('retrieval');
-    return validateCandidateVerification(accepted, ids, validationScope.read, resolveEvidence, { enableModelComparison: options.enableModelComparison === true, snapshotId: envelope.snapshotId, modelComparisonCandidates, modelComparisonChanges, modelComparisonContext, enableMigrationRegression: options.enableMigrationRegression === true && !project, migrationContext, catalog: validationScope.catalog(), fileIds: Object.fromEntries(ids.map((id, i) => [id, candidates[i].fileId])) });
+    // Only the host's exact source lookup is shared, only within this final
+    // batch and its one approved snapshot. Each model reference still resolves
+    // its own receipt and compares every field against the approved result.
+    const finalReads = new Map();
+    const readFinalEvidence = range => {
+      request.signal?.throwIfAborted();
+      const key = JSON.stringify([range.id, range.start, range.count]);
+      if (!finalReads.has(key)) finalReads.set(key, validationScope.read(range));
+      return finalReads.get(key);
+    };
+    return validateCandidateVerification(accepted, ids, readFinalEvidence, resolveEvidence, { enableModelComparison: options.enableModelComparison === true, snapshotId: envelope.snapshotId, modelComparisonCandidates, modelComparisonChanges, modelComparisonContext, enableMigrationRegression: options.enableMigrationRegression === true && !project, migrationContext, catalog: validationScope.catalog(), fileIds: Object.fromEntries(ids.map((id, i) => [id, candidates[i].fileId])) });
   } finally {
     allocation?.release('retrieval');
     allocation?.release('validation');

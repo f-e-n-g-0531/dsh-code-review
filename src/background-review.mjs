@@ -1,6 +1,7 @@
 import path from 'node:path';
 import os from 'node:os';
 import { createReviewJobs } from './review-jobs.mjs';
+import { validateApprovedExecutionArgs } from './approved-execution.mjs';
 import { reviewToolOutput } from './tool-view.mjs';
 
 const START_DESCRIPTION = 'Start a durable background preview or confirmed review. Returns a job ID immediately, NOT task completion. Keep the user request active using code_review_wait until terminal status; never final-answer only that a task started. Preview phase never sends source. Always inspect the captured preview internally. An explicit current user request to review the selected code authorizes execution when the preview matches its scope/model/destination: proceed with phase=execute, previewId and confirmed=true without asking for duplicate confirmation. If the user requested preview only or explicitly asked to wait for confirmation, do not execute. Ask for scope expansion, a changed authorized model/destination, or unclear authorization. Host permissions and snapshot/identity checks still apply. Use code_review_status to collect progress/results; code_review_cancel to stop. Does not automatically resume after host restart or grant new source approval.';
@@ -19,13 +20,18 @@ const TERMINAL_STATUSES = ['completed', 'failed', 'cancelled', 'interrupted'];
 const REPORT_STATUSES = ['completed', 'partial', 'failed', 'cancelled'];
 const COVERAGE_FIELDS = ['completed', 'excluded', 'blocked', 'failed', 'cancelled', 'pending'];
 const LIMIT_CODES = ['READER_CALL_BUDGET_EXCEEDED', 'READER_OUTPUT_BUDGET_EXCEEDED', 'RETRIEVAL_ROUND_BUDGET_EXCEEDED'];
+const finalPersistenceNotice = '最终结果未能持久保存；如有报告，仅在当前进程可读。重启后只保留最后一次成功保存的记录。';
+const cancellationNotice = '后台任务已取消；保留已取得的结果，不代表已发出的请求已撤回。';
 const count = value => Number.isSafeInteger(value) && value >= 0 ? value : '不可用';
 function terminalSummary(value) {
   const report = value.resultSummary;
   const lines = ['审查任务已结束：' + value.status, 'jobId: ' + value.jobId];
+  if (value.persistence === 'failed') lines.push(finalPersistenceNotice);
+  if (value.executionStatus === 'cancelled') lines.push(cancellationNotice);
   if (value.progress) lines.push('elapsedMs: ' + count(value.progress.elapsedMs));
   if (report && REPORT_STATUSES.includes(report.status)) {
     lines.push('报告状态：' + report.status + '；任务结束不等于所有审查通过。');
+    if (report.outdated) lines.push('报告已过期，仅对应原批准快照，不代表当前源码。');
     lines.push('文件覆盖：' + COVERAGE_FIELDS.map(key => key + ' ' + count(report.coverage?.[key])).join('；'));
     lines.push('总文件：' + count(report.totalFiles) + '；总发现：' + count(report.totalFindings) + '；限制项：' + count(report.totalLimitations));
     if (Number.isSafeInteger(report.totalScopeNotices) && report.totalScopeNotices > 0) lines.push('范围说明：' + report.totalScopeNotices + ' 项（非未完成限制）；完成不等于全部批准上下文已核查，原文与归属见报告附录。');
@@ -59,7 +65,13 @@ function terminalSummary(value) {
 
 function respond(value) {
   if (value.finalMarkdown !== null && value.finalMarkdown !== undefined) {
-    return { json: JSON.stringify(value), markdown: value.finalMarkdown };
+    const notices = [value.persistence === 'failed' ? finalPersistenceNotice : '', value.executionStatus === 'cancelled' ? cancellationNotice : ''].filter(Boolean);
+    const heading = '## 2. 报告';
+    const position = value.finalMarkdown.indexOf(heading + '\n');
+    const markdown = !notices.length ? value.finalMarkdown : position < 0
+      ? notices.join('\n') + '\n\n' + value.finalMarkdown
+      : value.finalMarkdown.slice(0, position + heading.length) + '\n\n' + notices.join('\n') + '\n' + value.finalMarkdown.slice(position + heading.length);
+    return { json: JSON.stringify(value), markdown };
   }
   if (TERMINAL_STATUSES.includes(value.status)) return { json: JSON.stringify(value), markdown: terminalSummary(value) };
   const p = value.progress;
@@ -75,7 +87,10 @@ function respond(value) {
 async function startBackgroundJob(args, exec, jobs, service) {
   const allowed = ['phase', 'previewArgs', 'previewId', 'confirmed'];
   if (!args || Object.keys(args).some(k => !allowed.includes(k)) || !['preview', 'execute'].includes(args.phase)) throw new Error('Invalid background phase');
-  if (args.phase === 'execute' && (args.confirmed !== true || typeof args.previewId !== 'string' || args.previewArgs !== undefined)) throw new Error('Confirmed preview required');
+  if (args.phase === 'execute') {
+    if (args.previewArgs !== undefined) throw new Error('Confirmed preview required');
+    validateApprovedExecutionArgs({ previewId: args.previewId, confirmed: args.confirmed });
+  }
   if (args.phase === 'preview' && (args.previewId !== undefined || args.confirmed !== undefined)) throw new Error('Preview cannot confirm execution');
 
   return respond(await jobs.start(exec, async ({ signal, checkpoint, artifact, saveResumeState }) => {
@@ -112,24 +127,24 @@ export function registerBackgroundReview(ctx, service, { directory, resolveCwd }
     name: 'code_review_status', description: STATUS_DESCRIPTION, parameters: STATUS_PARAMETERS, output: reviewToolOutput,
     async execute(args, exec) {
       if(args.detail!==undefined&&!['summary','technical'].includes(args.detail))throw new Error('Invalid report detail');
-      const value=await jobs.status(args.jobId,exec,{offset:args.offset??0,limit:args.limit??20,checkpointIndex:args.checkpointIndex});
-      if(args.detail==='technical'){const saved=await jobs.status(args.jobId,exec);if(saved.result?.technicalMarkdown)value.finalMarkdown=saved.result.technicalMarkdown;}
+      const value=await jobs.status(args.jobId,exec,{offset:args.offset??0,limit:args.limit??20,checkpointIndex:args.checkpointIndex,markdown:args.detail==='technical'?'technical':undefined});
       return respond(value);
     },
   });
   ctx.tools.register({
     name: 'code_review_cancel', description: CANCEL_DESCRIPTION, parameters: CANCEL_PARAMETERS, output: reviewToolOutput,
-    async execute(args, exec) { return respond(await jobs.cancel(args.jobId, exec)); },
+    async execute(args, exec) {
+      const value = await jobs.cancel(args.jobId, exec);
+      return { json: JSON.stringify(value), markdown: value.cancelRequested
+        ? '已请求取消；等待终态查看保留结果，不代表已发出的请求已撤回。'
+        : '没有发出新的取消请求；任务可能已在取消中，或已停止接受取消。' };
+    },
   });
   ctx.tools.register({
     name: 'code_review_wait', description: WAIT_DESCRIPTION, parameters: WAIT_PARAMETERS, output: reviewToolOutput,
     async execute(args, exec) {
       const change = await jobs.wait(args.jobId, exec, { after: args.after, waitFor: args.waitFor, timeoutMs: args.timeoutMs, signal: exec.signal });
-      const status = await jobs.status(args.jobId, exec, { offset: 0, limit: 20 });
-      if (!['queued', 'running'].includes(status.status)) {
-        const full = await jobs.status(args.jobId, exec);
-        if (full.result?.markdown) status.finalMarkdown = full.result.markdown;
-      }
+      const status = await jobs.status(args.jobId, exec, { offset: 0, limit: 20, markdown: 'user' });
       return respond({ ...status, ...change });
     },
   });

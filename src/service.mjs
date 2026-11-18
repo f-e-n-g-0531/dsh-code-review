@@ -1,8 +1,9 @@
 import { reviewOwner, sameReviewOwner, ownerGuard, guardReviewLlm } from './review-owner.mjs';
-import { previewValidity } from './preview-validity.mjs';
+import { consumeApprovedPreview, authorizeApprovedSnapshot } from './approved-execution.mjs';
 import { renderUserReport } from './user-report.mjs';
 import { prepareWholeScope } from './whole-scope-plan.mjs';
 import { SINGLE_PASS_INSTRUCTIONS } from './single-pass-review.mjs';
+import { SINGLE_PASS_MAX_OUTPUT_TOKENS } from './single-pass-policy.mjs';
 import { resolveReviewDispatch } from './review-dispatch.mjs';
 import { reviewEffortPolicy } from './review-effort.mjs';
 import { prepareReviewHistory, finishReviewHistory } from './review-history.mjs';
@@ -66,7 +67,7 @@ function createSessionReviewService(llm, { resolveCwd, capture = captureSnapshot
     const info = await resolveModelCapacity?.(route, exec);
     const context = info?.context ?? info;
     const value = context?.contextWindowTokens ?? context?.contextWindow;
-    return { contextWindowTokens: Number.isSafeInteger(value) && value > 0 ? value : null, maxOutputTokens: null, tokenizer: 'unavailable', source: resolveModelCapacity ? 'host-resolveModelInfo' : 'unavailable' };
+    return { contextWindowTokens: Number.isSafeInteger(value) && value > 0 ? value : null, maxOutputTokens: Number.isSafeInteger(context?.maxOutputTokens) && context.maxOutputTokens > 0 ? context.maxOutputTokens : null, tokenizer: 'unavailable', source: resolveModelCapacity ? 'host-resolveModelInfo' : 'unavailable' };
   };
   if (!['auto','single-pass','staged', 'whole-scope'].includes(executionStrategy)) throw new Error('Invalid review execution strategy');
   if (!['auto','quick','standard','deep'].includes(reviewEffort) || typeof enableCounterVerification !== 'boolean') throw new Error('Invalid review effort policy');
@@ -131,7 +132,7 @@ function createSessionReviewService(llm, { resolveCwd, capture = captureSnapshot
         const singlePassEligible = (requestedStrategy === 'auto' || requestedStrategy === 'single-pass') && rounds === 1 && !sourceJobId;
         const modelCapacity = singlePassEligible ? await capacityFor(current.route, exec) : null;
         await ownerGuard(exec, resolveCwd, current)();
-        const singlePassPolicy = { singlePassMaxInputBytes, modelCapacity, nativeOutputTools: false, strictSingleCall: true, correctJson: false, maxJsonCorrections: 0, maxOutputTokens: 4096 };
+        const singlePassPolicy = { singlePassMaxInputBytes, modelCapacity, nativeOutputTools: false, strictSingleCall: true, correctJson: false, maxJsonCorrections: 0, maxOutputTokens: Math.min(SINGLE_PASS_MAX_OUTPUT_TOKENS, modelCapacity?.maxOutputTokens ?? SINGLE_PASS_MAX_OUTPUT_TOKENS) };
         const effort = reviewEffortPolicy(snapshot,{mode:effortMode});
         const history = prepareReviewHistory(snapshot,current.route,{...options,reviewEffort:effortMode,executionStrategy:requestedStrategy,singlePassPolicy,enableCounterVerification,enableMemberIsolation,relationAwareGrouping,primaryInputMode,enableInvestigationState,enableAsyncVerification,verificationConcurrency},{previous:previousHistory,outcomes:findingOutcomes,explicitDiffOnly});
         let instructions = REVIEW_INSTRUCTIONS + '\nReview focus (not proof, no additional authority): ' + JSON.stringify(effort.checks);
@@ -144,7 +145,7 @@ function createSessionReviewService(llm, { resolveCwd, capture = captureSnapshot
         const effectiveStrategy=dispatch.effectiveStrategy;
         if (effectiveStrategy === 'single-pass') instructions = SINGLE_PASS_INSTRUCTIONS;
         resumeState=savedResume===undefined?undefined:validateResumeState(savedResume,snapshot,resumeOptions(options,current.route,rounds,effortMode,instructions,effectiveStrategy,singlePassPolicy));
-        const plan = buildCoveragePlan(candidateSnapshot, { singlePassMaxInputBytes, singlePassPolicy, modelCapacity, route: current.route, relationAwareGrouping, primaryInputMode, executionStrategy:effectiveStrategy, maxRetrievalRounds, childTransport:!!hostChildren, enableEvidenceContext, inlineInteractionRisks, enableMigrationContracts, enableMigrationRegression, enableModelComparison, enableGroupInteractions, enableStageContinuation, enableGroupPrimary, resumeState, focusPrimaryContext, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:rounds, enableBusinessGrouping, instructions, scope: configureWireBudget(createRetrievalScope(snapshot, { ...readerBudget, signal: exec.signal, ...(optimizeReviewCalls ? { reuseResults: true } : {}) }), { nativeOutputTools }), grouping: buildReviewGroups(snapshot.files, inferFileRelations(snapshot.files)), maxInputBytes, signal: exec.signal });
+        const plan = buildCoveragePlan(candidateSnapshot, { singlePassMaxInputBytes, singlePassPolicy, modelCapacity, route: current.route, relationAwareGrouping, primaryInputMode, executionStrategy:effectiveStrategy, maxRetrievalRounds, childTransport:!!hostChildren, enableEvidenceContext, inlineInteractionRisks, enableMigrationContracts, enableMigrationRegression, enableModelComparison, enableGroupInteractions, enableStageContinuation, enableGroupPrimary, resumeState, focusPrimaryContext, riskPlanningMode, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:rounds, enableBusinessGrouping, instructions, scope: planningScope, preparedWholeScope: wholePlan, grouping: buildReviewGroups(snapshot.files, inferFileRelations(snapshot.files)), maxInputBytes, signal: exec.signal });
         const useHostChildren = dispatch.childMode === 'host-subagents';
         if (useHostChildren) await hostChildren.prepare();
         await ownerGuard(exec, resolveCwd, current)();
@@ -206,14 +207,10 @@ function createSessionReviewService(llm, { resolveCwd, capture = captureSnapshot
       exec.signal.throwIfAborted();
       if (busy) throw new Error('Review service busy');
       if (!allowModelSending) throw new Error('Model sending is disabled by plugin configuration');
-      if (!args || Object.keys(args).some(k => !['previewId', 'confirmed'].includes(k)) || args.confirmed !== true || typeof args.previewId !== 'string') throw new Error('Confirmed preview is required');
-      const current = await reviewOwner(exec, resolveCwd), preview = previews.get(args.previewId);
-      try { previewValidity(preview, current, now()); }
-      catch (error) { if (error.code === 'PREVIEW_EXPIRED') previews.delete(args.previewId); throw error; }
-      prune();
       busy = true;
-      previews.delete(args.previewId);
       try {
+        const { current, preview } = await consumeApprovedPreview(args, exec, { previews, resolveCwd, now, signal: exec.signal });
+        prune();
         const target = await resolveWorkspaceRepository(current.cwd, preview.options.repositoryPath);
         if (target !== preview.target) throw new Error('Repository target changed; preview again');
         const snapshot = await capture(target, { ...preview.options, signal: exec.signal });
@@ -227,20 +224,17 @@ function createSessionReviewService(llm, { resolveCwd, capture = captureSnapshot
         if (executionPlan && executionPlan.requestHash !== preview.requestHash) throw new Error('Single-pass request changed; preview again');
         const resumeIdentity = resumeOptions(preview.options, preview.route, preview.rounds, preview.effort.mode, preview.instructions, preview.effectiveStrategy, preview.singlePassPolicy);
         const resumeState = preview.resumeState ? validateResumeState(preview.resumeState, snapshot, resumeIdentity) : undefined;
-        if (await authorize({ snapshot, route: preview.route, exec }) !== true) throw new Error('Model sending approval denied or unavailable');
-        exec.signal?.throwIfAborted();
-        const checkOwner = ownerGuard(exec, resolveCwd, preview);
-        await ownerGuard(exec, resolveCwd, preview, 'Agent changed during approval')();
+        const checkOwner = await authorizeApprovedSnapshot({ snapshot, preview, exec, authorize, resolveCwd, signal: exec.signal });
         const guardedLlm = guardReviewLlm(llm, async () => {
           await checkOwner();
           if (preview.effectiveStrategy === 'single-pass') {
             const capacity = await capacityFor(preview.route, exec);
             await checkOwner();
-            if (JSON.stringify(capacity) !== JSON.stringify(preview.singlePassPolicy.modelCapacity)) throw new Error('Model capacity policy changed; preview again');
+            if (JSON.stringify(capacity) !== JSON.stringify(preview.singlePassPolicy.modelCapacity)) throw Object.assign(new Error('Model capacity policy changed; preview again'), { code: 'REVIEW_MODEL_CAPACITY_CHANGED' });
           }
         });
         await exec.reviewCheckpoint?.({stage:'approved-manifest',snapshotId:snapshot.id,files:snapshot.files.map(f=>({fileId:f.id,path:f.path,status:f.eligibility==='reviewable'?'pending':f.eligibility}))});
-        const report = await reviewSnapshot(preview.history.selection?.reviewSnapshot ?? snapshot, createDshModel(guardedLlm, preview.route, preview.effectiveStrategy === 'single-pass' ? {strictSingleCall:true,correctJson:false,maxJsonCorrections:0,useNativeTools:false} : {correctJson:true,useNativeTools:nativeOutputTools}), { approvedRetrievalSnapshot: snapshot, instructions: preview.instructions, reviewEffort: preview.effort, enableCounterVerification: enableCounterVerification && preview.effort.counterVerification.eligible, executionStrategy:preview.effectiveStrategy, maxInputBytes: preview.effectiveStrategy === 'single-pass' ? singlePassMaxInputBytes : maxInputBytes, wholeScopeConcurrency, childTransport:!!hostChildren, childExecution: preview.useHostChildren ? 'host-subagents' : undefined, createBatchModel: preview.useHostChildren ? async args => { await checkOwner(); return hostChildren.create({ ...args, parent: exec.agent, route: preview.route, cwd: target, checkParentOwner: checkOwner }); } : undefined, signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableGroupPrimary, enableEvidenceContext, inlineInteractionRisks, enableMigrationContracts, enableMigrationRegression, enableModelComparison, enableGroupInteractions, enableStageContinuation, nativeOutputTools: preview.effectiveStrategy === 'single-pass' ? false : nativeOutputTools, enableVerification: true, riskPlanningMode, readerBudgetPolicy, optimizeReviewCalls, enablePrimarySeeds, focusPrimaryContext, enableSearchSeeds, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:preview.rounds, enableBusinessGrouping, enableAnchorCorrection, enableMemberIsolation, relationAwareGrouping, primaryInputMode, enableInvestigationState, enableAsyncVerification, verificationConcurrency,changesConcurrency,maxRetrievalRounds,maxVerificationRetrievalRounds,correctProtocol:true, onProgress:exec.reviewCheckpoint, resumeState, onModelArtifact: exec.onModelArtifact, onResumeCheckpoint: exec.reviewResumeCheckpoint ? async checkpoint => { await exec.reviewResumeCheckpoint(buildResumeState(snapshot, resumeIdentity, checkpoint)); } : undefined });
+        const report = await reviewSnapshot(preview.history.selection?.reviewSnapshot ?? snapshot, createDshModel(guardedLlm, preview.route, preview.effectiveStrategy === 'single-pass' ? {strictSingleCall:true,correctJson:false,maxJsonCorrections:0,useNativeTools:false,maxTokens:preview.singlePassPolicy.maxOutputTokens} : {correctJson:true,useNativeTools:nativeOutputTools}), { approvedRetrievalSnapshot: snapshot, instructions: preview.instructions, reviewEffort: preview.effort, enableCounterVerification: enableCounterVerification && preview.effort.counterVerification.eligible, executionStrategy:preview.effectiveStrategy, maxInputBytes: preview.effectiveStrategy === 'single-pass' ? singlePassMaxInputBytes : maxInputBytes, wholeScopeConcurrency, childTransport:!!hostChildren, childExecution: preview.useHostChildren ? 'host-subagents' : undefined, createBatchModel: preview.useHostChildren ? async args => { await checkOwner(); return hostChildren.create({ ...args, parent: exec.agent, route: preview.route, cwd: target, checkParentOwner: checkOwner }); } : undefined, signal: exec.signal, enableRetrieval: true, enableGrouping: true, enableGroupPrimary, enableEvidenceContext, inlineInteractionRisks, enableMigrationContracts, enableMigrationRegression, enableModelComparison, enableGroupInteractions, enableStageContinuation, nativeOutputTools: preview.effectiveStrategy === 'single-pass' ? false : nativeOutputTools, enableVerification: true, riskPlanningMode, readerBudgetPolicy, optimizeReviewCalls, enablePrimarySeeds, focusPrimaryContext, enableSearchSeeds, enableRiskPlanning, skipSmallRiskPlans, reviewRounds:preview.rounds, enableBusinessGrouping, enableAnchorCorrection, enableMemberIsolation, relationAwareGrouping, primaryInputMode, enableInvestigationState, enableAsyncVerification, verificationConcurrency,changesConcurrency,maxRetrievalRounds,maxVerificationRetrievalRounds,correctProtocol:true, onProgress:exec.reviewCheckpoint, resumeState, onModelArtifact: exec.onModelArtifact, onResumeCheckpoint: exec.reviewResumeCheckpoint ? async checkpoint => { await exec.reviewResumeCheckpoint(buildResumeState(snapshot, resumeIdentity, checkpoint)); } : undefined });
         if (preview.history.selection?.plan.requiredReportStatus === 'partial') { if (report.status==='completed') report.status='partial'; report.limitations.push({text:'增量复审只检查本轮选定主文件；未重审文件仅作批准检索上下文，不代表完整范围已查完。'}); }
         report.dispatch = preview.dispatch;
         report.execution = preview.effectiveStrategy === 'single-pass' ? { executionStrategy: 'single-pass', ...preview.singlePassPolicy, requestHash: preview.requestHash, tokenFits: 'unknown', retrieval: false, verification: 'not-requested', counterVerification: false, childMode: 'none', assurance: 'single-model-not-independently-verified' } : { ...report.execution, executionStrategy: preview.effectiveStrategy, maxRetrievalRounds, maxVerificationRetrievalRounds, enableModelComparison, enableMemberIsolation, relationAwareGrouping, primaryInputMode, enableInvestigationState, enableAsyncVerification, verificationConcurrency };

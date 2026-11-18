@@ -1,0 +1,44 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtemp, rename, writeFile, rm } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import { checked } from '../src/process.mjs';
+import { captureSnapshot, captureSnapshotWithMetrics } from '../src/snapshot.mjs';
+
+test('SVN metrics only observe adapter I/O and preserve fixed history and offline working capture', async t => {
+  const prefix = 'dsh-svn-metrics-';
+  const base = await mkdtemp(path.join(os.tmpdir(), prefix));
+  t.after(async () => {
+    assert.ok(path.basename(base).startsWith(prefix));
+    await rm(base, { recursive: true, force: true });
+  });
+  const repo = path.join(base, 'repo'), root = path.join(base, 'wc');
+  const svn = (...args) => checked('svn', ['--non-interactive', ...args], { cwd: root });
+  await checked('svnadmin', ['create', repo]);
+  await checked('svn', ['checkout', '--non-interactive', pathToFileURL(repo).href, root]);
+  const file = path.join(root, 'a.txt');
+  await writeFile(file, 'first\n');
+  await svn('add', 'a.txt@');
+  await svn('commit', '-m', 'fixture');
+  await writeFile(file, 'second\n');
+  await svn('commit', '-m', 'fixture');
+  await writeFile(file, 'third\n');
+  const historyOptions = { svnRevision: '2' };
+  const history = await captureSnapshotWithMetrics(root, historyOptions);
+  assert.deepEqual(history.snapshot, await captureSnapshot(root, historyOptions));
+  assert.equal(history.snapshot.files[0].left.text, 'first\n');
+  assert.equal(history.snapshot.files[0].right.text, 'second\n');
+  assert.equal(history.metrics.phases['svn-history'].sourceStdoutBytes, 13);
+  assert.equal(history.metrics.phases['svn-history'].localSourceBytes, 0);
+  await rename(repo, repo + '-offline');
+  const working = await captureSnapshotWithMetrics(root);
+  assert.deepEqual(working.snapshot, await captureSnapshot(root));
+  assert.equal(working.snapshot.files[0].left.text, 'second\n');
+  assert.equal(working.snapshot.files[0].right.text, 'third\n');
+  assert.equal(working.metrics.phases['working-capture'].sourceStdoutBytes, 7);
+  assert.equal(working.metrics.phases['working-capture'].localSourceBytes, 12);
+  assert.equal(working.metrics.phases['working-recheck'].localSourceBytes, 12);
+  assert.doesNotMatch(JSON.stringify(working.metrics), /a\.txt|third|second/);
+});

@@ -16,13 +16,15 @@ import { isDeepStrictEqual } from 'node:util';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { checked } from './process.mjs';
 import { hash, decode, readLocal, relativePath } from './content.mjs';
+import { measureSnapshotCommand, measureSnapshotLocalSource } from './snapshot-capture-metrics.mjs';
 const parser = new XMLParser({ htmlEntities: {}, ignoreAttributes: false, parseTagValue: false, parseAttributeValue: false, trimValues: false, isArray: name => ['entry', 'target', 'property'].includes(name) });
 export function xml(bytes) {
   const source = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
   if (/<!DOCTYPE|<!ENTITY/i.test(source) || XMLValidator.validate(source) !== true) throw new Error('Unsafe or invalid SVN XML');
   return parser.parse(source);
 }
-const svn = (cwd, args, options) => checked('svn', ['--non-interactive', ...args], { ...options, cwd });
+const svn = (cwd, args, options) => measureSnapshotCommand(() => checked('svn', ['--non-interactive', ...args], { ...options, cwd }), args[0] === 'cat' ? 'source' : 'metadata');
+const readWorktree = (root, name, options) => measureSnapshotLocalSource(() => readLocal(root, name, options));
 const target = name => name + '@';
 async function properties(root, name, baseline, options) {
   const data = xml(await svn(root, ['proplist', '--xml', '--verbose', ...(baseline ? ['-r', 'BASE'] : []), '--', target(name)], options));
@@ -157,7 +159,7 @@ export async function captureSvn(cwd, options = {}) {
         item.left = replacement?replacement.content:decode(Buffer.alloc(0)); item.right = decode(Buffer.alloc(0));
       } else {
         item.left = replacement?replacement.content:decode(hasBase ? await svn(root, ['cat', '-r', 'BASE', '--', target(name)], { ...options, maxBytes: maxFileBytes }) : Buffer.alloc(0));
-        item.right = status === 'deleted'||kind==='dir' ? decode(Buffer.alloc(0)) : Object.hasOwn(rightProps,'svn:special')?(await readWorkingSvnSpecial(root,name,rightProps,options)).content:await readLocal(root, name, options);
+        item.right = status === 'deleted'||kind==='dir' ? decode(Buffer.alloc(0)) : Object.hasOwn(rightProps,'svn:special')?(await readWorkingSvnSpecial(root,name,rightProps,options)).content:await readWorktree(root, name, options);
         const oldSpecial=svnSpecialData(item.left,leftProps,replacement?.kind??kind),newSpecial=svnSpecialData(item.right,rightProps,kind);
         if(oldSpecial||newSpecial){item.specialData={old:oldSpecial,new:newSpecial};item.contentNotice='SVN link record data only on special sides; target strings authorize no target reads or source navigation.';}
         if(Object.hasOwn(leftProps,'svn:eol-style')||Object.hasOwn(rightProps,'svn:eol-style')){
@@ -199,7 +201,7 @@ export async function captureSvn(cwd, options = {}) {
       if (identity !== item.copyNodeIdentity) throw new Error('Copy source identity changed during capture');
     }
     if(item.kind==='file'&&item.rawStatus!=='deleted'){
-      const current=item.specialData?.new?(await readWorkingSvnSpecial(root,item.path,await properties(root,item.path,false,options),options)).content:await readLocal(root,item.path,options);
+      const current=item.specialData?.new?(await readWorkingSvnSpecial(root,item.path,await properties(root,item.path,false,options),options)).content:await readWorktree(root,item.path,options);
       if(current.hash!==item.right.hash)throw new Error('Content changed during capture');
     }
     const replacement=item.replacementSource?await readReplacementSource(root,rootInfo,item.path,options.svnReplacementBaseRevision,options):null;

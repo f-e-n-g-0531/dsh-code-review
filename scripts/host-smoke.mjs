@@ -45,6 +45,15 @@ ctx.set('llm', { async *stream(request) {
   assert.ok(allowed); modelCalls++;
   assert.equal(request.provider, 'offline-test');
   assert.equal(request.model, 'none');
+  const input = JSON.parse(request.messages[0].content[0].text);
+  if (input.sourceMode === 'single-pass') {
+    assert.deepEqual(request.tools, []);
+    assert.equal(request.retryPolicy?.maxRetries, 0);
+    const completion = { status: 'completed', gaps: [] };
+    yield { type: 'text-delta', text: JSON.stringify({ reviews: input.reviews.map(({ fileId }) => ({ fileId, findings: [], limitations: [], completion })), limitations: [], completion }) };
+    yield { type: 'finish', reason: { kind: 'stop' } };
+    return;
+  }
   assert.equal(request.tools.length, 1);
   assert.equal(request.tools[0].name, 'submit_review_result');
   assert.deepEqual(Object.keys(request.tools[0]).sort(), ['description', 'name', 'parameters']);
@@ -69,10 +78,14 @@ ctx.set('approval', { request: async request => {
   assert.match(request.reason, /offline-test\/none/);
   return allowed ? 'allowed-once' : 'rejected';
 } });
-// This fixture asserts staged risk-plan/round contracts; production auto has separate child smoke coverage.
-plugin.apply(ctx, { allowModelSending: true, executionStrategy: 'staged' });
-console.log('Real ToolRuntime accepted synchronous and background review tools.');
+// Background smoke reports belong to an isolated profile, never the installed host's data.
 const root = await mkdtemp(path.join(os.tmpdir(), 'dsh-review-host-'));
+const profile = await mkdtemp(path.join(os.tmpdir(), 'dsh-review-smoke-profile-'));
+const priorProfile = process.env.DSH_PROFILE_DIR;
+process.env.DSH_PROFILE_DIR = profile;
+try { plugin.apply(ctx, { allowModelSending: true }); }
+finally { if (priorProfile === undefined) delete process.env.DSH_PROFILE_DIR; else process.env.DSH_PROFILE_DIR = priorProfile; }
+console.log('Real ToolRuntime accepted synchronous and background review tools.');
 try {
   await checked('git', ['init', '-q'], { cwd: root });
   await writeFile(path.join(root, 'sample.js'), 'const value = 1;');
@@ -94,7 +107,18 @@ try {
   assert.equal(backgroundResult.status,'completed');assert.ok(backgroundResult.resultSummary.previewId);assert.equal(modelCalls,0);
   console.log('Background preview waited through progress to terminal without model sending.');
   allowed = true;
-  const approvedPreview = JSON.parse((await previewTool.execute({}, exec)).json);
+  const autoPreview = JSON.parse((await previewTool.execute({}, exec)).json);
+  assert.equal(autoPreview.execution.executionStrategy, 'single-pass');
+  assert.equal(modelCalls, 0);
+  const autoResult = await tools.get('code_review_execute').execute({ previewId: autoPreview.previewId, confirmed: true }, exec);
+  const single = JSON.parse(autoResult.json);
+  assert.equal(modelCalls, 1);
+  assert.equal(single.status, 'completed');
+  assert.equal(single.executionAssurance.independentVerification, false);
+  assert.equal(single.orchestration.requestHash, autoPreview.plan.requestHash);
+  assert.match(autoResult.markdown, /^## 1[.] 改动内容/m);
+  modelCalls = 0;
+  const approvedPreview = JSON.parse((await previewTool.execute({ executionStrategy: 'staged' }, exec)).json);
   const statusBefore = await checked('git', ['status', '--porcelain=v1'], { cwd: root });
   const output = await tools.get('code_review_execute').execute({ previewId: approvedPreview.previewId, confirmed: true }, exec);
   const report = JSON.parse(output.json);
@@ -102,7 +126,7 @@ try {
   assert.equal(report.coverage.completed, 1);
   assert.equal(report.outdated, false);
   assert.equal(report.model.provider, 'offline-test');
-  assert.match(output.markdown, /代码审核简报/);
+  assert.match(output.markdown, /^## 2[.] 报告/m);
   assert.deepEqual(await checked('git', ['status', '--porcelain=v1'], { cwd: root }), statusBefore);
   assert.equal(await readFile(path.join(root, 'sample.js'), 'utf8'), 'const value = 1;');
   const roundsPreview=JSON.parse((await previewTool.execute({reviewRounds:2},exec)).json);
@@ -113,16 +137,16 @@ try {
   await checked('git',['config','user.name','test'],{cwd:root});await checked('git',['config','user.email','test@example.com'],{cwd:root});
   await checked('git',['commit','-qm','base'],{cwd:root});
   await writeFile(path.join(root,'sample.js'),'const value = 2;');await checked('git',['commit','-qam','target'],{cwd:root});
-  const historical=JSON.parse((await previewTool.execute({commit:'HEAD',callerScopePaths:['clients']},exec)).json);assert.ok(historical.callerDiscovery);assert.equal(historical.callerDiscovery.indexes.length,2);
+  const historical=JSON.parse((await previewTool.execute({executionStrategy:'staged',commit:'HEAD',callerScopePaths:['clients']},exec)).json);assert.ok(historical.callerDiscovery);assert.equal(historical.callerDiscovery.indexes.length,2);
   const beforeHistory=await checked('git',['status','--porcelain=v1'],{cwd:root});
   const historyReport=JSON.parse((await tools.get('code_review_execute').execute({previewId:historical.previewId,confirmed:true},exec)).json);assert.equal(historyReport.coverage.completed,1);assert.equal(historyReport.outdated,false);assert.equal(modelCalls,4);assert.equal(approvalCalls,0);assert.deepEqual(await checked('git',['status','--porcelain=v1'],{cwd:root}),beforeHistory);
   console.log('Host-invoked offline adapter completed single and explicit double review without additional approval via current Agent route without modifying Git content.');
   responseMode = 'bad-json-once';
-  const retryPreview=JSON.parse((await previewTool.execute({commit:'HEAD'},exec)).json);
+  const retryPreview=JSON.parse((await previewTool.execute({executionStrategy:'staged',commit:'HEAD'},exec)).json);
   const corrected=JSON.parse((await tools.get('code_review_execute').execute({previewId:retryPreview.previewId,confirmed:true},exec)).json);
   assert.equal(modelCalls,6);assert.equal(corrected.coverage.completed,1);
   responseMode = 'provider-error';
-  const failPreview=JSON.parse((await previewTool.execute({commit:'HEAD'},exec)).json);
+  const failPreview=JSON.parse((await previewTool.execute({executionStrategy:'staged',commit:'HEAD'},exec)).json);
   const failed=JSON.parse((await tools.get('code_review_execute').execute({previewId:failPreview.previewId,confirmed:true},exec)).json);
   assert.equal(modelCalls,7);assert.equal(failed.files[0].status,'failed');assert.equal(failed.files[0].protocolDiagnostic.providerCode,'RATE_LIMIT');assert.equal(failed.files[0].protocolDiagnostic.providerStatus,429);assert.ok(!JSON.stringify(failed).includes('PRIVATE'));assert.ok(!JSON.stringify(failed).includes('private-id'));
   assert.deepEqual(await checked('git',['status','--porcelain=v1'],{cwd:root}),beforeHistory);
@@ -132,4 +156,6 @@ try {
   clearInterval(keepAlive);
   assert.ok(path.basename(root).startsWith('dsh-review-host-'));
   await rm(root, { recursive: true, force: true });
+  assert.ok(path.basename(profile).startsWith('dsh-review-smoke-profile-'));
+  await rm(profile, { recursive: true, force: true });
 }

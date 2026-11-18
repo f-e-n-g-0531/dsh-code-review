@@ -619,6 +619,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
             activeStage = 'verification';
             let verdicts = await verificationLoop(trackedModel, { ...request, onProtocolEvent, reviewPhase: 'verification' }, generated.findings, stageScope('verification:' + file.id), {
               correctProtocol:options.correctProtocol===true,maxRounds:maxVerificationRetrievalRounds,maxInputBytes, beforeCall, onBudgetLimited, yieldOnBudget: options.enableStageContinuation === true,
+              reserveFinalEvidence: !!readerAllocation,
               enableModelComparison: options.enableModelComparison === true && !input.projectScope, enableMigrationRegression: options.enableMigrationRegression === true, migrationContracts: report.migrationContracts?.contracts ?? [], migrationSnapshot: input,
               onMigrationSeeds: event => {
                 // Source-free host events only; never persist model text or reader bodies.
@@ -631,7 +632,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
               onTruncated: () => { result.limitations.push({ fileId: file.id, text: '复核检索结果达到数量上限' }); },
             });
             request.signal.throwIfAborted();
-            verdicts = await runCounterVerification(trackedModel, { ...request, onProtocolEvent, reviewPhase:'verification' }, generated.findings, verdicts, stageScope('verification:' + file.id), { enabled:options.enableCounterVerification === true, enableModelComparison:options.enableModelComparison===true&&!input.projectScope,enableMigrationRegression:options.enableMigrationRegression===true,migrationContracts:report.migrationContracts?.contracts??[],migrationSnapshot:input,maxRounds:maxVerificationRetrievalRounds,maxInputBytes,beforeCall,onBudgetLimited, isFatalError:error=>checkpointFailed||error?.code==='MODEL_ARTIFACT_FAILED' });
+            verdicts = await runCounterVerification(trackedModel, { ...request, onProtocolEvent, reviewPhase:'verification' }, generated.findings, verdicts, stageScope('verification:' + file.id), { enabled:options.enableCounterVerification === true, enableModelComparison:options.enableModelComparison===true&&!input.projectScope,enableMigrationRegression:options.enableMigrationRegression===true,migrationContracts:report.migrationContracts?.contracts??[],migrationSnapshot:input,maxRounds:maxVerificationRetrievalRounds,maxInputBytes,beforeCall,onBudgetLimited,reserveFinalEvidence:!!readerAllocation, isFatalError:error=>checkpointFailed||error?.code==='MODEL_ARTIFACT_FAILED' });
             request.signal.throwIfAborted();
             generated.findings.forEach((finding, i) => { finding.verification = { status: verdicts[i].counterVerification?.status === 'incomplete' ? 'incomplete' : 'completed', ...verdicts[i] }; });
             if (verdicts.some(v => v.verdict === 'supported' && v.regression?.classification === 'uncertain')) result.limitations.push({ fileId: file.id, text: '部分模型支持候选缺少充分前后对照，不能确认由本次变更引入' });

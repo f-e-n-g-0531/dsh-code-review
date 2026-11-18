@@ -8,6 +8,7 @@ const LABELS = Object.freeze({
   PROJECT_MODEL_CALL_LIMIT: '项目共享模型调用次数达到限制，审核未完成。',
   MODEL_CALL_LIMIT: '模型调用次数达到限制，审核未完成。',
   MODEL_TIMEOUT: '模型执行超时，审核未完成。',
+  REVIEW_JOB_OWNER_CHANGED: '后台审核归属发生变化，审核已停止。',
   REVIEW_CHILD_IDENTITY: '子会话身份校验失败，审查已停止。',
   REVIEW_CHILD_ROUTE: '子会话模型路由发生变化，请重新预览。',
   REVIEW_CHILD_INCOMPLETE: '子会话未提交有效最终结果，审核未完成。',

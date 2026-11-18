@@ -1,4 +1,5 @@
 import {captureSignal} from './capture-signal.mjs';
+import { measureSnapshotCommand } from './snapshot-capture-metrics.mjs';
 import {sameSvnUrl,canonicalSvnUrl} from './svn-url.mjs';
 import {svnHistoryEndpoints} from './svn-history-endpoints.mjs';
 import {realpath} from 'node:fs/promises';
@@ -68,7 +69,7 @@ export async function captureSvnHistory(cwd,options={}) {
   const budgetError = message => Object.assign(new Error(message), {code:'SVN_HISTORY_BUDGET'});
   const run=async(args,body=false)=>{
     signal.throwIfAborted();commands++;if(metadataBytes>1024*1024 || sourceBytes>maxSnapshotBytes)throw budgetError('SVN historical shared budget exceeded');
-    const bytes=await checked('svn',['--non-interactive',...args],{cwd,signal,maxBytes:body?maxFileBytes:1024*1024});
+    const bytes=await measureSnapshotCommand(() => checked('svn',['--non-interactive',...args],{cwd,signal,maxBytes:body?maxFileBytes:1024*1024}),body?'source':'metadata');
     if(body){sourceBytes+=bytes.length;if(sourceBytes>maxSnapshotBytes)throw budgetError('SVN historical source budget exceeded');}
     else{metadataBytes+=bytes.length;if(metadataBytes>1024*1024)throw budgetError('SVN historical metadata budget exceeded');}
     return bytes;

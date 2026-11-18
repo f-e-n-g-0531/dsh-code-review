@@ -18,3 +18,20 @@ test('explicit profile below an ancestor directory alias keeps its canonical job
 test('intermediate job-subtree junctions cannot escape the canonical profile',async t=>{const f=await fixture();try{const linkedProfile=path.join(f.dir,'review-nested-test');await mkdir(linkedProfile);try{await symlink(path.join(f.driver.profileDir,'data'),path.join(linkedProfile,'data'),process.platform==='win32'?'junction':'dir');}catch(e){if(['EPERM','EACCES'].includes(e.code)){t.skip('directory alias unavailable');return;}throw e;}await writeFile(f.config.driverConfig,JSON.stringify({...f.driver,profile:'review-nested-test',profileDir:linkedProfile}));const result=await runReviewRegression(f.config,{runDriver:async()=>{}});assert.equal(result.reason,'UNSAFE_JOB_DIRECTORY');}finally{await rm(f.dir,{recursive:true,force:true});}});
 test('preview-only cannot pass',async()=>{const f=await fixture();try{await save(f,'preview',{jobId:'preview',owner:f.owner,status:'failed',error:'private detail'});const result=await runReviewRegression(f.config,{runDriver:async()=>{}});assert.equal(result.reason,'PREVIEW_ONLY_NO_EXECUTE_REPORT');assert.equal(result.passed,false);assert.ok(!JSON.stringify(result).includes('private detail'));}finally{await rm(f.dir,{recursive:true,force:true});}});
 test('symlink job and nested artifacts are not scanned',async()=>{const f=await fixture();try{const outside=path.join(f.dir,'outside.json');await writeFile(outside,JSON.stringify({jobId:'outside',owner:f.owner,result:{report:{}}}));try{await symlink(outside,path.join(f.jobs,'link.json'));}catch(e){if(!['EPERM','EACCES'].includes(e.code))throw e;}await mkdir(path.join(f.jobs,'artifacts'));await writeFile(path.join(f.jobs,'artifacts','private.json'),'{broken');const result=await runReviewRegression(f.config,{runDriver:async()=>{}});assert.equal(result.reason,'NO_OWNED_EXECUTE_REPORT');assert.equal(result.passed,false);}finally{await rm(f.dir,{recursive:true,force:true});}});
+
+test('single-pass contract is checked before dispatch and kept with the only owned report', async () => {
+ const f=await fixture();
+ try {
+   const expected={...f.owner,strategy:'single-pass',snapshotId:'snapshot',requestHash:'a'.repeat(64),completedPaths:['a.js'],excludedPaths:[]};
+   let calls=0;
+   await assert.rejects(runReviewRegression({...f.config,expected:{...expected,requestHash:'malformed'}},{runDriver:async()=>{calls++;}}),/preview identity/);
+   assert.equal(calls,0);
+   const job={jobId:'single',owner:f.owner,status:'completed',result:{report:{status:'partial'}}};
+   await save(f,'execute',job);
+   const result=await runReviewRegression({...f.config,expected},{runDriver:async()=>{calls++;}});
+   assert.equal(calls,1); assert.equal(result.reportAvailable,true); assert.equal(result.passed,false);
+   const evidence=JSON.parse(await readFile(path.join(f.config.acceptanceOutputDir,'engineering-result.json'),'utf8'));
+   assert.equal(evidence.strategy,'single-pass');
+   assert.equal(evidence.provenance.reportSha256,createHash('sha256').update(JSON.stringify(job.result.report)).digest('hex'));
+ } finally {await rm(f.dir,{recursive:true,force:true});}
+});

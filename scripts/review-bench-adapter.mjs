@@ -3,6 +3,7 @@ import { checked } from '../src/process.mjs';
 import { captureSnapshot } from '../src/snapshot.mjs';
 import { reviewSnapshot } from '../src/review.mjs';
 import { modelJson } from '../src/model-json.mjs';
+import { singleModelCandidate } from '../src/report-summary.mjs';
 import { writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -15,6 +16,9 @@ export function benchmarkConfig(env) {
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(env.RB_NWO ?? '') || env.RB_NWO.split('/').some(part => part === '.' || part === '..')) throw new Error('Invalid RB_NWO');
   if (!/^[1-9][0-9]*$/.test(env.RB_PR_NUMBER ?? '') || !Number.isSafeInteger(Number(env.RB_PR_NUMBER))) throw new Error('Invalid RB_PR_NUMBER');
   if (!env.RB_REPO_DIR || !env.RB_OUT) throw new Error('Set RB_REPO_DIR and RB_OUT for local evaluation');
+  const profile = env.RB_PROFILE ?? 'staged-direct';
+  if (!['staged-direct', 'single-pass-direct'].includes(profile)) throw new Error('Invalid RB_PROFILE');
+  const executionStrategy = profile === 'single-pass-direct' ? 'single-pass' : 'staged';
   const mock = env.RB_MOCK === '1';
   if (env.RB_MOCK !== undefined && !['0', '1'].includes(env.RB_MOCK)) throw new Error('Invalid RB_MOCK');
   if (!mock && (!env.RB_CONFIG_MODEL || !env.RB_MODEL_BASE_URL)) throw new Error('Set an explicit RB_CONFIG_MODEL and RB_MODEL_BASE_URL');
@@ -27,7 +31,7 @@ export function benchmarkConfig(env) {
   return {
     repo: path.resolve(env.RB_REPO_DIR), out: path.resolve(env.RB_OUT), base, head,
     nwo: env.RB_NWO, prNumber: Number(env.RB_PR_NUMBER),
-    agent: env.RB_AGENT || 'dsh-code-review', mock, endpoint,
+    agent: env.RB_AGENT || 'dsh-code-review', profile, executionStrategy, mock, endpoint,
     model: env.RB_CONFIG_MODEL,
     apiKey: env.RB_CONFIG_API_KEY || env.OPENAI_API_KEY || env.DEEPSEEK_API_KEY || '',
   };
@@ -54,6 +58,7 @@ async function responseJson(response) {
 
 export function benchmarkExecutor(config, fetchImpl = fetch) {
   return async request => {
+    await request.beforeSend?.();
     const response = await fetchImpl(config.endpoint, {
       method: 'POST', redirect: 'error', signal: request.signal,
       headers: { 'Content-Type': 'application/json', ...(config.apiKey ? { Authorization: 'Bearer ' + config.apiKey } : {}) },
@@ -84,7 +89,8 @@ export function benchmarkFindings(snapshot, report, agent) {
     if (!file || file.startsWith('/') || file.includes('\\') || file.split('/').some(part => ['', '.', '..'].includes(part))) throw new Error('Unrepresentable finding path');
     // Do not invent target coordinates or silently remove a valid old-side issue.
     if (anchor?.kind !== 'line' || anchor.side !== 'new' || !Number.isSafeInteger(anchor.start) || !Number.isSafeInteger(anchor.end) || anchor.start < 1 || anchor.end < anchor.start) throw new Error('Finding has no valid head-side line range; see saved report');
-    if (finding.verification && (finding.verification.status !== 'completed' || finding.verification.verdict !== 'supported')) throw new Error('Finding requires explicit adjudication; see saved report');
+    const singlePass = report.execution?.executionStrategy === 'single-pass';
+    if (singlePass ? !singleModelCandidate(finding, report) : finding.verification && (finding.verification.status !== 'completed' || finding.verification.verdict !== 'supported')) throw new Error('Finding requires explicit adjudication; see saved report');
     const message = [finding.title, finding.evidence, finding.trigger, finding.impact, finding.suggestion].filter(value => typeof value === 'string' && value.trim()).join(' ');
     if (!message) throw new Error('Empty finding message');
     const mapped = { file, start_line: anchor.start, end_line: anchor.end, message, producer: agent };
@@ -95,18 +101,35 @@ export function benchmarkFindings(snapshot, report, agent) {
   return findings;
 }
 
+function benchmarkMock(request) {
+  if (request.sourceMode !== 'single-pass') return { findings: [], limitations: [] };
+  const completion = { status: 'completed', gaps: [] };
+  return {
+    reviews: JSON.parse(request.input).reviews.map(({ fileId }) => ({ fileId, findings: [], limitations: [], completion, assuranceNotes: [] })),
+    limitations: [], completion, assuranceNotes: [],
+  };
+}
+
+export function reviewBenchmarkSnapshot(snapshot, executor, executionStrategy, signal) {
+  if (!['staged', 'single-pass'].includes(executionStrategy)) throw new Error('Invalid benchmark execution strategy');
+  return reviewSnapshot(snapshot, executor, {
+    signal, executionStrategy, reviewRounds: 1, maxCalls: executionStrategy === 'single-pass' ? 1 : 100, timeoutMs: 120_000,
+    enableRetrieval: false, enableVerification: false, enableBusinessGrouping: false,
+  });
+}
+
 export async function runBenchmark(env = process.env) {
   const config = benchmarkConfig(env);
   const signal = AbortSignal.timeout(14 * 60 * 1000), started = Date.now();
   const bases = (await checked('git', ['merge-base', '--all', config.base, config.head], { cwd: config.repo, signal })).toString('utf8').trim().split(/\r?\n/);
   if (bases.length !== 1 || !/^[0-9a-f]{40}$/.test(bases[0])) throw new Error('Expected a unique merge base; no arbitrary base selected');
   const snapshot = await captureSnapshot(config.repo, { baseRevision: bases[0], targetRevision: config.head, signal });
-  const executor = config.mock ? async () => ({ findings: [], limitations: [] }) : benchmarkExecutor(config);
-  console.log('profile=single-pass-direct mock=' + config.mock + ' model=' + (config.model || 'none'));
-  const report = await reviewSnapshot(snapshot, executor, { signal, reviewRounds: 1, maxCalls: 100, timeoutMs: 120_000 });
+  const executor = config.mock ? benchmarkMock : benchmarkExecutor(config);
+  console.log('profile=' + config.profile + ' mock=' + config.mock + ' model=' + (config.model || 'none'));
+  const report = await reviewBenchmarkSnapshot(snapshot, executor, config.executionStrategy, signal);
   signal.throwIfAborted();
   // Each run owns fresh output paths; never mix attempts or overwrite prior results.
-  await writeFile(config.out + '.report.json', JSON.stringify({ mock: config.mock, profile: 'single-pass-direct', mergeBase: bases[0], report }, null, 2) + '\n', { flag: 'wx' });
+  await writeFile(config.out + '.report.json', JSON.stringify({ mock: config.mock, profile: config.profile, executionStrategy: config.executionStrategy, mergeBase: bases[0], report }, null, 2) + '\n', { flag: 'wx' });
   const findings = benchmarkFindings(snapshot, report, config.agent);
   const output = {
     pr: { repo: 'https://github.com/' + config.nwo, pr_number: config.prNumber, base: config.base, head: config.head },

@@ -86,10 +86,14 @@ export function prepareSinglePassInput(snapshot, { instructions, maxInputBytes, 
   const credentials = item => isSecretPath(item.path) || isSecretPath(item.oldPath);
   const members = snapshot.files.filter(file => file.eligibility === 'reviewable' && !credentials(file));
   if (members.some(file => typeof file.id !== 'string' || !file.id || typeof file.path !== 'string') || new Set(members.map(file => file.id)).size !== members.length) throw new Error('Invalid single-pass member identity');
+  const changesByFile = new Map();
   const reviews = members.map(file => {
     // Diff/hunk bodies are redundant derived views, never source identities.
-    const { left, right, diff, changes, changeMap: priorMap, ...identity } = structuredClone(file);
-    return { snapshotId: snapshot.id, fileId: file.id, file: { ...identity, left: source(left), right: source(right) }, changes: changeMap(left.text, right.text) };
+    const { left, right, diff, changes: priorChanges, changeMap: priorMap, ...identity } = structuredClone(file);
+    const approvedLeft = source(left), approvedRight = source(right);
+    const changes = changeMap(left.text, right.text);
+    changesByFile.set(file.id, changes);
+    return { snapshotId: snapshot.id, fileId: file.id, file: { ...identity, left: approvedLeft, right: approvedRight }, changes };
   });
   const denied = new Set(snapshot.files.filter(file => file.eligibility !== 'reviewable' || credentials(file)).flatMap(file => [file.path, file.oldPath].filter(Boolean)));
   const attachment = (item, context) => {
@@ -119,5 +123,5 @@ export function prepareSinglePassInput(snapshot, { instructions, maxInputBytes, 
   const budget = { fits: requiredBytes <= maxInputBytes, maxInputBytes, requiredBytes, inputBytes, instructionBytes, contractBytes, schemaBytes, overheadBytes, measurement: 'logical-utf8-bytes' };
   const metadata = { sourceMode: 'single-pass', snapshotId: snapshot.id, fileIds: [...fileIds], fileCount: fileIds.length, scopeCount: scope.length, contextCount: payload.context.length, ruleCount: payload.rules.length, contentCount: Object.keys(contents).length,
     inputHash: hash(input), scopeHash: hash(JSON.stringify(scope)), instructionsHash: hash(instructions), completeText: true, split: false, truncated: false };
-  return { input, instructions, fileIds, metadata, budget };
+  return { input, instructions, fileIds, metadata, budget, changesByFile };
 }

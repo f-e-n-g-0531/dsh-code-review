@@ -1,6 +1,10 @@
 # ReviewBench 本地评测入口（实验）
 
-无需 Docker，不提交公开排行榜，也不改变 DSH 宿主的模型配置。此入口直接调用审查核心，采用 **single-pass-direct**：一次审查，不启用检索、复核或业务分组。因此它的成绩不能代表 DSH 插件完整配置的质量。
+此实验直接调用审查核心，不经过 DSH 宿主，不启用检索、独立复核或业务分组，不代表生产插件配置的质量。
+
+- 默认 `RB_PROFILE=staged-direct`：显式使用 `staged`，保留之前的单轮逐文件／窗口行为，整次可有多次调用。
+- `RB_PROFILE=single-pass-direct`：显式使用 `single-pass`，完整范围最多一次调用（底层 96 KiB 输入上限；超限不发送、不回退）。
+- 旧输出的 `single-pass-direct` 标签曾指向 staged 路径，不得按新档位归类；比较时记录冻结版本和实际策略。
 
 ## 前置条件
 
@@ -18,6 +22,7 @@ $env:RB_HEAD = '<40位head SHA>'
 $env:RB_NWO = 'owner/repo'
 $env:RB_PR_NUMBER = '123'
 $env:RB_AGENT = 'dsh-code-review-local'
+$env:RB_PROFILE = 'staged-direct'
 $env:RB_OUT = 'G:\benchmark-output\fresh-run\findings.json'
 $env:RB_CONFIG_MODEL = '<模型名>'
 $env:RB_MODEL_BASE_URL = 'https://<可信端点>/v1'
@@ -29,11 +34,11 @@ node scripts/review-bench-adapter.mjs
 
 ## 输出与失败规则
 
-- `RB_OUT.report.json` 保存完整原报告、mock 标志、配置档与 merge-base，便于追溯覆盖与限制。
+- `RB_OUT.report.json` 保存完整原报告、mock 标志、配置档、实际选择的执行策略与 merge-base，便于追溯覆盖与限制。
 - 正式候选只在报告 completed 且所有选中文件 completed 时生成。partial/failed/cancelled、未完成文件不冒充空发现或成功。
 - 旧侧行、文件级/属性级锚点无法无损表达成基准要求的 head 行号；当前明确失败并保留原报告，不静默丢弃或猜测位置。
-- 不按行号合并不同问题；只去掉完全相同的导出记录。超过 200 条报错，不裁剪。
-- 每个文件审查链共用 120 秒生命周期（不是每个模型请求各有 120 秒）；适配器整次运行另有 14 分钟截止，不放宽核心输入/调用预算。
+- 单次路径只导出宿主协议、身份与锚点标记均通过的单模型候选，未做独立复核；不按行号合并不同问题，只去掉完全相同的导出记录。超过 200 条报错，不裁剪。
+- staged 路径每个文件审查链共用 120 秒，single-pass 路径整体共用 120 秒；适配器整次运行另有 14 分钟截止，不放宽核心输入或调用预算。
 - HTTP 错误不输出响应正文；完整 JSON 或单个完整 JSON fence 使用项目现有严格解析，截断和夹杂文本被拒绝。
 
 ## 离线冒烟

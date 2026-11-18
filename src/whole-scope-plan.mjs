@@ -72,26 +72,40 @@ export function prepareWholeScope(snapshot, { instructions, scope, maxInputBytes
   if (!reviews.length) return finish({ batches, oversized, wholeScope: true });
   const whole = prepare(reviews);
   if (reviews.length <= 200 && measure(whole).fits) return finish({ batches: [whole], oversized, wholeScope: true });
-  let pending = [];
+  let pending;
   const byId = new Map(reviews.map(row => [row.fileId, row]));
   const units = grouping ? grouping.groups.map(group => group.fileIds.map(id => byId.get(id))) : reviews.map(row => [row]);
+  const flush = () => {
+    if (pending) batches.push(pending.batch);
+    pending = undefined;
+  };
+  const tryAppend = rows => {
+    const combinedRows = pending ? [...pending.rows, ...rows] : rows;
+    if (combinedRows.length > 200) return false;
+    const batch = prepare(combinedRows);
+    if (!measure(batch).fits) return false;
+    pending = { rows: combinedRows, batch };
+    return true;
+  };
   for (const unit of units) {
     // Try the logical relation group atomically before any capacity split.
     if (grouping && unit.length > 1) {
-      if (pending.length + unit.length <= 200 && measure(prepare([...pending, ...unit])).fits) { pending.push(...unit); continue; }
-      if (pending.length) { batches.push(prepare(pending)); pending = []; }
-      if (measure(prepare(unit)).fits) { pending.push(...unit); continue; }
+      if (tryAppend(unit)) continue;
+      if (pending) {
+        flush();
+        const batch = prepare(unit);
+        if (measure(batch).fits) { pending = { rows: unit, batch }; continue; }
+      }
     }
     for (const row of unit) {
-      const proposed = prepare([...pending, row]);
-      if (pending.length < 200 && measure(proposed).fits) { pending.push(row); continue; }
-      if (pending.length) { batches.push(prepare(pending)); pending = []; }
+      if (pending && tryAppend([row])) continue;
+      flush();
       const single = prepare([row]);
       const budget = measure(single);
-      if (budget.fits) pending.push(row);
+      if (budget.fits) pending = { rows: [row], batch: single };
       else oversized.push({ fileId: row.fileId, path: row.file.path, requiredBytes: budget.requiredBytes ?? budget.bytes });
     }
   }
-  if (pending.length) batches.push(prepare(pending));
+  flush();
   return finish({ batches, oversized, wholeScope: true });
 }

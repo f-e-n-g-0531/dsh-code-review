@@ -64,7 +64,12 @@ test('verification retrieval preserves strict-validation calls; each invocation 
 test('strict final evidence overload never becomes completed and cancellation preserves the shared ledger',async()=>{
  const scope=createRetrievalScope(snapshot,{maxCalls:4,maxOutputBytes:64*1024});
  const request={input:JSON.stringify({snapshotId:snapshot.id}),instructions:'verify'};
- await assert.rejects(verificationLoop(req=>{const input=JSON.parse(req.input);const receipt=input.retrieved.find(r=>r.result.receiptId).result.receiptId;return final(input,Array.from({length:8},()=>({receiptId:receipt})));},request,[finding],scope,{reserveFinalEvidence:true,maxRounds:3}),e=>e.code==='READER_CALL_BUDGET_EXCEEDED');
+ await assert.rejects(verificationLoop(req=>{
+  const input=JSON.parse(req.input);
+  const { receiptId, endOfSource, ...seed } = input.retrieved.find(r=>r.result.receiptId).result;
+  const evidence = [{ receiptId }, ...[8, 9, 10, 11].map(start => ({ ...seed, start, count: 1, text: 'x'.repeat(100) + '\n' }))];
+  return final(input,evidence);
+ },request,[finding],scope,{reserveFinalEvidence:true,maxRounds:3}),e=>e.code==='READER_CALL_BUDGET_EXCEEDED');
  assert.equal(scope.usage().calls,4);assert.equal(scope.budget().maxCalls,4);
  const controller=new AbortController();
  const root=createRetrievalScope(snapshot,{maxCalls:10});

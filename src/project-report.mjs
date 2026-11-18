@@ -1,11 +1,12 @@
 import { markdownReport } from './review.mjs';
+import { projectReportInteractions } from './report-summary.mjs';
 
 export function renderProjectReport(report) {
   const merged = {
     ...report,
     reviewMode: 'project',
     findings: report.findings ?? [],
-    interactions: (report.batches ?? []).flatMap(b => b.interactions ?? []),
+    interactions: projectReportInteractions(report),
     limitations: [...(report.limitations ?? []), ...(report.batches ?? []).flatMap(b => b.limitations ?? [])],
     scopeNotices: report.scopeNotices ?? (report.batches ?? []).flatMap(b => b.scopeNotices ?? []),
   };

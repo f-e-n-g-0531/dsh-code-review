@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
 
-function* lineRanges(text) {
-  let start = 0, line = 1;
+// Sparse UTF-16 offsets keep bounded memory even for newline-dense sources.
+// Only LF delimits a line; CRLF bytes remain in the returned original slice.
+const LINE_INDEX_STRIDE = 128;
+function* lineRanges(text, start = 0, line = 1) {
   while (start < text.length) {
     const newline = text.indexOf('\n', start);
     const end = newline < 0 ? text.length : newline + 1;
@@ -91,8 +93,23 @@ export function createSnapshotReader(snapshotId, entries, { maxBytes = 4 * 1024 
     if (!sources.has(id)) throw new Error('Source not authorized');
     if (!Number.isSafeInteger(start) || start < 1 || !Number.isSafeInteger(count) || count < 1 || count > 200) throw new Error('Invalid line range');
     const source = sources.get(id);
+    const block = Math.floor((start - 1) / LINE_INDEX_STRIDE);
+    const offsets = source.lineIndex ??= [0];
+    // Extend only as far as needed. A first deep lookup does not scan its tail.
+    while (offsets.length <= block && !source.lineIndexComplete) {
+      signal?.throwIfAborted();
+      let offset = offsets.at(-1);
+      for (let i = 0; i < LINE_INDEX_STRIDE && offset < source.text.length; i++) {
+        const newline = source.text.indexOf('\n', offset);
+        offset = newline < 0 ? source.text.length : newline + 1;
+      }
+      if (offset === source.text.length) source.lineIndexComplete = true;
+      else offsets.push(offset);
+    }
+    const offset = offsets[block];
+    if (offset === undefined) throw new Error('Line range outside source');
     let beginOffset = -1, endOffset = 0, selectedCount = 0;
-    for (const range of lineRanges(source.text)) {
+    for (const range of lineRanges(source.text, offset, block * LINE_INDEX_STRIDE + 1)) {
       if (range.line < start) continue;
       if (beginOffset < 0) beginOffset = range.start;
       endOffset = range.end;

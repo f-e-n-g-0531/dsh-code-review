@@ -150,6 +150,12 @@ export function supportedFindingPriorities(report = {}) {
  * crossFile is separate. complete means processing finished, never release approval.
  * Returned objects/arrays are newly allocated and contain no raw model/source text.
  */
+export function projectReportInteractions(report = {}) {
+  // The technical adapter may already provide this projection. Never count twice.
+  if (Array.isArray(report.interactions)) return report.interactions;
+  return rows(report.batches).flatMap(batch => rows(batch?.interactions));
+}
+
 export function reportSummaryData(report = {}) {
   const findings = rows(report.findings), files = rows(report.files);
   const project = report.mode === 'project' || report.reviewMode === 'project' || Boolean(report.projectScope);
@@ -181,11 +187,12 @@ export function reportSummaryData(report = {}) {
     if (file?.continuationPending) reasons.push('后续阶段待执行');
     if (rows(file?.windowCoverage?.pending).length) reasons.push('窗口待审 ' + file.windowCoverage.pending.length);
     if (file?.synthesisStatus && file.synthesisStatus !== 'completed') reasons.push('综合未完成');
-    if (file?.verificationStatus && file.verificationStatus !== 'completed' && !(singlePass && file.verificationStatus === 'not-requested') || findings.some(finding => file?.fileId != null && finding?.fileId === file.fileId && finding?.verification?.status !== 'completed' && !singleModelCandidate(finding, report))) reasons.push('复核未完成');
+    if (file?.verificationStatus && file.verificationStatus !== 'completed' && !(singlePass && file.verificationStatus === 'not-requested') || findings.some(finding => file?.fileId != null && finding?.fileId === file.fileId && (!project || finding.batchSnapshotId === file.batchSnapshotId) && finding?.verification?.status !== 'completed' && !singleModelCandidate(finding, report))) reasons.push('复核未完成');
     if (rows(file?.reviewPasses).some(pass => pass?.status !== 'completed')) reasons.push('审查轮次未完成');
     return reasons.length ? [{ path: String(file?.path ?? '未命名条目'), reasons }] : [];
   });
-  const interactions = rows(report.interactions);
+  const interactions = project ? projectReportInteractions(report) : rows(report.interactions);
+  const crossBatchUnassessed = project && rows(report.batches).length > 1;
   const crossFile = { total: interactions.length, completed: interactions.filter(item => item?.status === 'completed').length, pending: interactions.filter(item => item?.status !== 'completed').length };
   const stages = Object.fromEntries(['pending', 'running', 'stopped'].map(status => [status, validCount(report.stageContinuation?.[status]) ? report.stageContinuation[status] : 0]));
   const unverifiedCandidates = findings.filter(finding => finding?.verification?.status !== 'completed' && !singleModelCandidate(finding, report)).length;
@@ -195,12 +202,12 @@ export function reportSummaryData(report = {}) {
     !FILE_STATES.some(status => !['completed', 'excluded'].includes(status) && coverage[status] > 0);
   return {
     status: typeof report.status === 'string' ? report.status : 'unknown',
-    complete, outdated: Boolean(report.outdated), emptySelection: total === 0,
+    complete, currentComplete: complete && !report.outdated, outdated: Boolean(report.outdated), emptySelection: total === 0,
     counts: { total: findings.length, ...counts },
     ...(singlePass ? { singlePass: { assurance: 'single-model', independentlyVerified: false, candidates: counts.singleModel } } : {}),
     modelComparison: { supported: findings.filter(modelComparisonValidated).length, introduced: findings.filter(f => modelComparisonValidated(f) && f.verification.regression.classification === 'introduced').length, preexisting: findings.filter(f => modelComparisonValidated(f) && f.verification.regression.classification === 'preexisting').length },
     coverage: { total, loaded: files.length, detailsComplete, unit: project ? 'files' : 'change-entries', ...coverage },
-    unfinished, crossFile, stages, unverifiedCandidates,
+    unfinished, crossFile, crossBatchUnassessed, stages, unverifiedCandidates,
     verification: {
       supported: counts.introduced + counts.preexisting + counts.current,
       uncertain: findings.filter(finding => verificationPresentation(finding, report) === 'uncertain').length,
@@ -217,7 +224,7 @@ export function reportSummaryData(report = {}) {
 export function reportSummaryMarkdown(report = {}) {
   const data = reportSummaryData(report), { counts, coverage } = data;
   const state = data.emptySelection ? '未选择条目，没有执行代码审核（' + (STATUS_LABELS[data.status] ?? '状态未知') + '）' :
-    data.complete ? (singlePassCompletionData(report) ? '约定静态审核完成' : '所选范围已查完') : '尚未查完（' + (STATUS_LABELS[data.status] ?? '状态未知') + '）' + (singlePassCompletionData(report) ? '；不完整验收失败' : '');
+    data.complete ? (data.outdated ? '此前快照的所选范围已查完' : singlePassCompletionData(report) ? '约定静态审核完成' : '所选范围已查完') : '尚未查完（' + (STATUS_LABELS[data.status] ?? '状态未知') + '）' + (singlePassCompletionData(report) ? '；不完整验收失败' : '');
   const firstCounts = counts.total ? [
     counts.introduced ? '复核支持本次新增 ' + counts.introduced : '',
     counts.current ? '当前源码复核支持 ' + counts.current : '',
@@ -273,7 +280,8 @@ export function reportSummaryMarkdown(report = {}) {
   if (data.unfinished.length) output.push('- 未完成条目 ' + data.unfinished.length + '（完整范围见后文及附录）' + (coverage.detailsComplete ? '。' : '；仅计已加载明细。'));
   if (Object.values(data.stages).some(Boolean)) output.push('- 后续阶段：待执行 ' + data.stages.pending + '，执行中 ' + data.stages.running + '，已停止 ' + data.stages.stopped + '。');
   if (data.unverifiedCandidates) output.push('- 候选复核未完成：' + data.unverifiedCandidates + ' 项。');
-  if (data.crossFile.total) output.push('- 跨文件综合：完成 ' + data.crossFile.completed + '/' + data.crossFile.total + ' 项；未完成 ' + data.crossFile.pending + ' 项。');
+  if (data.crossFile.total) output.push('- ' + (data.crossBatchUnassessed ? '批内' : '') + '跨文件综合：完成 ' + data.crossFile.completed + '/' + data.crossFile.total + ' 项；未完成 ' + data.crossFile.pending + ' 项。');
+  if (data.crossBatchUnassessed) output.push('- 未核查跨批次关系；批内完成不代表全项目跨文件覆盖。');
   if (data.limitations) output.push('- 已记录限制：' + data.limitations + ' 项，见限制明细。');
   if (data.scopeNotices) output.push('- 范围说明：' + data.scopeNotices + ' 项，见附录；不计为未完成限制，完成不等于全部批准上下文已核查。');
   const qualifications = ['完成仅指处理进度，空发现不证明无缺陷'];

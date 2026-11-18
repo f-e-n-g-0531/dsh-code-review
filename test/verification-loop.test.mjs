@@ -187,9 +187,26 @@ test('seeded verification still enforces shared model budget, cancellation and e
     return verdict('uncertain', []);
   }, {}, [anchored()], low);
   assert.equal(low.usage().calls, 0);
-  const exhausted = approved({ maxCalls: 2 });
-  await assert.rejects(verificationLoop(request => {
-    const { receiptId } = JSON.parse(request.input).retrieved[0].result;
-    return verdict('supported', [{ receiptId }, { receiptId }]);
-  }, {}, [anchored()], exhausted), /Reader call budget exceeded/);
+});
+
+test('final validation shares exact reads across candidates but validates every reference', async () => {
+  for (const tampered of [false, true]) {
+    const s = approved({ maxCalls: 3 });
+    const run = verificationLoop(request => {
+      const input = JSON.parse(request.input);
+      if (!input.retrieved.length) {
+        assert.equal(input.retrievalBudget.remainingCalls, 2);
+        return { requests: [{ kind: 'read', id: input.catalog[0].id, start: 1, count: 1 }] };
+      }
+      const { receiptId, endOfSource, ...ref } = input.retrieved[0].result;
+      return { verdicts: [
+        { candidateId: 'c1', verdict: 'supported', reason: 'Exact receipt', evidence: [{ receiptId }] },
+        { candidateId: 'c2', verdict: 'supported', reason: 'Exact source', evidence: [tampered ? { ...ref, text: 'wrong' } : ref] },
+        { candidateId: 'c3', verdict: 'supported', reason: 'Same exact receipt', evidence: [{ receiptId }] },
+      ] };
+    }, {}, [{}, {}, {}], s, { reserveFinalEvidence: true });
+    if (tampered) await assert.rejects(run, /snapshot: text/);
+    else assert.deepEqual((await run).map(v => v.verdict), ['supported', 'supported', 'supported']);
+    assert.equal(s.usage().calls, 2);
+  }
 });

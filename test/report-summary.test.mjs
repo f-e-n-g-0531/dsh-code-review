@@ -191,3 +191,20 @@ test('zero selection and excluded-only runs never claim audited code',()=>{
   assert.equal(reportSummaryData(excluded).complete,false);assert.match(render(excluded),/尚未查完/);
   assert.doesNotMatch(render(excluded),/所选范围已查完/);
 });
+test('project summary separates cross-batch boundary and batch-local findings',()=>{
+ const report={mode:'project',status:'completed',outdated:true,files:[
+  {fileId:'same',batchSnapshotId:'b1',path:'a',status:'completed'},
+  {fileId:'same',batchSnapshotId:'b2',path:'b',status:'completed'},
+ ],findings:[{fileId:'same',batchSnapshotId:'b2',verification:{status:'pending'}}],batches:[
+  {interactions:[{status:'completed'}]},{interactions:[{status:'pending'}]},
+ ]};
+ const data=reportSummaryData(report);
+ assert.deepEqual(data.unfinished,[{path:'b',reasons:['复核未完成']}]);
+ assert.deepEqual(data.crossFile,{total:2,completed:1,pending:1});
+ assert.equal(data.crossBatchUnassessed,true);
+ assert.match(render(report),/未核查跨批次关系/);
+ report.batches[1].interactions[0].status='completed';report.findings=[];
+ assert.equal(reportSummaryData(report).complete,true);
+ assert.equal(reportSummaryData(report).currentComplete,false);
+ assert.match(render(report),/此前快照的所选范围已查完/);
+});

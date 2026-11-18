@@ -3,6 +3,7 @@ import { readFile, writeFile, mkdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { createHash } from 'node:crypto';
+import { reportSummaryData, singleModelCandidate } from '../src/report-summary.mjs';
 
 const FILE_STATES = ['completed','excluded','blocked','failed','cancelled','pending','running','interrupted'];
 const TERMINAL = ['completed','failed','cancelled','interrupted'];
@@ -12,7 +13,19 @@ const text = v => typeof v === 'string' && v.trim().length > 0;
 const list = v => Array.isArray(v) ? v : [];
 const invalidCodes = new Set(['RETRIEVAL_PROTOCOL_ERROR','UNSUPPORTED_RETRIEVAL_OPERATION','RETRIEVAL_INVALID_OPERATION']);
 function requireValue(ok, message) { if (!ok) throw new TypeError(message); }
-function validateExpected(e) {
+const OWNER_FIELDS = ['sessionId','cwd','provider','model'];
+const fingerprint = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+
+export function validateExpected(e) {
+  if (e?.strategy === 'single-pass') {
+    const fields = [...OWNER_FIELDS,'strategy','snapshotId','requestHash','completedPaths','excludedPaths'];
+    requireValue(object(e) && Object.keys(e).every(k => fields.includes(k)), 'Invalid single-pass expected contract');
+    requireValue(OWNER_FIELDS.every(k => text(e[k])) && text(e.snapshotId) && fingerprint(e.requestHash), 'Expected single-pass preview identity required');
+    requireValue(Array.isArray(e.completedPaths) && e.completedPaths.length > 0 && Array.isArray(e.excludedPaths), 'Expected single-pass scope required');
+    const paths = [...e.completedPaths,...e.excludedPaths];
+    requireValue(paths.length <= 200 && paths.every(text) && new Set(paths).size === paths.length, 'Invalid single-pass expected paths');
+    return;
+  }
   const fields = ['sessionId','cwd','provider','model','repositoryUuid','url','baseRevision','targetRevision','eligibleCount','totalCount','expectedBlockedPaths'];
   requireValue(object(e) && Object.keys(e).every(k => fields.includes(k)), 'Invalid expected contract');
   requireValue(fields.slice(0,8).every(k => text(e[k])), 'Expected fixed identity required');
@@ -79,6 +92,7 @@ function capacityGraph(batches, eligible, fail) {
  */
 export function evaluateReviewAcceptance(job, expected) {
   validateExpected(expected);
+  if (expected.strategy === 'single-pass') return evaluateSinglePass(job, expected);
   const issues = [], unknowns = [];
   const fail = (code, details = {}) => issues.push({ code, ...details });
   const owner = job?.owner;
@@ -91,6 +105,7 @@ export function evaluateReviewAcceptance(job, expected) {
   if (!object(r)) fail('REPORT_UNAVAILABLE');
   else {
     for (const [field, actual, fixed] of [['provider',r.model?.provider,expected.provider],['model',r.model?.model,expected.model],['repositoryUuid',r.history?.repositoryUuid,expected.repositoryUuid],['url',r.history?.url,expected.url],['baseRevision',r.history?.base,expected.baseRevision],['targetRevision',r.history?.target,expected.targetRevision]]) if (actual !== fixed) fail('REPORT_IDENTITY_MISMATCH', { field });
+    if (r.execution?.executionStrategy === 'single-pass' || r.orchestration?.strategy === 'single-pass') fail('REPORT_STRATEGY_MISMATCH');
     if (!text(r.snapshotId)) fail('SNAPSHOT_ID_UNAVAILABLE');
     if (!['completed','partial',...TERMINAL.filter(s => s !== 'completed')].includes(r.status)) fail('INVALID_REPORT_STATUS');
     else if (!['completed','partial'].includes(r.status)) fail('REPORT_UNSUCCESSFUL', { status:r.status });
@@ -187,6 +202,75 @@ export function evaluateReviewAcceptance(job, expected) {
     overallReviewPassed:false, notice:'One run only. Keep every attempted failure; engineering completion is not defect-quality approval. No prose-based status or budget inference.' };
 }
 
+const completedDeclaration = value => value?.status === 'completed' && Array.isArray(value.gaps) && value.gaps.length === 0;
+
+function evaluateSinglePass(job, expected) {
+  const issues = [], unknowns = [];
+  const fail = (code, details = {}) => issues.push({ code, ...details });
+  const terminal = TERMINAL.includes(job?.status);
+  for (const key of OWNER_FIELDS) if (job?.owner?.[key] !== expected[key]) fail('OWNER_IDENTITY_MISMATCH', { field:key });
+  if (!text(job?.jobId)) fail('INVALID_JOB');
+  if (!terminal) fail('JOB_NOT_TERMINAL');
+  else if (job.status !== 'completed') fail('JOB_UNSUCCESSFUL', { status:job.status });
+  const r = job?.result?.report, x = r?.execution, o = r?.orchestration, a = r?.executionAssurance;
+  const files = list(r?.files), findings = list(r?.findings);
+  const completed = new Set(expected.completedPaths), excluded = new Set(expected.excludedPaths);
+  const ids = new Set(), paths = new Set(), completeIds = new Set();
+  const coverage = Object.fromEntries(FILE_STATES.map(status => [status,0]));
+  coverage.total = files.length;
+  if (!object(r)) fail('REPORT_UNAVAILABLE');
+  else {
+    for (const [field, actual, fixed] of [['provider',r.model?.provider,expected.provider],['model',r.model?.model,expected.model],['snapshotId',r.snapshotId,expected.snapshotId],['requestHash',x?.requestHash,expected.requestHash],['orchestrationRequestHash',o?.requestHash,expected.requestHash]]) {
+      if (actual !== fixed) fail('REPORT_IDENTITY_MISMATCH', { field });
+    }
+    if (x?.executionStrategy !== 'single-pass' || o?.strategy !== 'single-pass' || o?.sourceMode !== 'single-pass' || o?.singlePass !== true || r.mode === 'project' || r.reviewMode === 'project' || r.projectScope) fail('SINGLE_PASS_MODE_MISMATCH');
+    if (x?.strictSingleCall !== true || x.correctJson !== false || x.maxJsonCorrections !== 0 || x.nativeOutputTools !== false || x.retrieval !== false || x.verification !== 'not-requested' || x.counterVerification !== false || x.childMode !== 'none' || o?.maxRetrievalRounds !== 0 || o?.maxVerificationRetrievalRounds !== 0 || o?.independentVerification !== false) fail('SINGLE_PASS_POLICY_MISMATCH');
+    if (r.status !== 'completed' || r.outdated !== false) fail('SINGLE_PASS_REPORT_NOT_CURRENT_AND_COMPLETE');
+    if (a?.mode !== 'single-pass' || a.independentVerification !== false || a.protocolValid !== true || o?.protocolValid !== true || o.captureComplete !== true || o.primaryComplete !== true || o.modelCompletionComplete !== true || o.inputBudget?.fits !== true || !completedDeclaration(r.completeness)) fail('SINGLE_PASS_COMPLETENESS_UNVERIFIED');
+    if (!Array.isArray(r.files) || !Array.isArray(r.findings)) fail('REPORT_ARRAYS_UNAVAILABLE');
+    if (!Array.isArray(r.interactions) || r.interactions.length || list(o?.childrenStarted).length || list(o?.verifications).length) fail('SINGLE_PASS_UNEXPECTED_STAGES');
+    if (r.totalFiles !== undefined && r.totalFiles !== files.length) fail('FILE_PAGE_INCOMPLETE');
+    if (r.totalFindings !== undefined && r.totalFindings !== findings.length) fail('FINDING_PAGE_INCOMPLETE');
+    for (const f of files) {
+      if (!object(f) || !text(f.fileId) || !text(f.path) || !FILE_STATES.includes(f.status)) { fail('INVALID_FILE'); continue; }
+      if (ids.has(f.fileId) || paths.has(f.path)) fail('DUPLICATE_FILE');
+      ids.add(f.fileId); paths.add(f.path); coverage[f.status]++;
+      if (completed.has(f.path) && f.status === 'completed' && f.primaryStatus === 'completed' && f.verificationStatus === 'not-requested' && completedDeclaration(f.completion)) completeIds.add(f.fileId);
+      else if (!excluded.has(f.path) || f.status !== 'excluded') fail('SINGLE_PASS_FILE_NOT_ACCOUNTED');
+    }
+    if (paths.size !== completed.size + excluded.size || completeIds.size !== completed.size || [...completed,...excluded].some(p => !paths.has(p))) fail('SINGLE_PASS_SCOPE_MISMATCH');
+    if (!object(r.coverage) || r.coverage.total !== files.length || Object.entries(coverage).some(([key,value]) => value > 0 && r.coverage[key] !== value) || Object.entries(r.coverage).some(([key,value]) => coverage[key] !== value)) fail('COVERAGE_MISMATCH');
+    for (const f of findings) if (!object(f) || !completeIds.has(f.fileId) || !singleModelCandidate(f,r) || (f.anchor?.kind === 'line' && (!['old','new'].includes(f.anchor.side) || !count(f.anchor.start) || f.anchor.start < 1 || !count(f.anchor.end) || f.anchor.end < f.anchor.start))) fail('SINGLE_PASS_CANDIDATE_UNVALIDATED');
+    if (!reportSummaryData(r).complete) fail('SINGLE_PASS_SUMMARY_INCOMPLETE');
+    const batches = list(o?.batches), members = list(batches[0]?.fileIds);
+    if (batches.length !== 1 || batches[0]?.id !== 'single-pass' || batches[0].status !== 'completed' || members.length !== completeIds.size || new Set(members).size !== members.length || members.some(id => !completeIds.has(id))) fail('SINGLE_PASS_BATCH_MISMATCH');
+    const shape = o?.executionShape, requests = list(shape?.modelRequests);
+    if (r.modelCalls !== 1 || shape?.totalModelRequests !== 1 || shape?.omittedModelRequests !== 0 || requests.length !== 1 || requests[0]?.phase !== 'single-pass' || requests[0].attempt !== 1 || requests[0].status !== 'completed') fail('SINGLE_PASS_CALL_COUNT_MISMATCH');
+  }
+  const checkpoints = list(job?.checkpoints);
+  const events = checkpoints.filter(c => ['model-start','model-end','host-child-complete'].includes(c?.stage));
+  const applicable = event => event?.snapshotId === expected.snapshotId && event?.phase === 'single-pass' && (event?.callPurpose === undefined || event.callPurpose === 'single-pass') && event?.attempt === 1;
+  const starts = events.filter(e => e.stage === 'model-start'), ends = events.filter(e => e.stage === 'model-end');
+  if (starts.length > 1 || ends.length > 1 || events.some(e => !applicable(e) || e.stage === 'host-child-complete') || (ends.length && ends[0].status !== 'completed') || (starts.length && ends.length && events[0] !== starts[0])) fail('SINGLE_PASS_MODEL_EVENT_MISMATCH');
+  else if (starts.length !== 1 || ends.length !== 1) unknowns.push('SINGLE_PASS_MODEL_EVENTS_UNAVAILABLE');
+  const manifests = checkpoints.filter(c => c?.stage === 'approved-manifest');
+  if (!manifests.length) unknowns.push('SINGLE_PASS_APPROVED_MANIFEST_UNAVAILABLE');
+  else {
+    const members = list(manifests[0].files), byId = new Map(files.map(f => [f?.fileId,f]));
+    if (manifests.length !== 1 || manifests[0].snapshotId !== expected.snapshotId || members.length !== files.length || new Set(members.map(m => m?.fileId)).size !== files.length || members.some(m => !byId.has(m?.fileId) || byId.get(m.fileId)?.path !== m.path || m.status !== (completed.has(m.path) ? 'pending' : 'excluded'))) fail('SINGLE_PASS_APPROVED_MANIFEST_MISMATCH');
+  }
+  const engineeringResult = !terminal ? 'incomplete' : issues.length ? 'failed' : unknowns.length ? 'incomplete' : 'passed';
+  return { schemaVersion:1, kind:'single-run-engineering-acceptance', strategy:'single-pass', jobId:job?.jobId ?? null,
+    engineeringResult, jobStatus:job?.status ?? null, reportStatus:r?.status ?? null, issues, unknowns, coverage,
+    eligible:{ expected:completed.size, loaded:files.filter(f => completed.has(f?.path)).length, completed:completeIds.size, unfinished:completed.size-completeIds.size },
+    fileFailureCodes:Object.fromEntries([...new Set(files.map(f=>f?.failureCode).filter(text))].map(code=>[code,files.filter(f=>f?.failureCode===code).length])),
+    retrievalInvalidReport:'not-applicable',
+    operations:{ reportedModelCalls:count(r?.modelCalls)?r.modelCalls:null, parentModelStartRecords:starts.length, parentModelEndRecords:ends.length,
+      childrenStarted:list(o?.childrenStarted).length, physicalProviderCalls:null },
+    quality:{ adjudication:'unadjudicated', qualityPassed:null, precision:null, recall:null, truePositive:null, falsePositive:null, harmfulFindingRate:null },
+    overallReviewPassed:false, notice:'One host attempt is not a provider billing receipt. Candidate markers record host validation, not independent review or expert adjudication.' };
+}
+
 function forbiddenArtifacts(p) { return p.split(/[\\/]/).some(part => part.toLowerCase() === 'artifacts'); }
 /** Copies one public job without fetching any referenced artifact or starting a model.
  * A new output directory is mandatory: existing evidence is never overwritten.
@@ -209,7 +293,7 @@ export async function collectReviewAcceptance(config) {
   if (object(job.result?.report)) await write('report.json',JSON.stringify(job.result.report,null,2)+'\n');
   if (typeof job.result?.markdown === 'string') await write('brief.md',job.result.markdown);
   if (typeof job.result?.technicalMarkdown === 'string') await write('technical.md',job.result.technicalMarkdown);
-  const final = { ...evaluation, provenance:{ jobSha256:createHash('sha256').update(raw).digest('hex'), sourceJob:source, copyPolicy:'Exact public job bytes; no referenced artifacts accessed', reportAvailable:object(job.result?.report), briefAvailable:typeof job.result?.markdown==='string', technicalAvailable:typeof job.result?.technicalMarkdown==='string' } };
+  const final = { ...evaluation, provenance:{ jobSha256:createHash('sha256').update(raw).digest('hex'), sourceJob:source, reportSha256:object(job.result?.report) ? createHash('sha256').update(JSON.stringify(job.result.report)).digest('hex') : null, copyPolicy:'Exact public job bytes; no referenced artifacts accessed', reportAvailable:object(job.result?.report), briefAvailable:typeof job.result?.markdown==='string', technicalAvailable:typeof job.result?.technicalMarkdown==='string' } };
   await write('engineering-result.json',JSON.stringify(final,null,2)+'\n');
   const summary = ['# Engineering acceptance: '+final.engineeringResult,'',
     'Job: '+final.jobStatus+'; report: '+final.reportStatus+'. Driver completion is not product acceptance.',
