@@ -1,3 +1,4 @@
+import { diffFilter } from './diff-filter.mjs';
 import {captureReplacementTree} from './svn-replacement-tree.mjs';
 import {readReplacementSource} from './svn-replacement-source.mjs';
 import {workingScopeEvidence} from './svn-working-scope.mjs';
@@ -73,13 +74,14 @@ export async function captureSvn(cwd, options = {}) {
   const before = await svn(root, statusArgs, options);
   const originalEntries = xml(before).status.target.flatMap(t => t.entry ?? []);
   if (originalEntries.length > maxFiles) throw new Error('Change count limit exceeded');
+  const filter = diffFilter(options);
   const entries = await structuralEntries(root, originalEntries, options, maxFiles);
   const known = new Set(entries.map(e => e['@_path'].replaceAll('\\', '/')));
   if (selectedPaths?.some(p => !known.has(p)&&!(options.svnReplacementBaseRevision!==undefined&&entries.some(e=>e['wc-status']?.['@_item']==='replaced'&&p.startsWith(e['@_path'].replaceAll('\\','/')+'/'))))) throw new Error('Selected path is not a current change');
   const files = [],replacementTrees=[];
   const replacementRoots=options.svnReplacementBaseRevision===undefined?[]:entries.filter(e=>e['wc-status']?.['@_item']==='replaced').map(e=>e['@_path'].replaceAll('\\','/')).sort().filter((p,i,all)=>!all.slice(0,i).some(parent=>p.startsWith(parent+'/')));
   for(const name of replacementRoots){
-    if(isSecretPath(name))continue;
+    if(isSecretPath(name)||filter.byFolder(name))continue;
     if(options.selectedPaths&&!options.selectedPaths.some(p=>p===name||p.startsWith(name+'/')))continue;
     const tree=await captureReplacementTree(root,rootInfo,name,options);replacementTrees.push(tree);files.push(...tree.files);if(files.length>maxFiles)throw new Error('Combined replacement change count limit exceeded');
   }
@@ -95,6 +97,8 @@ export async function captureSvn(cwd, options = {}) {
       item.eligibility = 'excluded'; item.reason = 'Not explicitly selected'; continue;
     }
     try {
+      const filteredFolder = filter.byFolder(name);
+      if (filteredFolder) { item.eligibility = 'excluded'; item.reason = filteredFolder; continue; }
       if (name !== '.') relativePath(name);
       const copiedDescendant = !!entry.copyRoot && ['normal', 'modified', 'added'].includes(status) && state['@_copied'] === 'true';
       const independentReplacement=status==='replaced'&&options.svnReplacementBaseRevision!==undefined;
@@ -108,6 +112,8 @@ export async function captureSvn(cwd, options = {}) {
         const identity=svnWorkingIdentity(node,rootInfo,name);
         item.workingSource=identity.source;item.workingIdentity=identity.fingerprint;
         kind = node['@_kind'];
+        const filtered = filter.reason(name, kind);
+        if (filtered) { item.kind = kind; item.eligibility = 'excluded'; item.reason = filtered; continue; }
         if (!independentReplacement&&(state['@_copied'] === 'true' || node['wc-info']?.['copy-from-url'])) {
           let source = node['wc-info']?.['copy-from-url'], revision = node['wc-info']?.['copy-from-rev'];
           if (!source && copiedDescendant) {
@@ -125,6 +131,8 @@ export async function captureSvn(cwd, options = {}) {
         }
       }
       item.kind = kind;
+      const filtered = filter.reason(name, kind);
+      if (filtered) { item.eligibility = 'excluded'; item.reason = filtered; continue; }
       if (copiedDescendant) item.targetAddition = true;
       item.rightExists = status !== 'deleted';
       if(independentReplacement&&!['file','dir'].includes(kind))throw new Error('Unsupported replacement target kind');

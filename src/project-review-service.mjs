@@ -6,6 +6,7 @@ import { REVIEW_RUNTIME } from './runtime-identity.mjs';
 import { buildResumeState, validateResumeState } from './review-resume.mjs';
 import { renderProjectReport } from './project-report.mjs';
 import { reviewDiagnostics } from './review-diagnostics.mjs';
+import { reviewSize } from './review-size.mjs';
 import { realpath } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { hash } from './content.mjs';
@@ -145,6 +146,7 @@ export function createProjectReviewService(llm, { resolveCwd, reviewEffort = 'au
           execution: { ...execution },
           reviewEffort: {mode:effortMode,status:"planned-per-batch",counterVerification:enableCounterVerification},
           files,
+          size: reviewSize(projectBinding(s), undefined, { items: files }),
           notice: s.notice + PREVIEW_NOTICE_SUFFIX + ' Per-file size measures the first primary envelope with a fresh batch reader; it is not a guarantee for follow-ups, correction, later reader balances, or provider context. Primary retrieval allows at most ' + maxRetrievalRounds + ' rounds; verification retrieval allows at most ' + maxVerificationRetrievalRounds + ' rounds. Both share the unchanged root reader and model-call budgets; additional model calls are billed. Exhaustion requires a final-only response and explicit unfinished coverage.',
         };
       } finally { busy = false; }
@@ -213,7 +215,7 @@ export function createProjectReviewService(llm, { resolveCwd, reviewEffort = 'au
             : 'partial',
           repositoryRoot: s.root, vcs: s.vcs, model: p.route, modelCalls: calls, maxModelCalls: projectMaxCalls,
           totalTrackedNodes: s.totalTrackedNodes, selectionComplete: s.selectionComplete, inventoryComplete: s.inventoryComplete, inventoryScope: s.inventoryScope, inventoryNodes: s.inventoryNodes,
-          coverage, files, findings, scopeNotices: results.flatMap(result => result.scopeNotices ?? []), artifacts: results.flatMap(result => result.artifacts ?? []), batches: results, resume: { reusedFiles: files.filter(file => file.reused).length },
+          coverage, files, findings, size: reviewSize(projectBinding(s), { files, batches: results }), scopeNotices: results.flatMap(result => result.scopeNotices ?? []), artifacts: results.flatMap(result => result.artifacts ?? []), batches: results, resume: { reusedFiles: files.filter(file => file.reused).length },
           privateArtifacts: { enabled: typeof exec.onModelArtifact === 'function', sourceBearing: true, maxArtifactBytes: 1048576, maxJobBytes: 8388608, maxArtifacts: 4096, notice: 'Bounded private untrusted model outputs; raw access requires explicit consent and is not review evidence.' },
           execution: { ...execution },
           reviewEffort: {mode:p.effortMode,status:"planned-per-batch",counterVerification:enableCounterVerification},

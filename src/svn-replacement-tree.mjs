@@ -1,3 +1,4 @@
+import { diffFilter } from './diff-filter.mjs';
 import {lstat} from 'node:fs/promises';
 import path from 'node:path';
 import {checked} from './process.mjs';
@@ -24,6 +25,15 @@ function assertCopySource(source,suffix=''){
 export async function captureReplacementTree(root,rootInfo,name,options={}){
  relativePath(name);if(isSecretPath(name))throw new Error('Credential replacement root excluded');const revision=options.svnReplacementBaseRevision;
  const run=async args=>checked('svn',['--non-interactive',...args],{...options,cwd:root,maxBytes:1024*1024});
+ const filter=diffFilter(options);
+ if (filter.byFolder(name, 'dir') || filter.bySuffix(name)) {
+  const current = xml(await run(['info','--xml','--',name+'@'])).info?.entry?.[0];
+  const currentKind = svnWorkingIdentity(current,rootInfo,name).source.kind;
+  const old = await readReplacementSource(root,rootInfo,name,revision,options,{kindOnly:true});
+  const kind = old.kind === 'dir' || currentKind === 'dir' ? 'dir' : 'file';
+  const reason = filter.reason(name,kind);
+  if (reason) return {files:[{id:hash(name),path:name,kind,rawStatus:'replaced',eligibility:'excluded',reason,properties:[],replacementTreeRoot:name}],verify:async()=>{}};
+ }
  const inventory=async()=>{const data=xml(await run(['status','--xml','--verbose','--ignore-externals','--depth','infinity','--',name+'@']));const map=new Map();for(const entry of data.status?.target?.flatMap(t=>t.entry??[])??[]){const p=entry['@_path'].replaceAll('\\','/');relativePath(p);if(p!==name&&!p.startsWith(name+'/')||map.has(p))throw new Error('Replacement working inventory escaped scope or duplicated');map.set(p,entry);if(map.size>200)throw new Error('Replacement working descendant count limit exceeded');}if(!map.has(name))throw new Error('Replacement root missing from working inventory');return map;};
  const current=await inventory(),oldRoot=await readReplacementSource(root,rootInfo,name,revision,options);
  const oldNodes=new Map([[name,oldRoot.kind],...oldRoot.descendants.map(x=>[x.path,x.kind])]);const paths=[...new Set([...oldNodes.keys(),...current.keys()])].sort();if(paths.length>200)throw new Error('Replacement combined descendant count limit exceeded');
@@ -57,7 +67,15 @@ export async function captureReplacementTree(root,rootInfo,name,options={}){
  };
  for(const p of paths){const f={id:hash(p),path:p,rawStatus:p===name?'replaced':'replacement-descendant',eligibility:'reviewable',properties:[],replacementTreeRoot:name,contentNotice:'Explicit fixed repository baseline versus current replacement tree. Not recovered local BASE or copy-source history. Every descendant requires independent approval; link records are data only.'};files.push(f);
   if(isSecretPath(p)){f.eligibility='excluded';f.reason='Credential replacement path excluded';continue;}if(options.selectedPaths&&!options.selectedPaths.includes(p)){f.eligibility='excluded';f.reason='Replacement descendant not explicitly selected';continue;}
-  try{const old=oldNodes.has(p)?await readReplacementSource(root,rootInfo,p,revision,options):null,newer=await readCurrent(p);if(!old&&!newer)throw new Error('Replacement inventory node has no captured side');
+  try{
+   const parentFolder = filter.byFolder(p);
+   if (parentFolder) { f.eligibility='excluded'; f.reason=parentFolder; continue; }
+   const currentKind = current.has(p) && (filter.byFolder(p, 'dir') || filter.bySuffix(p))
+     ? xml(await run(['info','--xml','--',p+'@'])).info?.entry?.[0]?.['@_kind'] : undefined;
+   const kind = oldNodes.get(p) === 'dir' || currentKind === 'dir' ? 'dir' : 'file';
+   const filtered = filter.reason(p, kind);
+   if (filtered && (!current.has(p) || ['dir','file'].includes(currentKind) || filter.byFolder(p))) { f.eligibility='excluded'; f.reason=filtered; continue; }
+   const old=oldNodes.has(p)?await readReplacementSource(root,rootInfo,p,revision,options):null,newer=await readCurrent(p);if(!old&&!newer)throw new Error('Replacement inventory node has no captured side');
    f.oldKind=old?.kind??null;f.newKind=newer?.kind??null;f.kind=newer?.kind??old.kind;f.rightExists=!!newer;f.left=old?.content??decode(Buffer.alloc(0));f.right=newer?.content??decode(Buffer.alloc(0));f.baseRevision=old?revision:undefined;
    if(old)f.replacementSource=old.source;if(newer){f.workingSource=newer.source;f.ancestorEvidence=newer.ancestorEvidence;}
    const a=old?.props??{},b=newer?.props??{};for(const key of [...new Set([...Object.keys(a),...Object.keys(b)])].sort())if(a[key]!==b[key])f.properties.push({name:key,old:a[key]??null,new:b[key]??null});

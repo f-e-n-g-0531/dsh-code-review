@@ -64,6 +64,7 @@ jobs:
           set -euo pipefail
           checkdir=$(mktemp -d)
           mkdir "$checkdir/pack" "$checkdir/install"
+          npm run build
           npm pack --ignore-scripts --pack-destination "$checkdir/pack"
           packages=("$checkdir"/pack/*.tgz)
           test "${#packages[@]}" -eq 1 && test -f "${packages[0]}" || exit 1
@@ -103,6 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir release
+          npm run build
           npm pack --ignore-scripts --pack-destination release
           package=$(realpath release/*.tgz)
           checkdir=$(mktemp -d)

@@ -1,3 +1,5 @@
+import Schema from '@deepseek-ai/schemastery';
+import { DEFAULT_EXCLUDED_FOLDERS, DEFAULT_RESOURCE_SUFFIXES, diffFilter } from './src/diff-filter.mjs';
 import { registerBackgroundReview } from './src/background-review.mjs';
 import { createReviewService } from './src/service.mjs';
 import { DEFAULT_PROJECT_CONCURRENCY } from './src/project-execution.mjs';
@@ -5,6 +7,15 @@ import { reviewToolOutput } from './src/tool-view.mjs';
 import { createHostReviewChildren } from './src/host-review-children.mjs';
 import { attachReviewChildMiddleware } from './src/review-child-broker.mjs';
 import { registerSnapshotTool } from './src/review-child-plugin.mjs';
+
+// Volatile fields are edited by the host's profile configuration service.
+export const Config = Schema.object({
+  autoExcludeNonCode: Schema.boolean().default(true).volatile(),
+  diffExcludeFolderNames: Schema.string().max(2048).default(DEFAULT_EXCLUDED_FOLDERS).volatile(),
+  diffExcludeSuffixes: Schema.string().max(4096).default(DEFAULT_RESOURCE_SUFFIXES).volatile(),
+});
+
+const configValue = field => typeof field?.get === 'function' ? field.get() : field;
 
 export const name = 'dsh-code-review';
 export const inject = ['tools', 'llm', 'workingDirectory'];
@@ -22,7 +33,13 @@ export function apply(ctx, config = {}) {
   registerSnapshotTool(ctx);
   attachReviewChildMiddleware(ctx);
   ctx.on('dispose', () => hostChildren.dispose());
-  const service = createReviewService(ctx.llm, { resolveCwd, singlePassMaxInputBytes: config.singlePassMaxInputBytes ?? 4 * 1024 * 1024, resolveModelCapacity: async ({ provider, model }, exec) => {
+  const getDiffFilterOptions = () => ({
+    autoExcludeNonCode: configValue(config.autoExcludeNonCode),
+    diffExcludeFolderNames: configValue(config.diffExcludeFolderNames),
+    diffExcludeSuffixes: configValue(config.diffExcludeSuffixes),
+  });
+  diffFilter(getDiffFilterOptions());
+  const service = createReviewService(ctx.llm, { resolveCwd, getDiffFilterOptions, singlePassMaxInputBytes: config.singlePassMaxInputBytes ?? 4 * 1024 * 1024, resolveModelCapacity: async ({ provider, model }, exec) => {
     const info = await ctx.llm.resolveModelInfo?.(provider, model, exec?.signal);
     exec?.signal?.throwIfAborted();
     // The resolved default is a request policy, not a claim about the model's hard limit.

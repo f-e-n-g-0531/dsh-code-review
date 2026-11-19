@@ -1,3 +1,4 @@
+import { diffFilter } from './diff-filter.mjs';
 import { isSecretPath } from './secret-path.mjs';
 import { realpath } from 'node:fs/promises';
 import { run, checked } from './process.mjs';
@@ -182,10 +183,16 @@ export async function captureGit(cwd, options = {}) {
   const counted = changes.filter(change => change.rawStatus !== '??' || selectedPaths?.includes(change.path));
   if (counted.length > maxFiles) throw new Error('Change count limit exceeded; narrow repository scope');
   const known = new Set(changes.map(c => c.path));
+  const filter = diffFilter(options);
+  const excluded = new Map(changes.map(change => {
+    const { path, oldPath } = scopeEntry(change, scope);
+    return [change, filter.reason(path) ?? (oldPath ? filter.reason(oldPath) : undefined)];
+  }));
+  const included = changes.filter(change => !excluded.get(change));
   if (selectedPaths?.some(p => !known.has(p))) throw new Error('Selected path is not a current change in the selected scope');
   const projectedBefore = scope === 'worktree' ? null : JSON.stringify(changes.map(change => scopeEntry(change, scope)));
-  const baselines = scope !== 'unstaged' && head ? await resolveBaselines(root, head, changes, selectedPaths, options, signal) : new Map();
-  const indexNames = scope === 'worktree' ? [] : [...new Set(changes.filter(change => change.rawStatus !== '??').map(change => change.path))];
+  const baselines = scope !== 'unstaged' && head ? await resolveBaselines(root, head, included, selectedPaths, options, signal) : new Map();
+  const indexNames = scope === 'worktree' ? [] : [...new Set(included.filter(change => change.rawStatus !== '??').map(change => change.path))];
   const indexEntries = scope === 'worktree' ? new Map() : await resolveIndexEntries(root, indexNames, options);
   const indexBefore = indexIdentity(indexEntries, indexNames);
 
@@ -198,6 +205,7 @@ export async function captureGit(cwd, options = {}) {
     if ((selectedPaths && !selectedPaths.includes(change.path)) || (change.rawStatus === '??' && !selectedPaths?.includes(change.path))) {
       item.eligibility = 'excluded'; item.reason = 'Not explicitly selected'; continue;
     }
+    if (excluded.get(change)) { item.eligibility = 'excluded'; item.reason = excluded.get(change); continue; }
     try {
       relativePath(change.path);
       if (change.oldPath) relativePath(change.oldPath);

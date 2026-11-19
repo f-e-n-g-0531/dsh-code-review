@@ -56,6 +56,12 @@ export function renderUserReport(report = {}, { maxFindings = 5 } = {}) {
   if (files.length > 20) output.push('- 另有 ' + (files.length - 20) + ' 个文件未展开。');
   if (!coverage.detailsComplete) output.push('- 文件明细未齐，以上仅为已加载内容。');
   output.push('', '## 2. 报告', '');
+  const size = report.size;
+  if (size) {
+    output.push('- 纳入审核正文：修改前 ' + size.oldSourceBytes + ' B，修改后 ' + size.newSourceBytes + ' B，合计 ' + size.sourceBytes + ' B；上下文 ' + size.contextBytes + ' B。');
+    if (size.initialInputBytes !== null) output.push('- 已计量的初始请求预算：' + size.initialInputBytes + ' B（' + size.initialInputUnits + ' 项，不含后续请求）。');
+    if (size.modelMeasuredCalls) output.push('- 已观测的模型输入载荷／输出内容：' + size.modelPayloadInputBytes + '/' + size.modelObservedOutputBytes + ' B，不等于网络传输量或 token 数。');
+  }
   const states = { cancelled: '审核已取消', failed: '审核失败', interrupted: '审核已中断' };
   if (data.outdated) output.push('报告已过期，仅对应原快照；请先对当前源码重新预览审核。');
   if (data.emptySelection) output.push('未选择审核条目。');
@@ -65,6 +71,8 @@ export function renderUserReport(report = {}, { maxFindings = 5 } = {}) {
   else output.push('代码检查已完成，发现以下需要关注的问题。');
   const failures = executionFailures(report);
   for (const [code, total] of failures.slice(0, 3)) output.push('- ' + (coverage.detailsComplete ? '未完成原因' : '已加载明细中的原因') + '：' + executionCauses[code] + '，' + total + ' 项。');
+  const filtered = files.filter(file => file?.status === 'excluded' && /^(Filtered folder: |Filtered resource suffix: )/.test(file.reason ?? ''));
+  if (filtered.length) output.push('- 未审查：' + filtered.length + ' 项命中差异过滤规则；具体范围见预览和技术报告。');
   if (coverage.failed && !failures.length) output.push('- 部分文件检查失败，具体原因未记录。');
   if (data.unfinished.length) output.push('- 尚未查完：' + data.unfinished.slice(0, 5).map(item => safe(item.path, 100)).join('；') + (data.unfinished.length > 5 ? '；另 ' + (data.unfinished.length - 5) + ' 项未展开' : '') + '。');
   if (!coverage.detailsComplete || coverage.unaccounted) output.push('- 文件明细未齐或仍有状态未记账，不能判断全范围完成。');

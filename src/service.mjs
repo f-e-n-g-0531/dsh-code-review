@@ -1,3 +1,5 @@
+import { diffFilter } from './diff-filter.mjs';
+import { reviewSize } from './review-size.mjs';
 import { reviewOwner, sameReviewOwner, ownerGuard, guardReviewLlm } from './review-owner.mjs';
 import { consumeApprovedPreview, authorizeApprovedSnapshot, checkPreviewAvailability } from './approved-execution.mjs';
 import { renderUserReport } from './user-report.mjs';
@@ -37,6 +39,7 @@ import { riskPlanningMode as validateRiskPlanningMode } from './risk-strategy.mj
 function describeFile(file, snapshot) {
   return {
     path: file.path,
+    ...(file.oldPath ? { oldPath: file.oldPath } : {}),
     ...(file.workingSource ? { workingSource: file.workingSource } : {}),
     ...(file.replacementSource ? { replacementSource: file.replacementSource, contentNotice: file.contentNotice } : {}),
     eligibility: file.eligibility,
@@ -60,7 +63,7 @@ function buildPreviewNotice(snapshot, options, enableRiskPlanning, changesConcur
   return scopeNotice + (snapshot.history?.vcs==='svn'&&options.autoContext===true?'SVN历史autoContext为精确依赖定位读取固定版本父目录有界清单，包含同目录非匹配名字元数据；仅匹配捕获正文发送模型，不扫描全仓，不用工作树替代历史版本。':'') + (options.oldContextPaths !== undefined ? 'oldContextPaths仅为baseline旧侧正文，无目标侧替代；选中变更复用原old身份，旧侧不能证明新侧行为。' : '') + (snapshot.callerDiscovery ? 'callerScopePaths已授权预览读取限定目录内tracked候选正文，包括不匹配文件；非匹配正文不发送模型，匹配捕获上下文会发送。仅字面引用导航，不是函数调用或完整调用覆盖。' : '') + (enableRiskPlanning ? '执行按plan阈值决定风险假设规划，小变更可跳过独立规划但仍主审并复核；计划不是证据，所有阶段共享原预算。' : '') + `执行会向上述模型提供方发送可审查文件两侧内容、预览列出的显式/自动上下文、所选项目规则全文及预览业务需求文本。模型可在该快照范围内多轮只读检索，不读取范围外文件；候选生成后会进行证据与反证复核，主审最多${maxRetrievalRounds}轮、候选复核最多${maxVerificationRetrievalRounds}轮检索；独立文件审查链最多${changesConcurrency}条并发，不设插件内部默认时间或总模型调用次数截止，遵循宿主/用户取消；输入字节和检索轮次保护仍保留；复核不能证明缺陷成立。plan.reviewRounds为独立审查工作量，非模型reasoning effort；后续轮不带首轮风险计划，所有轮共享原超时与预算。plan仅预检初始输入，ready不代表已审查；minimumCalls不含后续检索/复核/动态业务综合；多文件可先进行业务分组，分组失败保留原组并记录限制，动态综合数执行前未知，实际预算可能不足。请先内部核对预览与当前人类授权。用户已明确要求审核且范围、模型和发送目的地一致时直接执行，不重复询问确认；只要求预览或明确要求等待确认时不得执行，超出授权或边界不明确时才询问。宿主权限和快照／身份校验仍须通过。`;
 }
 
-function createSessionReviewService(llm, { resolveCwd, capture = captureSnapshot, reviewEffort = 'auto', enableCounterVerification = false, hostChildren, wholeScopeConcurrency = 2, executionStrategy = 'staged', singlePassMaxInputBytes = 4 * 1024 * 1024, resolveModelCapacity, countSinglePassInputTokens, maxInputBytes = 96 * 1024, now = Date.now, ttlMs = 300000, maxPreviews = 8, allowModelSending = false, enableRiskPlanning = false, skipSmallRiskPlans = true, reviewRounds = 1, enableBusinessGrouping = false, enableAnchorCorrection = false, enableMemberIsolation = false, relationAwareGrouping = false, primaryInputMode = 'full', enableInvestigationState = false, enableAsyncVerification = false, verificationConcurrency = 2, changesConcurrency = 2, maxRetrievalRounds = 3, maxVerificationRetrievalRounds, riskPlanningMode = 'separate', readerBudgetPolicy = 'fixed', optimizeReviewCalls = false, enablePrimarySeeds = false, focusPrimaryContext = false, enableSearchSeeds = false, nativeOutputTools = false, enableGroupPrimary = false, enableEvidenceContext = false, inlineInteractionRisks = false, enableMigrationContracts = false, enableMigrationRegression = false, enableModelComparison = false, enableGroupInteractions = false, enableStageContinuation = false, authorize = async () => false } = {}) {
+function createSessionReviewService(llm, { resolveCwd, capture = captureSnapshot, getDiffFilterOptions = () => ({}), reviewEffort = 'auto', enableCounterVerification = false, hostChildren, wholeScopeConcurrency = 2, executionStrategy = 'staged', singlePassMaxInputBytes = 4 * 1024 * 1024, resolveModelCapacity, countSinglePassInputTokens, maxInputBytes = 96 * 1024, now = Date.now, ttlMs = 300000, maxPreviews = 8, allowModelSending = false, enableRiskPlanning = false, skipSmallRiskPlans = true, reviewRounds = 1, enableBusinessGrouping = false, enableAnchorCorrection = false, enableMemberIsolation = false, relationAwareGrouping = false, primaryInputMode = 'full', enableInvestigationState = false, enableAsyncVerification = false, verificationConcurrency = 2, changesConcurrency = 2, maxRetrievalRounds = 3, maxVerificationRetrievalRounds, riskPlanningMode = 'separate', readerBudgetPolicy = 'fixed', optimizeReviewCalls = false, enablePrimarySeeds = false, focusPrimaryContext = false, enableSearchSeeds = false, nativeOutputTools = false, enableGroupPrimary = false, enableEvidenceContext = false, inlineInteractionRisks = false, enableMigrationContracts = false, enableMigrationRegression = false, enableModelComparison = false, enableGroupInteractions = false, enableStageContinuation = false, authorize = async () => false } = {}) {
   for (const value of [ttlMs, maxPreviews]) if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid preview limit');
   if (!Number.isSafeInteger(maxInputBytes) || maxInputBytes < 1 || maxInputBytes > 4 * 1024 * 1024) throw new Error('Invalid configured input capacity');
   if (!Number.isSafeInteger(singlePassMaxInputBytes) || singlePassMaxInputBytes < 1 || singlePassMaxInputBytes > 4 * 1024 * 1024) throw new Error('Invalid single-pass input capacity');
@@ -129,7 +132,9 @@ function createSessionReviewService(llm, { resolveCwd, capture = captureSnapshot
       const current = await reviewOwner(exec, resolveCwd);
       busy = true;
       try {
-        const options = structuredClone(args);
+        const filterOptions = getDiffFilterOptions();
+        diffFilter(filterOptions);
+        const options = { ...structuredClone(args), ...filterOptions };
         const rereviewJobId = options.rereviewFromJobId, findingOutcomes = options.findingOutcomes, explicitDiffOnly = options.rereviewScope === 'diff-only';
         delete options.rereviewFromJobId; delete options.findingOutcomes; delete options.reviewEffort; delete options.rereviewScope; delete options.executionStrategy;
         let previousHistory;
@@ -201,6 +206,7 @@ function createSessionReviewService(llm, { resolveCwd, capture = captureSnapshot
   model: current.route,
   modelSendingEnabled: allowModelSending,
   files: snapshot.files.map(f => describeFile(f, snapshot)),
+  size: reviewSize(candidateSnapshot, undefined, plan),
   contextPaths: snapshot.context.map(c => c.path),
   ...(snapshot.context.some(c => c.keywordMapping)
     ? { contextKeywordMappings: snapshot.context.filter(c => c.keywordMapping).map(c => ({ path: c.path, keywordMapping: c.keywordMapping })) }

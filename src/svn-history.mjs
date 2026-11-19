@@ -1,3 +1,4 @@
+import { diffFilter } from './diff-filter.mjs';
 import {captureSignal} from './capture-signal.mjs';
 import { measureSnapshotCommand } from './snapshot-capture-metrics.mjs';
 import {sameSvnUrl,canonicalSvnUrl} from './svn-url.mjs';
@@ -127,13 +128,16 @@ export async function captureSvnHistory(cwd,options={}) {
     const special=svnSpecialData(content,props,node['@_kind']);
     return {content,props,...(special?{special}:{}),kind:node['@_kind'],source:{repositoryUuid:local.repository.uuid,url:at(name,rev,side).slice(0,-rev.length-1),pegRevision:rev,operativeRevision:rev,kind:node['@_kind'],hash:content.hash,textHash:hash(content.text),...(node['@_kind']==='file'&&Object.hasOwn(props,'svn:eol-style')?{eolMapping:svnEolMapping(content.text,props['svn:eol-style'])}:{})}};
   };
+  const filter=diffFilter(options);
   const files=[];
   let filesBytes=2; // JSON array brackets.
   for(const [name,record]of [...records].sort(([a],[b])=>a<b?-1:a>b?1:0)){
     signal.throwIfAborted();
     const status=record['@_item'],item={id:hash(name),path:name,kind:record['@_kind'],oldKind:status==='added'?null:record.oldKind??record['@_kind'],newKind:status==='deleted'?null:record.newKind??record['@_kind'],rawStatus:status,eligibility:'reviewable',properties:[],rightExists:status!=='deleted'};
+    const filtered=filter.reason(name, item.oldKind === 'dir' || item.newKind === 'dir' ? 'dir' : 'file');
     if(isSecretPath(name)){item.eligibility='excluded';item.reason='Credential path excluded';}
     else if(selectedPaths&&!selectedPaths.includes(name)){item.eligibility='excluded';item.reason='Not explicitly selected';}
+    else if (filtered) { item.eligibility='excluded'; item.reason=filtered; }
     else try{
       const readSide=async(rev,exists,kind,side)=>{
         if(!exists)return {content:decode(Buffer.alloc(0)),props:{}};

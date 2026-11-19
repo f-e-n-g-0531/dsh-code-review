@@ -16,6 +16,7 @@ import { validateWindowFindings } from './window-findings.mjs';
 import { groupDuplicateFindings } from './finding-groups.mjs';
 import { validateSynthesisReads } from './synthesis-evidence.mjs';
 import { hash } from './content.mjs';
+import { reviewSize } from './review-size.mjs';
 import { coverageFollowup } from './coverage-followup.mjs';
 import { verificationLoop } from './verification-loop.mjs';
 import { runCounterVerification } from './counter-verification.mjs';
@@ -110,8 +111,14 @@ async function invoke(model, request, timeoutMs, parentSignal) {
 }
 
 export async function reviewSnapshot(snapshot, model, options = {}) {
-  if (options.executionStrategy === 'single-pass') return reviewSinglePass(snapshot, model, { ...options, validateFindingResponse: validateResponse });
-  if (options.executionStrategy === 'whole-scope') return reviewWholeScope(snapshot, model, { ...options, instructions: options.instructions ?? REVIEW_INSTRUCTIONS, validateFindingResponse: validateResponse });
+  if (['single-pass', 'whole-scope'].includes(options.executionStrategy)) {
+    const captureSize = reviewSize(snapshot);
+    const run = options.executionStrategy === 'single-pass' ? reviewSinglePass : reviewWholeScope;
+    const report = await run(snapshot, model, { ...options, instructions: options.instructions ?? (run === reviewWholeScope ? REVIEW_INSTRUCTIONS : undefined), validateFindingResponse: validateResponse });
+    const metrics = reviewSize(undefined, report);
+    report.size = { ...metrics, oldSourceBytes: captureSize.oldSourceBytes, newSourceBytes: captureSize.newSourceBytes, sourceBytes: captureSize.sourceBytes, contextBytes: captureSize.contextBytes, sourceFileCount: captureSize.sourceFileCount, excludedFileCount: captureSize.excludedFileCount };
+    return report;
+  }
   if (options.executionStrategy !== undefined && options.executionStrategy !== 'staged') throw new Error('Invalid review execution strategy');
   const startedAt = performance.now();
   const rounds = reviewRounds(options.reviewRounds);
@@ -852,6 +859,7 @@ export async function reviewSnapshot(snapshot, model, options = {}) {
   const unfinished = report.files.some(f => !['completed', 'excluded'].includes(f.status));
   report.status = signal?.aborted ? 'cancelled' : unfinished || report.limitations.length || report.stageContinuation?.pending || report.files.some(file => file.synthesisStatus && file.synthesisStatus !== 'completed') ? 'partial' : 'completed';
   if (report.files.some(f => f.status === 'failed') && !report.files.some(f => f.status === 'completed')) report.status = signal?.aborted ? 'cancelled' : 'failed';
+  report.size = reviewSize(input, report);
   report.coverage = Object.fromEntries(['completed', 'excluded', 'blocked', 'failed', 'cancelled', 'pending'].map(s => [s, report.files.filter(f => f.status === s).length]));
   if (scope) {
     report.retrievalUsage = scope.usage();
